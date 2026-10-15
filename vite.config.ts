@@ -4,5 +4,6 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   clearScreen: false,
   server: { port: 1420, strictPort: true },
-  build: { target: 'es2021', outDir: 'dist' },
+  // Ersatzschriften (~22 kB) einbetten, damit Text-in-Pfad auch ohne Netz und als Einzeldatei funktioniert
+  build: { target: 'es2021', outDir: 'dist', assetsInlineLimit: 32768 },
 });
