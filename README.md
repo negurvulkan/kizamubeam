@@ -1,7 +1,7 @@
 # Laserwerk (Arbeitstitel)
 
 Freie Laser-Software mit der Bedienung von LightBurn als Vorbild. Erster Prototyp: Oberfläche und Objekterstellung.
-Stack: Tauri 2, TypeScript (Oberfläche und Editor), Rust (Desktop-Hülle, später Maschinenanbindung). Lizenzvorschlag: GPL-3.0-or-later.
+Stack: Tauri 2, TypeScript (Oberfläche, Editor, G-Code), Rust (Desktop-Hülle, Maschinenanbindung). Lizenzvorschlag: GPL-3.0-or-later.
 
 ## Starten
 
@@ -35,11 +35,20 @@ npm run tauri build    # Installationspaket
 - Bildbearbeitung wie in LightBurn: Bilder sind ein eigener Eintrag „Bild“ in der Layer-Tabelle mit Bildmodus (Schwellwert, Geordnet, Atkinson, Floyd-Steinberg, Stucki, Jarvis, Halbton, Graustufen), Zeilenabstand/DPI, Negativ, Bidirektional, Überfahrweg, Speed und Leistung. „Bild anpassen“ (Helligkeit, Kontrast, Gamma, Schärfen mit Radius und Entrauschen) mit Vorschau, Original-Vergleich und 1:1-Ausschnitt. Die Arbeitsfläche zeigt das gerasterte Ergebnis in Laserauflösung.
 - Bild nachzeichnen (Alt+T): Schwellwert, kleine Flecken ignorieren, Glättung, Live-Vorschau. Ergebnis sind Bézierpfade mit erhaltenen Ecken.
 - Bearbeitetes Bild speichern (das geditherte Bild als PNG, so wie es gelasert würde).
+- Maschinenausgabe für FluidNC/GRBL (Laser-Panel rechts unten mit den Reitern Laser, Verschieben, Konsole):
+  - Verbinden über USB-Seriell oder WLAN (Telnet, Port 23). Status, Position und Laserkopf auf der Arbeitsfläche, Alarme im Klartext.
+  - Start, Pause/Weiter, Stopp (Halt und Reset, Position bleibt erhalten), Rahmen als Rechteck oder Kontur (wahlweise mit schwachem Laser), Home, Zum Nullpunkt.
+  - Starten ab: Absolute Koordinaten, Benutzer-Ursprung oder Aktuelle Position, jeweils mit 9-Punkt-Job-Ursprung. „Nur Auswahl“ lasert nur die ausgewählten Objekte.
+  - G-Code im Lasermodus (M4): Linie mit optimierter Reihenfolge (innere Formen zuerst, kurze Leerwege, bester Startknoten), Füllen mit Zeilenabstand, Überfahrweg und bidirektional, Bilder in allen Bildmodi (Graustufen mit Leistung zwischen Min. und Max.), Durchgänge, Layer-Reihenfolge. Texte werden mit ihren Schriftkonturen gelasert.
+  - Übertragung mit Zeichenzählung (Empfangspuffer 127 Bytes) im Rust-Kern, Fortschritt mit vergangener und geschätzter Restzeit.
+  - Vorschau (Alt+P) mit Zeitschätzung wie im Bahnplaner von FluidNC (Beschleunigung, Ecken), Abspielen und Zeitschieber, Leerwege, Schattierung nach Leistung, Zoomen und Verschieben.
+  - G-Code speichern, Verschieben-Reiter (Jog in Schritten, Ursprung setzen/löschen, Laser zur Auswahl, Entsperren), Konsole mit Verlauf.
+  - Geräteeinstellungen: Arbeitsbereich, S-Wert für 100 %, Baudrate, WLAN-Adresse, Eilgang und Beschleunigung, Rahmen. „Von der Maschine lesen“ holt Arbeitsbereich, Eilgang und Beschleunigung aus der FluidNC-Konfiguration.
 - Projekt speichern und öffnen (`.lwk`, JSON, Bilder eingebettet), SVG-Export (mit Bildern), automatisches Zwischenspeichern (Bilddaten in IndexedDB).
 
 ## Noch nicht enthalten
 
-Maschinenanbindung (FluidNC), G-Code (auch für Bilder), Vorschau, Text auf Pfad, Schweißen von Buchstaben. Bei Bildern fehlen noch Zuschneiden/Maske, TIFF, die Verfahren Newsprint und Sketch sowie Bild-Presets.
+Verbindung per WebSocket, Lasern ab einem Punkt der Vorschau („Start Here“), Kamera, Tabs/Brücken, Kerf-Ausgleich, eigene Start-/End-Skripte, Text auf Pfad, Schweißen von Buchstaben. Bei Bildern fehlen noch Zuschneiden/Maske, TIFF, die Verfahren Newsprint und Sketch sowie Bild-Presets.
 
 ## Aufbau
 
@@ -55,7 +64,13 @@ Maschinenanbindung (FluidNC), G-Code (auch für Bilder), Vorschau, Text auf Pfad
 | `src/trace.ts` | Bild nachzeichnen: Marching Squares, Vereinfachung, Kurveneinpassung |
 | `src/importers.ts` | SVG- und DXF-Import |
 | `src/fit.ts` | Kurvenrückführung: Linienzüge in Bézierpfade (Ecken erkennen, Schneider-Verfahren) |
+| `src/gcode.ts` | Maschinenausgabe: Job aus dem Dokument (Linie, Füllen, Bilder, Reihenfolge), G-Code, Laufzeitschätzung, Rahmen, Geräteeinstellungen |
+| `src/machine.ts` | Verbindung zur Maschine aus Sicht der Oberfläche: Zustand, Statusauswertung, Klartext für Alarme, Befehle an Rust |
+| `src/laser.ts` | Laser-Panel (Laser, Verschieben, Konsole), Geräteeinstellungen, Vorschau |
+| `src/dom.ts` | DOM-Helfer und Zahlenfelder mit Formeln |
 | `src/files.ts` | Öffnen/Speichern/Importieren (Tauri-Dialoge oder Browser), Ziehen und Einfügen, SVG-Export, bearbeitetes Bild speichern |
 | `src-tauri/` | Rust-Hülle: native Dateidialoge, Dateien lesen/schreiben, Liste und Dateien der Systemschriften (fontdb) |
+| `src-tauri/src/stream.rs` | G-Code-Übertragung mit Zeichenzählung, Statusabfrage, Halt/Reset (mit Tests: `cargo test`) |
+| `src-tauri/src/machine.rs` | Seriell (serialport) und Telnet (TCP), Ereignisse an das Fenster |
 
 Intern rechnet der Editor in mm mit y nach unten; angezeigt wird in Maschinenkoordinaten (Ursprung unten links).

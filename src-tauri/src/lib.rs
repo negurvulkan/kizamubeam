@@ -1,3 +1,6 @@
+mod machine;
+mod stream;
+
 use std::sync::OnceLock;
 use tauri_plugin_dialog::DialogExt;
 
@@ -163,6 +166,7 @@ fn decode_base64(s: &str) -> Option<Vec<u8>> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .manage(machine::Machine::default())
         .invoke_handler(tauri::generate_handler![
             save_text_file,
             open_text_file,
@@ -170,7 +174,14 @@ pub fn run() {
             read_file,
             save_binary_file,
             list_fonts,
-            font_data
+            font_data,
+            machine::machine_ports,
+            machine::machine_connect,
+            machine::machine_disconnect,
+            machine::machine_send,
+            machine::machine_realtime,
+            machine::machine_job,
+            machine::machine_stop
         ])
         .run(tauri::generate_context!())
         .expect("Fehler beim Start der Anwendung");
