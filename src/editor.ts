@@ -3,6 +3,8 @@ import {
   about, apply, bumpIds, clone, cloneObj, defaultLayer, Doc, IDENT, inv, Layer, leaves, Mat, mul, newDoc, newId,
   Node, Obj, PALETTE, Pt, rotate, scale, setLayerDeep, Shape, SubPath, TextShape, translate,
 } from './model';
+import { BoolOp, booleanOp, OffsetOptions, offsetOp } from './ops';
+import { loadFont, textToSubs } from './fonts';
 import {
   bezierPt, Box, boundsOf, drawText, hitLeaf, invalidate, invalidateText, leafIntersectsBox, segments, shapeSubs, subsToPath2D,
   worldPath,
@@ -17,7 +19,8 @@ type Drag =
   | { type: 'pan'; sx: number; sy: number; ox: number; oy: number }
   | { type: 'move'; start: Pt; orig: Mat[]; moved: boolean; toggleRotate: boolean; sx: number; sy: number }
   | { type: 'scale'; handle: number; box: Box; orig: Mat[] }
-  | { type: 'rotate'; center: Pt; a0: number; orig: Mat[] }
+  | { type: 'rotate'; center: Pt; a0: number; orig: Mat[]; angle: number }
+  | { type: 'pivot' }
   | { type: 'marquee'; start: Pt; end: Pt; base: Obj[]; mode: 'set' | 'add' | 'toggle' | 'remove' }
   | { type: 'create'; start: Pt; obj: Obj | null }
   | { type: 'linenode'; node: Node }
@@ -42,6 +45,8 @@ export class Editor {
   sel: Obj[] = [];
   tool: Tool = 'select';
   rotateMode = false;
+  /** Frei gesetzter Drehpunkt im Drehmodus */
+  pivot: Pt | null = null;
   view = { zoom: 2, ox: 60, oy: 40 };
   filled = true;
   snapGrid = false;
@@ -268,6 +273,10 @@ export class Editor {
     return boundsOf(this.sel);
   }
   setSel(objs: Obj[]) {
+    if (objs.length !== this.sel.length || objs.some((o, i) => o !== this.sel[i])) {
+      this.pivot = null;
+      this.rotateMode = false;
+    }
     this.sel = objs;
     if (!objs.length) this.rotateMode = false;
     this.emit('sel');
@@ -310,6 +319,36 @@ export class Editor {
     }
     return -1;
   }
+  /** Bereich knapp außerhalb der Eckgriffe: dort dreht Ziehen die Auswahl auch im Skaliermodus. */
+  private hitRotateZone(sx: number, sy: number): boolean {
+    const b = this.selBounds();
+    if (!b) return false;
+    const hs = this.handlePoints(b);
+    const inside = sx > hs[0].x && sx < hs[4].x && sy > hs[0].y && sy < hs[4].y;
+    if (inside) return false;
+    return [0, 2, 4, 6].some((i) => {
+      const d = Math.hypot(hs[i].x - sx, hs[i].y - sy);
+      return d > 6 && d < 24;
+    });
+  }
+  /** Drehpunkt: frei gesetzter Punkt oder Mitte der Auswahl */
+  rotationCenter(): Pt | null {
+    const b = this.selBounds();
+    if (!b) return null;
+    return this.pivot ?? { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+  }
+  private hitPivot(sx: number, sy: number): boolean {
+    if (!this.rotateMode) return false;
+    const c = this.rotationCenter();
+    if (!c) return false;
+    const q = this.toScreen(c);
+    return Math.hypot(q.x - sx, q.y - sy) < 8;
+  }
+  private startRotate(wp: Pt) {
+    this.snapshot();
+    const c = this.rotationCenter()!;
+    this.drag = { type: 'rotate', center: c, a0: Math.atan2(wp.y - c.y, wp.x - c.x), orig: this.sel.map((o) => o.m), angle: 0 };
+  }
 
   // ---------- Werkzeuge ----------
 
@@ -350,17 +389,18 @@ export class Editor {
     const ctrl = e.ctrlKey || e.metaKey;
     switch (this.tool) {
       case 'select': {
-        const h = this.hitHandle(sx, sy);
-        if (h >= 0) {
-          this.snapshot();
-          const b = this.selBounds()!;
-          const orig = this.sel.map((o) => o.m);
-          if (this.rotateMode) {
-            const c = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
-            this.drag = { type: 'rotate', center: c, a0: Math.atan2(wp.y - c.y, wp.x - c.x), orig };
-          } else this.drag = { type: 'scale', handle: h, box: b, orig };
+        if (this.hitPivot(sx, sy)) {
+          this.drag = { type: 'pivot' };
           return;
         }
+        const h = this.hitHandle(sx, sy);
+        if (h >= 0) {
+          if (this.rotateMode) return this.startRotate(wp);
+          this.snapshot();
+          this.drag = { type: 'scale', handle: h, box: this.selBounds()!, orig: this.sel.map((o) => o.m) };
+          return;
+        }
+        if (this.hitRotateZone(sx, sy)) return this.startRotate(wp);
         const o = this.hitTest(wp);
         if (o) {
           const was = this.sel.includes(o);
@@ -460,8 +500,17 @@ export class Editor {
     if (!d) {
       if (this.tool === 'select') {
         const h = this.hitHandle(sx, sy);
-        this.canvas.style.cursor =
-          h < 0 ? (this.space ? 'grab' : 'default') : this.rotateMode ? 'alias' : ['nwse-resize', 'ns-resize', 'nesw-resize', 'ew-resize'][h % 4];
+        this.canvas.style.cursor = this.hitPivot(sx, sy)
+          ? 'move'
+          : h >= 0
+            ? this.rotateMode
+              ? ROTATE_CURSOR
+              : ['nwse-resize', 'ns-resize', 'nesw-resize', 'ew-resize'][h % 4]
+            : this.hitRotateZone(sx, sy)
+              ? ROTATE_CURSOR
+              : this.space
+                ? 'grab'
+                : 'default';
       } else if (this.tool === 'node') this.updateNodeHover(sx, sy);
       return;
     }
@@ -517,12 +566,16 @@ export class Editor {
         else if (e.ctrlKey || e.metaKey) a = Math.round(a / (Math.PI / 36)) * (Math.PI / 36);
         const D = about(rotate(a), d.center.x, d.center.y);
         this.sel.forEach((o, i) => (o.m = mul(D, d.orig[i])));
-        this.hint = `Drehung ${((-a * 180) / Math.PI).toFixed(1)}°`;
+        d.angle = (-a * 180) / Math.PI;
+        this.hint = `Drehung ${d.angle.toFixed(1)}° · Shift: 15°-Schritte, Ctrl: 5°-Schritte, Esc: abbrechen`;
         this.emit('doc');
         return;
       }
       case 'marquee':
         d.end = wp;
+        return;
+      case 'pivot':
+        this.pivot = this.snap(wp);
         return;
       case 'create': {
         const p = this.snap(wp);
@@ -670,6 +723,7 @@ export class Editor {
         }
         return;
       case 'linenode':
+      case 'pivot':
         return;
       case 'node':
         if (!d.moved) this.dropSnapshot();
@@ -738,6 +792,28 @@ export class Editor {
     this.setSel([o]);
   }
 
+  /** Laufendes Ziehen abbrechen und den Ausgangszustand wiederherstellen */
+  private cancelDrag() {
+    const d = this.drag;
+    if (!d) return;
+    this.drag = null;
+    if (d.type === 'move' || d.type === 'scale' || d.type === 'rotate') {
+      this.sel.forEach((o, i) => (o.m = d.orig[i]));
+      if (d.type !== 'move' || d.moved) this.dropSnapshot();
+    } else if (d.type === 'create' && d.obj) {
+      this.doc.objs = this.doc.objs.filter((o) => o !== d.obj);
+      this.dropSnapshot();
+      this.setSel([]);
+    } else if (d.type === 'node') {
+      Object.assign((d.obj.shape as { subs: SubPath[] }).subs[d.sub].nodes[d.idx], d.orig);
+      this.touch(d.obj.shape);
+      this.dropSnapshot();
+    }
+    this.hint = '';
+    this.emit('doc');
+    this.emit('sel');
+  }
+
   // ---------- Knotenbearbeitung ----------
 
   private nodeTarget(): Obj | null {
@@ -796,13 +872,100 @@ export class Editor {
     o.shape = { kind: 'path', subs: clone(shapeSubs(o.shape)) };
   }
 
-  convertSelToPath() {
-    const objs = this.sel.filter((o) => ['rect', 'ellipse', 'polygon'].includes(o.shape.kind));
+  /** Formen und Texte der Auswahl in Pfade umwandeln (Texte über die Schriftkonturen). */
+  async convertSelToPath() {
+    const objs = this.sel.filter((o) => ['rect', 'ellipse', 'polygon', 'text', 'group'].includes(o.shape.kind));
     if (!objs.length) return;
+    const fallbacks = new Set<string>();
+    const outlines = new Map<Obj, SubPath[]>();
+    for (const [leaf] of leaves(objs)) {
+      if (leaf.shape.kind !== 'text') continue;
+      const t = leaf.shape;
+      const f = await loadFont(t.font, t.bold, t.italic);
+      if (f.fallback) fallbacks.add(t.font);
+      outlines.set(leaf, textToSubs(t, f.font));
+    }
     this.snapshot();
-    objs.forEach((o) => this.convertObjToPath(o));
+    for (const [leaf] of leaves(objs)) {
+      const subs = outlines.get(leaf);
+      if (subs) {
+        leaf.shape = { kind: 'path', subs };
+        this.touch(leaf.shape);
+      } else this.convertObjToPath(leaf);
+    }
+    this.hint = fallbacks.size
+      ? `Schrift ${[...fallbacks].join(', ')} nicht gefunden, Roboto verwendet.`
+      : 'In Pfad umgewandelt.';
+    this.emit('doc');
+    this.emit('sel');
+  }
+
+  /** Kopien der Objekte, in denen Texte schon als Konturen vorliegen (für Boolesche Operationen und Offset). */
+  private async withTextOutlines(objs: Obj[]): Promise<Obj[]> {
+    const out: Obj[] = [];
+    for (const o of objs) {
+      const c = clone(o);
+      for (const [leaf] of leaves([c])) {
+        if (leaf.shape.kind !== 'text') continue;
+        const t = leaf.shape;
+        const f = await loadFont(t.font, t.bold, t.italic);
+        leaf.shape = { kind: 'path', subs: textToSubs(t, f.font) };
+      }
+      out.push(c);
+    }
+    return out;
+  }
+
+  /** Boolesche Operation auf die Auswahl. Das zuerst gewählte Objekt ist die Basis. */
+  async booleanSel(op: BoolOp) {
+    if (this.sel.length < 2) {
+      this.hint = 'Für Boolesche Operationen mindestens zwei Objekte auswählen.';
+      this.emit('tool');
+      return;
+    }
+    const inputs = this.sel;
+    const subs = booleanOp(op, await this.withTextOutlines(inputs));
+    this.snapshot();
+    const idx = Math.min(...inputs.map((o) => this.doc.objs.indexOf(o)));
+    this.doc.objs = this.doc.objs.filter((o) => !inputs.includes(o));
+    if (!subs.length) {
+      this.hint = 'Ergebnis ist leer (keine gemeinsame Fläche).';
+      this.setSel([]);
+    } else {
+      const res: Obj = { id: newId(), m: IDENT, layer: inputs[0].layer, shape: { kind: 'path', subs } };
+      this.doc.objs.splice(idx, 0, res);
+      this.setSel([res]);
+      this.hint = '';
+    }
     this.emit('doc');
   }
+
+  /** Offset: neue Konturen im Abstand zur Auswahl. */
+  async offsetSel(opt: OffsetOptions, keepOriginal: boolean) {
+    if (!this.sel.length) return;
+    const inputs = this.sel;
+    const subs = offsetOp(await this.withTextOutlines(inputs), opt);
+    this.snapshot();
+    if (!keepOriginal) this.doc.objs = this.doc.objs.filter((o) => !inputs.includes(o));
+    if (!subs.length) {
+      this.hint = 'Offset ergibt keine Kontur (Abstand zu groß für Innen-Offset?).';
+      this.setSel(keepOriginal ? inputs : []);
+    } else {
+      const res: Obj = { id: newId(), m: IDENT, layer: inputs[0].layer, shape: { kind: 'path', subs } };
+      this.doc.objs.push(res);
+      this.setSel([res]);
+      this.hint = '';
+    }
+    this.emit('doc');
+  }
+
+  /** Vorschau für den Offset-Dialog (ohne das Dokument zu ändern) */
+  offsetPreview: SubPath[] | null = null;
+  async previewOffset(opt: OffsetOptions | null) {
+    this.offsetPreview = opt && this.sel.length ? offsetOp(await this.withTextOutlines(this.sel), opt) : null;
+    this.redraw();
+  }
+
 
   private pathTarget(): SubPath[] | null {
     const o = this.nodeTarget();
@@ -1159,7 +1322,7 @@ export class Editor {
     if (e.altKey && k === 'w') return run(() => ((this.filled = !this.filled), this.emit('view')));
     if (k === 'escape')
       return run(() => {
-        if (this.drag) return;
+        if (this.drag) return this.cancelDrag();
         if (this.draft) this.finishLine();
         else if (this.tool !== 'select') this.setTool('select');
         else this.setSel([]);
@@ -1306,6 +1469,15 @@ export class Editor {
       ctx.stroke(worldPath(tmp.shape, IDENT));
     }
 
+    // Offset-Vorschau
+    if (this.offsetPreview) {
+      ctx.strokeStyle = '#ff6020';
+      ctx.setLineDash([4 * px, 2 * px]);
+      ctx.lineWidth = 1.5 * px;
+      ctx.stroke(subsToPath2D(this.offsetPreview));
+      ctx.setLineDash([]);
+    }
+
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.renderOverlay(ctx);
     this.renderRulers(ctx);
@@ -1341,7 +1513,12 @@ export class Editor {
         ctx.strokeRect(h.x - 4 + 0.5, h.y - 4 + 0.5, 7, 7);
       });
       if (this.rotateMode) {
-        const c = this.toScreen({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
+        const c = this.toScreen(this.rotationCenter()!);
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, 5, 0, Math.PI * 2);
+        ctx.strokeStyle = '#3070ff';
+        ctx.lineWidth = 1;
+        ctx.stroke();
         ctx.beginPath();
         ctx.moveTo(c.x - 6, c.y);
         ctx.lineTo(c.x + 6, c.y);
@@ -1352,8 +1529,28 @@ export class Editor {
         ctx.stroke();
       }
     }
-    // Auswahlrechteck
+    // Winkelanzeige beim Drehen
     const d = this.drag;
+    if (d && d.type === 'rotate') {
+      const q = this.toScreen(this.cursor);
+      const label = `${d.angle.toFixed(1)}°`;
+      ctx.font = '12px system-ui, sans-serif';
+      const w = ctx.measureText(label).width + 10;
+      ctx.fillStyle = 'rgba(30,40,60,0.85)';
+      ctx.fillRect(q.x + 14, q.y + 10, w, 18);
+      ctx.fillStyle = '#ffffff';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, q.x + 19, q.y + 19);
+      const c = this.toScreen(d.center);
+      ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = '#3070ff';
+      ctx.beginPath();
+      ctx.moveTo(c.x, c.y);
+      ctx.lineTo(q.x, q.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    // Auswahlrechteck
     if (d && d.type === 'marquee') {
       const a = this.toScreen(d.start),
         c = this.toScreen(d.end);
@@ -1500,6 +1697,11 @@ function closedPath(subs: SubPath[], m: Mat): Path2D {
   return p;
 }
 
+const ROTATE_CURSOR =
+  `url("data:image/svg+xml,${encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12a7 7 0 1 1-2-5" stroke="white" stroke-width="4"/><path d="M19 4v4h-4" stroke="white" stroke-width="4"/><path d="M19 12a7 7 0 1 1-2-5" stroke="black" stroke-width="1.8"/><path d="M19 4v4h-4" stroke="black" stroke-width="1.8"/></g></svg>',
+  )}") 12 12, alias`;
+
 const fmt = (v: number) => (Math.abs(v) < 1e-9 ? '0' : String(Math.round(v * 100) / 100));
 
 function normBox(a: Pt, b: Pt): Box {
@@ -1507,7 +1709,7 @@ function normBox(a: Pt, b: Pt): Box {
 }
 
 export const TOOL_HINTS: Record<Tool, string> = {
-  select: 'Klicken zum Auswählen, nochmals klicken zum Drehen. Ziehen nach rechts: umschließend, nach links: kreuzend.',
+  select: 'Drehen: knapp außerhalb einer Ecke ziehen oder Auswahl nochmals anklicken. Rahmen nach rechts: umschließend, nach links: kreuzend.',
   node: 'Knoten ziehen. Über Knoten/Kante: D löschen, I einfügen, C Ecke, S glatt. Doppelklick auf Kante fügt ein.',
   line: 'Klicken für Ecken, Ziehen für Kurven. Startpunkt anklicken schließt, Doppelklick/Enter/Rechtsklick beendet.',
   rect: 'Ziehen zum Zeichnen. Shift: Quadrat, Ctrl: von der Mitte.',

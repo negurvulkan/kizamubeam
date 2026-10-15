@@ -3,6 +3,7 @@ import { Editor, Tool } from './editor';
 import { ICONS } from './icons';
 import { Layer, layerLabel, PALETTE, TextShape } from './model';
 import { exportSvg, openProject, saveProject } from './files';
+import { systemFonts } from './fonts';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
 
@@ -204,6 +205,11 @@ function buildMenu(ed: Editor) {
       ['Ellipse', 'Ctrl+E', () => ed.setTool('ellipse')],
       ['Polygon', '', () => ed.setTool('polygon')],
       ['Text', 'Ctrl+T', () => ed.setTool('text')],
+      'sep',
+      ['Vereinen', '', () => ed.booleanSel('union')],
+      ['Abziehen', '', () => ed.booleanSel('subtract')],
+      ['Schnittmenge', '', () => ed.booleanSel('intersect')],
+      ['Offset …', 'Alt+O', () => openOffsetDialog(ed)],
     ]],
     ['Anordnen', [
       ['Gruppieren', 'Ctrl+G', () => ed.group()],
@@ -437,6 +443,12 @@ function buildNumbar(ed: Editor) {
   const fontSel = h('select', { title: 'Schriftart' }) as HTMLSelectElement;
   for (const f of availableFonts()) fontSel.append(h('option', { value: f }, f));
   fontSel.addEventListener('change', () => ed.updateTexts({ font: fontSel.value }));
+  systemFonts().then((list) => {
+    if (!list?.length) return;
+    const cur = fontSel.value;
+    fontSel.replaceChildren(...list.map((f) => h('option', { value: f }, f)));
+    fontSel.value = list.includes(cur) ? cur : list[0];
+  });
   const fSize = numInput('small', (v) => v > 0 && ed.updateTexts({ size: v }), 'Schriftgröße (mm)');
   const fHs = numInput('small', (v) => ed.updateTexts({ hSpace: v }), 'Zeichenabstand (mm)');
   const fVs = numInput('small', (v) => ed.updateTexts({ vSpace: v }), 'Zeilenabstand (mm)');
@@ -527,9 +539,93 @@ function buildTools(ed: Editor) {
     btns.set(t, b);
     bar.append(b);
   });
-  const refresh = () => btns.forEach((b, t) => b.classList.toggle('on', ed.tool === t));
-  ed.on((w) => w === 'tool' && refresh());
+  bar.append(sep());
+  const mods = [
+    iconBtn('union', 'Vereinen: alle gewählten Formen verschmelzen', () => ed.booleanSel('union')),
+    iconBtn('subtract', 'Abziehen: weitere Formen von der zuerst gewählten abziehen', () => ed.booleanSel('subtract')),
+    iconBtn('intersect', 'Schnittmenge: nur die gemeinsame Fläche behalten', () => ed.booleanSel('intersect')),
+  ];
+  const off = iconBtn('offset', 'Offset (Alt+O)', () => openOffsetDialog(ed));
+  bar.append(...mods, off);
+  const refresh = () => {
+    btns.forEach((b, t) => b.classList.toggle('on', ed.tool === t));
+    mods.forEach((b) => (b.disabled = ed.sel.length < 2));
+    off.disabled = ed.sel.length < 1;
+  };
+  ed.on((w) => (w === 'tool' || w === 'sel') && refresh());
   refresh();
+  window.addEventListener('keydown', (e) => {
+    if (e.altKey && e.key.toLowerCase() === 'o' && ed.sel.length) {
+      e.preventDefault();
+      openOffsetDialog(ed);
+    }
+  });
+}
+
+// ---------- Offset-Dialog ----------
+
+let offsetState = { distance: 2, direction: 'outward' as 'outward' | 'inward' | 'both', join: 'round' as 'round' | 'miter' | 'square', keep: true };
+
+function openOffsetDialog(ed: Editor) {
+  if (!ed.sel.length) return;
+  const st = { ...offsetState };
+  const preview = () => ed.previewOffset({ distance: st.distance, direction: st.direction, join: st.join });
+  const dist = numInput('', (v) => {
+    if (v > 0) st.distance = v;
+    preview();
+  }, 'Abstand in mm');
+  dist.id = 'offset-distance';
+  dist.value = String(st.distance);
+  const radio = <T extends string>(name: string, value: T, label: string, cur: T, set: (v: T) => void) =>
+    h('label', {}, h('input', { type: 'radio', name, value, checked: value === cur, onchange: () => (set(value), preview()) }), label);
+  const join = h('select', { id: 'offset-join', onchange: (e: Event) => ((st.join = (e.target as HTMLSelectElement).value as typeof st.join), preview()) },
+    h('option', { value: 'round', selected: st.join === 'round' }, 'Rund'),
+    h('option', { value: 'miter', selected: st.join === 'miter' }, 'Spitz'),
+    h('option', { value: 'square', selected: st.join === 'square' }, 'Abgeschrägt'),
+  ) as HTMLSelectElement;
+  const keep = h('input', { type: 'checkbox', id: 'offset-keep', checked: st.keep, onchange: (e: Event) => (st.keep = (e.target as HTMLInputElement).checked) }) as HTMLInputElement;
+  const dlg = h(
+    'dialog',
+    { class: 'offset-dialog' },
+    h('h3', {}, 'Offset'),
+    h(
+      'div',
+      { class: 'form' },
+      h('label', { for: 'offset-distance' }, 'Abstand (mm)'), dist,
+      h('label', {}, 'Richtung'),
+      h('div', { class: 'radios' },
+        radio('dir', 'outward', 'Außen', st.direction, (v) => (st.direction = v)),
+        radio('dir', 'inward', 'Innen', st.direction, (v) => (st.direction = v)),
+        radio('dir', 'both', 'Beides', st.direction, (v) => (st.direction = v)),
+      ),
+      h('label', { for: 'offset-join' }, 'Ecken'), join,
+      h('label', { for: 'offset-keep' }, 'Original behalten'), keep,
+    ),
+    h('div', { class: 'note' }, 'Orange gestrichelt: Vorschau. Offene Linien bekommen eine geschlossene Kontur im Abstand.'),
+    h(
+      'div',
+      { class: 'dialog-buttons' },
+      h('button', { class: 'btn', onclick: () => dlg.close() }, 'Abbrechen'),
+      h('button', {
+        class: 'btn primary',
+        onclick: async () => {
+          const v = evalExpr(dist.value);
+          if (v && v > 0) st.distance = v;
+          offsetState = st;
+          dlg.close();
+          await ed.offsetSel({ distance: st.distance, direction: st.direction, join: st.join }, st.keep);
+        },
+      }, 'Übernehmen'),
+    ),
+  );
+  dlg.addEventListener('close', () => {
+    ed.previewOffset(null);
+    dlg.remove();
+  });
+  dlg.addEventListener('keydown', (e) => e.stopPropagation());
+  document.body.append(dlg);
+  dlg.showModal();
+  preview();
 }
 
 // ---------- Layer-Panel ----------

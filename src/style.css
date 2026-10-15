@@ -496,3 +496,32 @@ dialog kbd {
     overflow-x: auto;
   }
 }
+.offset-dialog .form {
+  grid-template-columns: 120px 200px;
+}
+.radios {
+  display: flex;
+  gap: 10px;
+}
+.radios label {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+}
+.dialog-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 12px;
+}
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+dialog::backdrop {
+  background: rgba(20, 30, 50, 0.15);
+}
+.offset-dialog {
+  margin: 110px 330px auto auto;
+}

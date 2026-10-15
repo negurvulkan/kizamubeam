@@ -20,13 +20,16 @@ npm run tauri build    # Installationspaket
 - LightBurn-Layout: Menü, Symbolleiste, Zahlenleiste oben, Werkzeuge links, Schnitte/Layer und Laser rechts, Farbpalette 00–29 plus T1/T2 unten, Statusleiste.
 - Arbeitsfläche als Maschinenbett in mm (Standard 400 × 400, im Laser-Panel änderbar), Raster, Lineale, Ursprung unten links, Zoom mit Mausrad, Verschieben mit Leertaste oder mittlerer Maustaste.
 - Zeichnen: Linien und Bézierkurven, Rechteck mit Eckenradius, Ellipse, Polygon und Stern, Text (mehrzeilig, Schriftart, Höhe, Fett, Kursiv, Großbuchstaben, Zeichen- und Zeilenabstand, Ausrichtung).
-- Bearbeiten: Auswahl per Klick und Rahmen (nach rechts umschließend, nach links kreuzend), Verschieben, Skalieren, Drehen (zweiter Klick auf die Auswahl), Zahlenfelder mit 9-Punkt-Anker und Formeln mit Einheiten („100/3“, „2in“), Knotenbearbeitung (D, I, C, S), In Pfad umwandeln, Gruppieren, Spiegeln, Ausrichten, Verteilen, Kopieren, Duplizieren, Rückgängig.
+- Bearbeiten: Auswahl per Klick und Rahmen (nach rechts umschließend, nach links kreuzend), Verschieben, Skalieren, Drehen mit der Maus (knapp außerhalb einer Ecke ziehen oder zweiter Klick auf die Auswahl; Drehpunkt verschiebbar, Shift 15°, Ctrl 5°, Esc bricht ab), Zahlenfelder mit 9-Punkt-Anker und Formeln mit Einheiten („100/3“, „2in“), Knotenbearbeitung (D, I, C, S), In Pfad umwandeln, Gruppieren, Spiegeln, Ausrichten, Verteilen, Kopieren, Duplizieren, Rückgängig.
+- Text in Pfad umwandeln (Ctrl+Shift+C) mit den echten Schriftkonturen: in der Desktop-App aus den installierten Systemschriften, im Browser mit Roboto als Ersatz.
+- Boolesche Operationen: Vereinen, Abziehen (weitere Formen von der zuerst gewählten), Schnittmenge. Texte und Gruppen werden dabei automatisch als Konturen behandelt.
+- Offset (Alt+O) nach außen, innen oder beides, mit runden, spitzen oder abgeschrägten Ecken und Live-Vorschau. Offene Linien bekommen eine geschlossene Kontur.
 - Farbe ist der Layer: Klick auf eine Palettenfarbe ordnet die Auswahl zu. Layer-Tabelle mit Modus (Linie/Füllen), Speed, Leistung, Ausgabe, Sichtbarkeit und Schnellbearbeitung.
 - Projekt speichern und öffnen (`.lwk`, JSON), SVG-Export, automatisches Zwischenspeichern.
 
 ## Noch nicht enthalten
 
-Maschinenanbindung (FluidNC), G-Code, Vorschau, Bildgravur, Import (SVG/DXF), Boolesche Operationen, Offset, Text in Pfad umwandeln (braucht eine Schrift-Engine, geplant mit opentype.js oder in Rust).
+Maschinenanbindung (FluidNC), G-Code, Vorschau, Bildgravur, Import (SVG/DXF), Text auf Pfad, Schweißen von Buchstaben, Kurvenrückführung nach Booleschen Operationen (Ergebnisse sind feine Polylinien, Toleranz 0,01 mm).
 
 ## Aufbau
 
@@ -36,7 +39,9 @@ Maschinenanbindung (FluidNC), G-Code, Vorschau, Bildgravur, Import (SVG/DXF), Bo
 | `src/geom.ts` | Formen als Bézierpfade, Begrenzungsrahmen, Text-Layout, Treffertest, SVG-Pfade |
 | `src/editor.ts` | Arbeitsfläche: Zeichnen, Werkzeuge, Auswahl, Transformieren, Knoten, Befehle, Undo |
 | `src/ui.ts` | Menü, Leisten, Layer- und Laser-Panel, Palette, Statusleiste, Texteingabe |
+| `src/fonts.ts` | Schriftdateien laden (Systemschriften über Rust, Ersatzschrift) und Text in Bézierpfade umwandeln (opentype.js) |
+| `src/ops.ts` | Boolesche Operationen und Offset (Clipper) |
 | `src/files.ts` | Öffnen/Speichern (Tauri-Dialoge oder Browser), SVG-Export |
-| `src-tauri/` | Rust-Hülle mit nativen Dateidialogen |
+| `src-tauri/` | Rust-Hülle: native Dateidialoge, Liste und Dateien der Systemschriften (fontdb) |
 
 Intern rechnet der Editor in mm mit y nach unten; angezeigt wird in Maschinenkoordinaten (Ursprung unten links).

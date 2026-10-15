@@ -53,4 +53,8 @@ export const ICONS: Record<string, string> = {
   alignTextL: svg('<path d="M4 6h16M4 10h10M4 14h16M4 18h10"/>'),
   alignTextC: svg('<path d="M4 6h16M7 10h10M4 14h16M7 18h10"/>'),
   alignTextR: svg('<path d="M4 6h16M10 10h10M4 14h16M10 18h10"/>'),
+  union: svg('<path d="M4 9a5 5 0 0 1 9-3 5 5 0 1 1 1 10 5 5 0 0 1-9 3A5 5 0 0 1 4 9z" fill="currentColor" fill-opacity=".25"/>'),
+  subtract: svg('<circle cx="9" cy="10" r="5.5" fill="currentColor" fill-opacity=".25"/><circle cx="15" cy="14" r="5.5" stroke-dasharray="2 1.6"/>'),
+  intersect: svg('<circle cx="9.5" cy="10" r="5.5" stroke-dasharray="2 1.6"/><circle cx="14.5" cy="14" r="5.5" stroke-dasharray="2 1.6"/><path d="M15 8.6a5.5 5.5 0 0 1-.4 7.4 5.5 5.5 0 0 1-5.6-.6 5.5 5.5 0 0 1 6-6.8z" fill="currentColor" fill-opacity=".45" stroke="none"/>'),
+  offset: svg('<rect x="8" y="8" width="8" height="8" rx="1"/><rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke-dasharray="2.2 1.8"/>'),
 };
