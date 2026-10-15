@@ -21,6 +21,25 @@ export async function saveText(name: string, filterName: string, ext: string, mi
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/** Textdatei wählen und lesen; liefert [Dateiname, Inhalt] oder null */
+export async function openText(filterName: string, extensions: string[]): Promise<[string, string] | null> {
+  if (isTauri()) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const res = await invoke<[string, string] | null>('open_text_file', { filterName, extensions });
+    return res ? [res[0].split(/[\\/]/).pop() ?? res[0], res[1]] : null;
+  }
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = extensions.map((e) => '.' + e).join(',');
+    input.onchange = async () => {
+      const f = input.files?.[0];
+      resolve(f ? [f.name, await f.text()] : null);
+    };
+    input.click();
+  });
+}
+
 export async function saveProject(ed: Editor) {
   await saveText('projekt.lwk', 'Laserwerk-Projekt', 'lwk', 'application/json', ed.serialize());
 }

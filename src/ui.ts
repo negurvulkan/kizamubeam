@@ -9,6 +9,7 @@ import { $, evalExpr, f2, h, iconBtn, numInput, sep, setVal } from './dom';
 import { openCircularArrayDialog, openGridArrayDialog } from './arrayDialogs';
 import { buildLaser, frameJob, openDeviceDialog, openDevicesDialog, openPreview, saveGCode, startJob } from './laser';
 import { openLayerDialog } from './layerdialog';
+import { openMaterialTestDialog } from './materialtest';
 
 const FONT_CANDIDATES = [
   'Arial', 'Helvetica', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Segoe UI', 'Calibri', 'Times New Roman', 'Georgia',
@@ -169,6 +170,8 @@ function buildMenu(ed: Editor) {
       ['Start', '', () => startJob(ed)],
       ['Rahmen', '', () => frameJob(ed, false)],
       ['Kontur-Rahmen', '', () => frameJob(ed, true)],
+      'sep',
+      ['Materialtest …', '', () => openMaterialTestDialog(ed)],
       'sep',
       ['Geräte …', '', () => openDevicesDialog(ed)],
       ['Geräteeinstellungen …', '', () => openDeviceDialog(ed)],

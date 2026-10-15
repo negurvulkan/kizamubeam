@@ -1033,6 +1033,7 @@ table.devices .actions {
 }
 .cal-result {
   margin: 6px 0;
+}
 
 /* Layer-Dialog */
 .layer-dialog {
@@ -1057,4 +1058,152 @@ table.layers td {
 table.layers input[type='checkbox'] {
   margin: 0;
   vertical-align: middle;
+}
+
+/* Material-Bibliothek und Materialtest */
+.material-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mat-status {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+.mat-status > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mat-search {
+  font: inherit;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 3px;
+  padding: 2px 6px;
+}
+.mat-list {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  max-height: 240px;
+  overflow: auto;
+}
+.mat-list .empty {
+  padding: 6px;
+  color: var(--muted);
+}
+.mat-group {
+  font-weight: 600;
+  padding: 3px 6px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--row-line);
+}
+.mat-thick {
+  padding: 2px 6px 2px 14px;
+  color: var(--muted);
+}
+.mat-entry {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 6px 2px 24px;
+  border-bottom: 1px solid var(--row-line);
+  cursor: default;
+}
+.mat-entry.cur {
+  font-weight: 600;
+}
+.mat-entry.sel {
+  background: var(--accent-soft);
+}
+.mat-entry > span:last-child {
+  white-space: nowrap;
+}
+.muted {
+  color: var(--muted);
+}
+.mat-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.material-dialog .form {
+  grid-template-columns: 110px 260px;
+}
+.material-dialog textarea {
+  font: inherit;
+  resize: vertical;
+}
+.warn {
+  color: #c03020;
+}
+.mt-dialog {
+  width: min(820px, 96vw);
+}
+.mt-body {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 16px;
+}
+.mt-left {
+  max-height: 64vh;
+  overflow: auto;
+  padding-right: 4px;
+}
+.mt-right {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mt-preview svg {
+  max-width: 100%;
+  height: auto;
+}
+.mt-preview text {
+  fill: var(--text);
+  font-size: 8px;
+}
+.mt-preview .mt-axis {
+  font-weight: 600;
+}
+.mt-cell {
+  cursor: pointer;
+  stroke: var(--line);
+}
+.mt-cell.picked {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+.mt-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+@media (max-width: 760px) {
+  .mt-body {
+    grid-template-columns: 1fr;
+  }
+}
+.mt-left .form {
+  grid-template-columns: 1fr 180px;
+}
+/* Lange Layernamen (z. B. aus der Material-Bibliothek) nicht umbrechen */
+table.layers td:nth-child(2) {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Fünf Reiter im Laser-Panel: enger setzen, notfalls seitlich scrollen */
+.panel-title.tabs {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.panel-title.tabs button {
+  padding: 4px 5px 3px;
+  white-space: nowrap;
 }
