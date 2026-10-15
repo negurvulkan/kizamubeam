@@ -1,3 +1,4 @@
+import { t } from './i18n';
 // Datenmodell: Dokument, Objekte, Layer, Matrizen.
 // Interne Koordinaten sind Millimeter mit y nach unten (wie SVG), Ursprung oben links am Bett.
 // Angezeigt wird in Maschinenkoordinaten (Ursprung unten links, y nach oben).
@@ -103,14 +104,14 @@ export interface ImageShape {
 export type DitherMode = 'threshold' | 'ordered' | 'atkinson' | 'floyd' | 'stucki' | 'jarvis' | 'halftone' | 'grayscale';
 
 export const DITHER_MODES: [DitherMode, string][] = [
-  ['threshold', 'Schwellwert'],
-  ['ordered', 'Geordnet'],
-  ['atkinson', 'Atkinson'],
-  ['floyd', 'Dither (Floyd-Steinberg)'],
-  ['stucki', 'Stucki'],
-  ['jarvis', 'Jarvis'],
-  ['halftone', 'Halbton'],
-  ['grayscale', 'Graustufen'],
+  ['threshold', t('Schwellwert')],
+  ['ordered', t('Geordnet')],
+  ['atkinson', t('Atkinson')],
+  ['floyd', t('Dither (Floyd-Steinberg)')],
+  ['stucki', t('Stucki')],
+  ['jarvis', t('Jarvis')],
+  ['halftone', t('Halbton')],
+  ['grayscale', t('Graustufen')],
 ];
 
 /** Einstellungen für Bilder auf einem Layer (eigener Eintrag „Bild“ in der Layer-Tabelle) */

@@ -7,6 +7,7 @@
 // Ausrichtung). Ab 6 Markierungen wird die Linsenverzeichnung mitbestimmt.
 
 import type { Pt } from './model';
+import { t } from './i18n';
 
 export interface CameraCalib {
   /** Bildgröße bei der Kalibrierung in Pixeln */
@@ -354,12 +355,12 @@ export function cameraError(e: unknown): string {
   const mac = /Mac/i.test(navigator.platform || navigator.userAgent);
   if (name === 'NotAllowedError' || name === 'SecurityError')
     return mac
-      ? 'Kein Zugriff auf die Kamera. In den Systemeinstellungen unter Datenschutz & Sicherheit › Kamera Laserwerk erlauben (beim Start aus dem Terminal: das Terminal).'
-      : 'Kein Zugriff auf die Kamera. Bitte den Zugriff erlauben.';
-  if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'Keine Kamera gefunden.';
-  if (name === 'NotReadableError') return 'Die Kamera wird gerade von einem anderen Programm benutzt.';
-  if (!navigator.mediaDevices?.getUserMedia) return 'Diese Umgebung bietet keinen Kamerazugriff.';
-  return `Kamera-Fehler: ${(e as Error)?.message ?? String(e)}`;
+      ? t('Kein Zugriff auf die Kamera. In den Systemeinstellungen unter Datenschutz & Sicherheit › Kamera Laserwerk erlauben (beim Start aus dem Terminal: das Terminal).')
+      : t('Kein Zugriff auf die Kamera. Bitte den Zugriff erlauben.');
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') return t('Keine Kamera gefunden.');
+  if (name === 'NotReadableError') return t('Die Kamera wird gerade von einem anderen Programm benutzt.');
+  if (!navigator.mediaDevices?.getUserMedia) return t('Diese Umgebung bietet keinen Kamerazugriff.');
+  return t('Kamera-Fehler: {message}', { message: (e as Error)?.message ?? String(e) });
 }
 
 export class CameraStream {
@@ -390,7 +391,7 @@ export class CameraStream {
 
   async start(cam: string, width: number, height: number) {
     this.stop();
-    if (!navigator.mediaDevices?.getUserMedia) throw new Error('Kein Kamerazugriff in dieser Umgebung');
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error(t('Kein Kamerazugriff in dieser Umgebung'));
     const video: MediaTrackConstraints = { width: { ideal: width }, height: { ideal: height } };
     if (cam) video.deviceId = { exact: cam };
     let stream: MediaStream;

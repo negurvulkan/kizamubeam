@@ -2,6 +2,7 @@
 // Farben werden wie in LightBurn auf die nächstliegende Palettenfarbe (= Layer) abgebildet.
 import { fitPolyline } from './fit';
 import { apply, IDENT, Mat, mul, Node, PALETTE, Pt, SubPath } from './model';
+import { t, tn } from './i18n';
 
 /** Ein importiertes Element: Konturen in mm (y nach unten) und Layer */
 export interface ImportedPath {
@@ -400,7 +401,7 @@ export function importSvg(text: string): ImportResult {
   const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
   const root = doc.documentElement;
   if (!root || root.localName !== 'svg' || doc.getElementsByTagName('parsererror').length)
-    throw new Error('Keine gültige SVG-Datei');
+    throw new Error(t('Keine gültige SVG-Datei'));
   const css = [...doc.getElementsByTagName('style')].flatMap((s) => parseCss(s.textContent ?? ''));
   const notes: string[] = [];
   let skippedText = 0;
@@ -523,7 +524,7 @@ export function importSvg(text: string): ImportResult {
         const w = attr(el, 'width'),
           h = attr(el, 'height');
         if (!href.startsWith('data:image/') || w <= 0 || h <= 0) {
-          notes.push('Verknüpftes Bild übersprungen (nur eingebettete Bilder werden übernommen).');
+          notes.push(t('Verknüpftes Bild übersprungen (nur eingebettete Bilder werden übernommen).'));
           return;
         }
         items.push({ kind: 'image', href, m: mul(mul(base, mm), [w, 0, 0, h, attr(el, 'x'), attr(el, 'y')]), layer: layerFor(st) });
@@ -539,7 +540,7 @@ export function importSvg(text: string): ImportResult {
     if (pb.subs.length) items.push({ kind: 'path', subs: transformSubs(pb.subs, mul(base, mm)), layer: layerFor(st) });
   };
   walk(root, IDENT, {}, 0);
-  if (skippedText) notes.push(`${skippedText} Text${skippedText > 1 ? 'e' : ''} übersprungen (in der Quelldatei vorher in Pfade umwandeln).`);
+  if (skippedText) notes.push(tn('{n} Text übersprungen (in der Quelldatei vorher in Pfade umwandeln).', '{n} Texte übersprungen (in der Quelldatei vorher in Pfade umwandeln).', skippedText));
   return { items: items.filter((it) => it.kind === 'image' || it.subs.length), notes: [...new Set(notes)] };
 }
 
@@ -571,7 +572,7 @@ const INSUNITS_MM: Record<number, number> = { 1: 25.4, 2: 304.8, 4: 1, 5: 10, 6:
 
 export function importDxf(text: string): ImportResult {
   const pairs = dxfPairs(text);
-  if (!pairs.some(([c, v]) => c === 0 && v === 'SECTION')) throw new Error('Keine gültige DXF-Datei');
+  if (!pairs.some(([c, v]) => c === 0 && v === 'SECTION')) throw new Error(t('Keine gültige DXF-Datei'));
   let unit = 1;
   const layerColor = new Map<string, number>();
   const blocks = new Map<string, { base: Pt; ents: DxfEnt[] }>();
@@ -739,7 +740,7 @@ export function importDxf(text: string): ImportResult {
   };
   // Einheit anwenden, y bleibt nach oben (der Aufrufer spiegelt am Bett)
   for (const e of entities) emit(e, [unit, 0, 0, unit, 0, 0], null, 0);
-  if (skipped.size) notes.push(`Übersprungen: ${[...skipped].map(([t, n]) => `${n}× ${t}`).join(', ')}.`);
+  if (skipped.size) notes.push(t('Übersprungen: {list}.', { list: [...skipped].map(([what, n]) => `${n}× ${what}`).join(', ') }));
   return { items: joinPaths(items), notes, yUp: true };
 }
 

@@ -5,6 +5,7 @@ import { apply, Doc, ImageLayer, ImageShape, inv, Layer, leaves, Mat, mul, norma
 import { bezierPt, segments, shapeSubs } from './geom';
 import { loadFont, textToSubs } from './fonts';
 import { outputGrid, processImage } from './images';
+import { locale, t, tn } from './i18n';
 
 // ---------- Geräte und Firmware ----------
 
@@ -136,11 +137,11 @@ export const PRESETS: (Partial<Device> & { name: string; fw: Firmware })[] = [
   { name: 'xTool D1 Pro', fw: 'grbl', bedW: 432, bedH: 406, baud: 230400 },
   { name: 'Creality Falcon 2', fw: 'grbl', bedW: 400, bedH: 415 },
   { name: 'Two Trees TS2', fw: 'grbl', bedW: 450, bedH: 450 },
-  { name: 'GRBL-Laser (allgemein)', fw: 'grbl', bedW: 400, bedH: 400 },
-  { name: 'grblHAL-Laser (allgemein)', fw: 'grblhal', bedW: 400, bedH: 400 },
-  { name: 'FluidNC-Laser (allgemein)', fw: 'fluidnc', bedW: 400, bedH: 400 },
-  { name: 'Marlin mit Laser', fw: 'marlin', bedW: 300, bedH: 300, baud: 250000 },
-  { name: 'Smoothieware-Laser', fw: 'smoothie', bedW: 300, bedH: 200 },
+  { name: t('GRBL-Laser (allgemein)'), fw: 'grbl', bedW: 400, bedH: 400 },
+  { name: t('grblHAL-Laser (allgemein)'), fw: 'grblhal', bedW: 400, bedH: 400 },
+  { name: t('FluidNC-Laser (allgemein)'), fw: 'fluidnc', bedW: 400, bedH: 400 },
+  { name: t('Marlin mit Laser'), fw: 'marlin', bedW: 300, bedH: 300, baud: 250000 },
+  { name: t('Smoothieware-Laser'), fw: 'smoothie', bedW: 300, bedH: 200 },
 ];
 
 export function newDevice(preset: Partial<Device> & { fw: Firmware }): Device {
@@ -738,7 +739,7 @@ export async function buildJob(inp: JobInput): Promise<Job> {
       for (const q of p.pts) addPt(bounds, q.x, q.y);
     }
   }
-  if (skippedOpen) warnings.push(`${skippedOpen} offene Linie${skippedOpen > 1 ? 'n' : ''} auf Füll-Layern übersprungen (Füllen braucht geschlossene Formen).`);
+  if (skippedOpen) warnings.push(tn('{n} offene Linie auf Füll-Layern übersprungen (Füllen braucht geschlossene Formen).', '{n} offene Linien auf Füll-Layern übersprungen (Füllen braucht geschlossene Formen).', skippedOpen));
 
   // 2. Verschiebung nach „Starten ab“
   const jb = finite(bounds);
@@ -772,7 +773,7 @@ export async function buildJob(inp: JobInput): Promise<Job> {
       for (const im of bk.images) {
         const lines = imageLines(im.shape, im.world, toOut, IL);
         if (!lines) {
-          warnings.push(`Bild „${im.shape.name ?? 'Bild'}“ ist noch nicht geladen und wurde übersprungen.`);
+          warnings.push(t('Bild „{name}“ ist noch nicht geladen und wurde übersprungen.', { name: im.shape.name ?? t('Bild') }));
           continue;
         }
         for (let p = 0; p < Math.max(1, IL.passes); p++) emitScanlines(mv, lines, { speed: IL.speed, bidirectional: IL.bidirectional, overscan: ov, layer: li }, flip);
@@ -955,11 +956,11 @@ export function writeGCode(job: Job, d: Device, est: Estimate, name = 'Laserwerk
   const times: number[] = [];
   const head = (l: string) => (lines.push(l), times.push(0));
   head(`; ${name}`);
-  head(`; Erzeugt von Laserwerk am ${new Date().toLocaleString('de-DE')}`);
-  head(`; Geschätzte Dauer: ${formatDuration(est.total)}`);
-  if (job.bounds) head(`; Bereich: X ${num(job.bounds.x0)} … ${num(job.bounds.x1)}, Y ${num(job.bounds.y0)} … ${num(job.bounds.y1)} mm`);
+  head(t('; Erzeugt von Laserwerk am {date}', { date: new Date().toLocaleString(locale) }));
+  head(t('; Geschätzte Dauer: {total}', { total: formatDuration(est.total) }));
+  if (job.bounds) head(t('; Bereich: X {x0} … {x1}, Y {y0} … {y1} mm', { x0: num(job.bounds.x0), x1: num(job.bounds.x1), y0: num(job.bounds.y0), y1: num(job.bounds.y1) }));
   const fw = FIRMWARES[d.fw];
-  head(`; Gerät: ${d.name} (${fw.label})`);
+  head(t('; Gerät: {name} ({label})', { name: d.name, label: fw.label }));
   head('G21');
   head('G90');
   fw.laserOn.forEach(head);

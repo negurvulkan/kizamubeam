@@ -2,15 +2,16 @@
 // Alle Koordinaten in Welt-mm; Toleranzen werden vom Editor aus Bildschirmpixeln umgerechnet.
 import { apply, inv, leaves, mul, Obj, Pt } from './model';
 import { bezierPt, Box, boundsOf, segments, shapeSubs, textOutline } from './geom';
+import { t } from './i18n';
 
 export type SnapKind = 'node' | 'mid' | 'center' | 'cross' | 'line';
 
 export const SNAP_LABELS: Record<SnapKind, string> = {
-  node: 'Knoten',
-  mid: 'Mittelpunkt',
-  center: 'Zentrum',
-  cross: 'Schnittpunkt',
-  line: 'Linie',
+  node: t('Knoten'),
+  mid: t('Mittelpunkt'),
+  center: t('Zentrum'),
+  cross: t('Schnittpunkt'),
+  line: t('Linie'),
 };
 
 export interface SnapHit {

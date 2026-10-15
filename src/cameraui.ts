@@ -11,6 +11,7 @@ import {
   bedToPixel, buildRemap, calibFits, calibrate, CameraCalib, cameraError, CameraSettings, CameraStream, DEFAULT_CAMERA,
   markPositions, MarkSettings, Remap, warp,
 } from './camera';
+import { dec, t, tn } from './i18n';
 
 // ---------- Einstellungen je Gerät ----------
 
@@ -126,9 +127,9 @@ export function cameraTab(ed: Editor): HTMLElement {
   };
 
   const root = h('div', { class: 'camera-tab' });
-  const camSel = h('select', { title: 'Kamera' }) as HTMLSelectElement;
-  const resSel = h('select', { title: 'Gewünschte Auflösung (die Kamera nimmt die nächstmögliche)' }) as HTMLSelectElement;
-  const connBtn = h('button', { class: 'btn' }, 'Verbinden') as HTMLButtonElement;
+  const camSel = h('select', { title: t('Kamera') }) as HTMLSelectElement;
+  const resSel = h('select', { title: t('Gewünschte Auflösung (die Kamera nimmt die nächstmögliche)') }) as HTMLSelectElement;
+  const connBtn = h('button', { class: 'btn' }, t('Verbinden')) as HTMLButtonElement;
   const dot = h('span', { class: 'dot' });
   const stTxt = h('span', {});
   const calTxt = h('div', { class: 'note' });
@@ -138,9 +139,9 @@ export function cameraTab(ed: Editor): HTMLElement {
   const show = h('input', { type: 'checkbox' }) as HTMLInputElement;
   const live = h('input', { type: 'checkbox' }) as HTMLInputElement;
   const opacity = h('input', { type: 'range', min: '0.1', max: '1', step: '0.05' }) as HTMLInputElement;
-  const updBtn = h('button', { class: 'btn', title: 'Neues Kamerabild auf die Arbeitsfläche legen' }, 'Bild aktualisieren') as HTMLButtonElement;
-  const calBtn = h('button', { class: 'btn', title: 'Linse und Lage der Kamera mit gelaserten Markierungen bestimmen' }, 'Kalibrieren …') as HTMLButtonElement;
-  const insBtn = h('button', { class: 'btn', title: 'Entzerrtes Kamerabild als Bildobjekt einfügen, z. B. zum Nachzeichnen' }, 'Als Bild einfügen') as HTMLButtonElement;
+  const updBtn = h('button', { class: 'btn', title: t('Neues Kamerabild auf die Arbeitsfläche legen') }, t('Bild aktualisieren')) as HTMLButtonElement;
+  const calBtn = h('button', { class: 'btn', title: t('Linse und Lage der Kamera mit gelaserten Markierungen bestimmen') }, t('Kalibrieren …')) as HTMLButtonElement;
+  const insBtn = h('button', { class: 'btn', title: t('Entzerrtes Kamerabild als Bildobjekt einfügen, z. B. zum Nachzeichnen') }, t('Als Bild einfügen')) as HTMLButtonElement;
 
   const say = (t: string, error = false) => {
     msg.textContent = t;
@@ -156,9 +157,9 @@ export function cameraTab(ed: Editor): HTMLElement {
       /* keine Liste */
     }
     camSel.textContent = '';
-    if (!list.length) camSel.append(h('option', { value: s.cam }, s.label || 'Standardkamera'));
+    if (!list.length) camSel.append(h('option', { value: s.cam }, s.label || t('Standardkamera')));
     list.forEach((d, i) =>
-      camSel.append(h('option', { value: d.deviceId, selected: d.deviceId === s.cam || (!!s.label && d.label === s.label) }, d.label || `Kamera ${i + 1}`)),
+      camSel.append(h('option', { value: d.deviceId, selected: d.deviceId === s.cam || (!!s.label && d.label === s.label) }, d.label || t('Kamera {i}', { i: i + 1 }))),
     );
   };
   RESOLUTIONS.forEach(([w, hh]) => resSel.append(h('option', { value: `${w}x${hh}` }, `${w} × ${hh}`)));
@@ -169,16 +170,16 @@ export function cameraTab(ed: Editor): HTMLElement {
     show.checked = s.show;
     live.checked = s.live;
     opacity.value = String(s.opacity);
-    connBtn.textContent = cam.open ? 'Trennen' : 'Verbinden';
+    connBtn.textContent = cam.open ? t('Trennen') : t('Verbinden');
     dot.className = `dot ${cam.open ? 'ok' : ''}`;
-    stTxt.textContent = cam.open ? `Verbunden, ${cam.width} × ${cam.height}` : 'Nicht verbunden';
+    stTxt.textContent = cam.open ? t('Verbunden, {width} × {height}', { width: cam.width, height: cam.height }) : t('Nicht verbunden');
     preview.hidden = !cam.open;
     const c = s.calib;
-    if (!c) calTxt.textContent = 'Nicht kalibriert. Ohne Kalibrierung erscheint das Bild nicht auf der Arbeitsfläche.';
+    if (!c) calTxt.textContent = t('Nicht kalibriert. Ohne Kalibrierung erscheint das Bild nicht auf der Arbeitsfläche.');
     else if (cam.open && !calibFits(c, cam.width, cam.height))
-      calTxt.textContent = `Kalibriert für ${c.w} × ${c.h}, die Kamera liefert ${cam.width} × ${cam.height}. Bitte dieselbe Auflösung wählen oder neu kalibrieren.`;
+      calTxt.textContent = t('Kalibriert für {w} × {h}, die Kamera liefert {width} × {height}. Bitte dieselbe Auflösung wählen oder neu kalibrieren.', { w: c.w, h: c.h, width: cam.width, height: cam.height });
     else
-      calTxt.textContent = `Kalibriert und ausgerichtet (Restfehler ⌀ ${c.err.toFixed(2).replace('.', ',')} mm, max. ${c.maxErr.toFixed(2).replace('.', ',')} mm).`;
+      calTxt.textContent = t('Kalibriert und ausgerichtet (Restfehler ⌀ {err} mm, max. {maxErr} mm).', { err: dec(c.err.toFixed(2)), maxErr: dec(c.maxErr.toFixed(2)) });
     updBtn.disabled = insBtn.disabled = !cam.open || !c;
     calBtn.disabled = !cam.open;
   };
@@ -200,7 +201,7 @@ export function cameraTab(ed: Editor): HTMLElement {
     if (cam.open) await reconnect();
   });
   const reconnect = async () => {
-    say('Verbinde …');
+    say(t('Verbinde …'));
     try {
       await connect(ed);
       say('');
@@ -234,8 +235,8 @@ export function cameraTab(ed: Editor): HTMLElement {
     ed.redraw();
   });
   updBtn.addEventListener('click', () => {
-    if (!updateOverlay(ed)) say('Kein Bild: Kamera verbunden und kalibriert?', true);
-    else if (!cfg().show) say('Das Kamerabild ist ausgeblendet („Auf der Arbeitsfläche zeigen“).');
+    if (!updateOverlay(ed)) say(t('Kein Bild: Kamera verbunden und kalibriert?'), true);
+    else if (!cfg().show) say(t('Das Kamerabild ist ausgeblendet („Auf der Arbeitsfläche zeigen“).'));
     else say('');
   });
   calBtn.addEventListener('click', () => openCalibration(ed));
@@ -243,23 +244,23 @@ export function cameraTab(ed: Editor): HTMLElement {
     if (!updateOverlay(ed)) return;
     const { w, h: bh } = ed.doc.bed;
     // Auf den Werkzeug-Layer T1: wird nicht gelasert
-    await ed.importImageAt(overlay.toDataURL('image/png'), 0, 0, w, bh, 'Kamerabild',
-      'Kamerabild auf Layer T1 eingefügt (wird nicht gelasert). Zum Nachzeichnen: Werkzeuge › Bild nachzeichnen (Alt+T).', 30);
+    await ed.importImageAt(overlay.toDataURL('image/png'), 0, 0, w, bh, t('Kamerabild'),
+      t('Kamerabild auf Layer T1 eingefügt (wird nicht gelasert). Zum Nachzeichnen: Werkzeuge › Bild nachzeichnen (Alt+T).'), 30);
   });
 
   root.append(
     h('div', { class: 'laser-status' }, h('span', {}, dot, stTxt)),
     h('div', { class: 'form' },
-      h('label', {}, 'Kamera'), h('div', { class: 'conn-row' }, camSel, h('button', { class: 'ib small', title: 'Kameras neu suchen', html: ICONS.refresh, onclick: () => loadCams() })),
-      h('label', {}, 'Auflösung'), resSel,
+      h('label', {}, t('Kamera')), h('div', { class: 'conn-row' }, camSel, h('button', { class: 'ib small', title: t('Kameras neu suchen'), html: ICONS.refresh, onclick: () => loadCams() })),
+      h('label', {}, t('Auflösung')), resSel,
     ),
     h('div', { class: 'conn-row' }, connBtn, calBtn),
     preview,
     calTxt,
     h('div', { class: 'form' },
-      h('label', { class: 'check' }, show, 'Auf der Arbeitsfläche zeigen'),
-      h('label', {}, 'Deckkraft'), opacity,
-      h('label', { class: 'check', title: 'Zweimal pro Sekunde ein neues Bild holen' }, live, 'Laufend aktualisieren'),
+      h('label', { class: 'check' }, show, t('Auf der Arbeitsfläche zeigen')),
+      h('label', {}, t('Deckkraft')), opacity,
+      h('label', { class: 'check', title: t('Zweimal pro Sekunde ein neues Bild holen') }, live, t('Laufend aktualisieren')),
     ),
     h('div', { class: 'conn-row' }, updBtn, insBtn),
     msg,
@@ -305,7 +306,7 @@ async function markGCode(ed: Editor, m: MarkSettings) {
     imgLayer: (i) => ed.imgLayer(i),
     device: dev,
   });
-  return writeGCode(job, dev, estimate(job.moves, dev), 'Laserwerk Kamera-Markierungen');
+  return writeGCode(job, dev, estimate(job.moves, dev), t('Laserwerk Kamera-Markierungen'));
 }
 
 // ---------- Kalibrier-Assistent ----------
@@ -329,8 +330,8 @@ function openCalibration(ed: Editor) {
   const resTxt = h('div', { class: 'cal-result' });
 
   // --- Schritt 1: Markierungen ---
-  const nSel = h('select', {}, ...[[2, '2 × 2 (nur Ausrichtung)'], [3, '3 × 3'], [4, '4 × 4 (genauer)'], [5, '5 × 5']].map(([v, t]) =>
-    h('option', { value: String(v), selected: v === m.n }, String(t)))) as HTMLSelectElement;
+  const nSel = h('select', {}, ...[[2, t('2 × 2 (nur Ausrichtung)')], [3, '3 × 3'], [4, t('4 × 4 (genauer)')], [5, '5 × 5']].map(([v, label]) =>
+    h('option', { value: String(v), selected: v === m.n }, String(label)))) as HTMLSelectElement;
   const numField = (val: number, set: (v: number) => void) => {
     const el = numInput('', (v) => {
       if (v > 0) set(v);
@@ -347,43 +348,43 @@ function openCalibration(ed: Editor) {
     draw();
   };
   nSel.addEventListener('change', () => ((m.n = Number(nSel.value)), remark()));
-  const burnBtn = h('button', { class: 'btn primary', title: 'Markierungen mit dem verbundenen Laser auf das Material lasern' }, 'Markierungen lasern') as HTMLButtonElement;
+  const burnBtn = h('button', { class: 'btn primary', title: t('Markierungen mit dem verbundenen Laser auf das Material lasern') }, t('Markierungen lasern')) as HTMLButtonElement;
   burnBtn.disabled = !machine.connected;
   burnBtn.addEventListener('click', async () => {
-    if (!machine.connected || machine.busy) return void (info.textContent = machine.busy ? 'Es läuft bereits ein Auftrag.' : 'Nicht verbunden.');
+    if (!machine.connected || machine.busy) return void (info.textContent = machine.busy ? t('Es läuft bereits ein Auftrag.') : t('Nicht verbunden.'));
     const g = await markGCode(ed, m);
-    info.textContent = 'Markierungen werden gelasert. Danach „Weiter“.';
+    info.textContent = t('Markierungen werden gelasert. Danach „Weiter“.');
     await machine.runJob(g.lines, g.times);
   });
-  const saveBtn = h('button', { class: 'btn', title: 'Markierungen als G-Code-Datei speichern' }, 'Als G-Code speichern');
+  const saveBtn = h('button', { class: 'btn', title: t('Markierungen als G-Code-Datei speichern') }, t('Als G-Code speichern'));
   saveBtn.addEventListener('click', async () => {
     const g = await markGCode(ed, m);
     await saveText('kamera-markierungen.gcode', 'G-Code', 'gcode', 'text/plain', g.lines.join('\n') + '\n');
   });
   const step1 = h('div', { class: 'cal-step' },
-    h('div', { class: 'form-title' }, '1. Markierungen lasern'),
-    h('p', { class: 'note' }, 'Ein flaches Stück Pappe oder Sperrholz auf das ganze Bett legen und den Laser fokussieren. Die Kamera muss fest montiert sein und darf sich nach der Kalibrierung nicht mehr bewegen.'),
+    h('div', { class: 'form-title' }, t('1. Markierungen lasern')),
+    h('p', { class: 'note' }, t('Ein flaches Stück Pappe oder Sperrholz auf das ganze Bett legen und den Laser fokussieren. Die Kamera muss fest montiert sein und darf sich nach der Kalibrierung nicht mehr bewegen.')),
     h('div', { class: 'form' },
-      h('label', {}, 'Raster'), nSel,
-      h('label', {}, 'Abstand zum Rand (mm)'), numField(m.margin, (v) => (m.margin = Math.min(v, Math.min(bedW, bedH) / 2 - 5))),
-      h('label', {}, 'Durchmesser (mm)'), numField(m.size, (v) => (m.size = v)),
-      h('label', {}, 'Geschwindigkeit (mm/min)'), numField(m.speed, (v) => (m.speed = v)),
-      h('label', {}, 'Leistung (%)'), numField(m.power, (v) => (m.power = Math.min(100, v))),
+      h('label', {}, t('Raster')), nSel,
+      h('label', {}, t('Abstand zum Rand (mm)')), numField(m.margin, (v) => (m.margin = Math.min(v, Math.min(bedW, bedH) / 2 - 5))),
+      h('label', {}, t('Durchmesser (mm)')), numField(m.size, (v) => (m.size = v)),
+      h('label', {}, t('Geschwindigkeit (mm/min)')), numField(m.speed, (v) => (m.speed = v)),
+      h('label', {}, t('Leistung (%)')), numField(m.power, (v) => (m.power = Math.min(100, v))),
     ),
     h('div', { class: 'conn-row' }, burnBtn, saveBtn),
-    h('p', { class: 'note' }, 'Die Markierungen liegen an festen Bettpositionen (absolut zum Maschinennullpunkt). Markierung 1 hat einen zweiten Ring.'),
+    h('p', { class: 'note' }, t('Die Markierungen liegen an festen Bettpositionen (absolut zum Maschinennullpunkt). Markierung 1 hat einen zweiten Ring.')),
   );
 
   // --- Schritt 2: Anklicken ---
-  const shotBtn = h('button', { class: 'btn primary' }, 'Foto aufnehmen') as HTMLButtonElement;
-  const skipBtn = h('button', { class: 'btn', title: 'Diese Markierung auslassen (z. B. verdeckt)' }, 'Überspringen') as HTMLButtonElement;
-  const backBtn = h('button', { class: 'btn', title: 'Zur vorigen Markierung' }, 'Zurück') as HTMLButtonElement;
+  const shotBtn = h('button', { class: 'btn primary' }, t('Foto aufnehmen')) as HTMLButtonElement;
+  const skipBtn = h('button', { class: 'btn', title: t('Diese Markierung auslassen (z. B. verdeckt)') }, t('Überspringen')) as HTMLButtonElement;
+  const backBtn = h('button', { class: 'btn', title: t('Zur vorigen Markierung') }, t('Zurück')) as HTMLButtonElement;
   const lensBox = h('input', { type: 'checkbox', checked: lens }) as HTMLInputElement;
   lensBox.addEventListener('change', () => ((lens = lensBox.checked), compute()));
-  const checkBtn = h('button', { class: 'btn', title: 'Entzerrtes Bild mit den Sollpositionen der Markierungen zeigen' }, 'Prüfen') as HTMLButtonElement;
+  const checkBtn = h('button', { class: 'btn', title: t('Entzerrtes Bild mit den Sollpositionen der Markierungen zeigen') }, t('Prüfen')) as HTMLButtonElement;
   shotBtn.addEventListener('click', () => {
     const g = cam.grab();
-    if (!g) return void (info.textContent = 'Kein Kamerabild.');
+    if (!g) return void (info.textContent = t('Kein Kamerabild.'));
     frame = document.createElement('canvas');
     frame.width = g.width;
     frame.height = g.height;
@@ -407,15 +408,15 @@ function openCalibration(ed: Editor) {
     draw();
   });
   const step2 = h('div', { class: 'cal-step' },
-    h('div', { class: 'form-title' }, '2. Markierungen anklicken'),
-    h('p', { class: 'note' }, 'Foto aufnehmen, dann die Mitte jeder Markierung in der angezeigten Reihenfolge anklicken. Mausrad zoomt, rechte Maustaste verschiebt das Bild, gesetzte Punkte lassen sich ziehen.'),
+    h('div', { class: 'form-title' }, t('2. Markierungen anklicken')),
+    h('p', { class: 'note' }, t('Foto aufnehmen, dann die Mitte jeder Markierung in der angezeigten Reihenfolge anklicken. Mausrad zoomt, rechte Maustaste verschiebt das Bild, gesetzte Punkte lassen sich ziehen.')),
     h('div', { class: 'conn-row' }, shotBtn, backBtn, skipBtn),
-    h('label', { class: 'check' }, lensBox, 'Linsenverzeichnung korrigieren (ab 3 × 3)'),
+    h('label', { class: 'check' }, lensBox, t('Linsenverzeichnung korrigieren (ab 3 × 3)')),
     resTxt,
     h('div', { class: 'conn-row' }, checkBtn),
   );
 
-  const saveCal = h('button', { class: 'btn primary', disabled: true }, 'Übernehmen') as HTMLButtonElement;
+  const saveCal = h('button', { class: 'btn primary', disabled: true }, t('Übernehmen')) as HTMLButtonElement;
   saveCal.addEventListener('click', () => {
     if (!result) return;
     s.calib = result;
@@ -429,13 +430,13 @@ function openCalibration(ed: Editor) {
   });
 
   const dlg = h('dialog', { class: 'camera-dialog' },
-    h('h3', {}, 'Kamera kalibrieren und ausrichten'),
+    h('h3', {}, t('Kamera kalibrieren und ausrichten')),
     h('div', { class: 'cal-body' },
       h('div', { class: 'cal-left' }, sketch, step1, step2, info),
       h('div', { class: 'cal-right' }, view),
     ),
     h('div', { class: 'dialog-buttons' },
-      h('button', { class: 'btn', onclick: () => dlg.close() }, 'Abbrechen'),
+      h('button', { class: 'btn', onclick: () => dlg.close() }, t('Abbrechen')),
       saveCal,
     ),
   );
@@ -520,13 +521,13 @@ function openCalibration(ed: Editor) {
     saveCal.disabled = !result;
     checkBtn.disabled = !result;
     if (!frame) resTxt.textContent = '';
-    else if (bed.length < 4) resTxt.textContent = `Noch ${4 - bed.length} Markierung${4 - bed.length > 1 ? 'en' : ''} bis zur ersten Berechnung.`;
-    else if (!result) resTxt.textContent = 'Keine Lösung: Reihenfolge der Punkte prüfen.';
+    else if (bed.length < 4) resTxt.textContent = tn('Noch {n} Markierung bis zur ersten Berechnung.', 'Noch {n} Markierungen bis zur ersten Berechnung.', 4 - bed.length);
+    else if (!result) resTxt.textContent = t('Keine Lösung: Reihenfolge der Punkte prüfen.');
     else {
-      const f = (v: number) => v.toFixed(2).replace('.', ',');
+      const f = (v: number) => dec(v.toFixed(2));
       const bad = result.maxErr > 1.5;
-      resTxt.textContent = `${bed.length} Markierungen: Restfehler ⌀ ${f(result.err)} mm, max. ${f(result.maxErr)} mm.` +
-        (bad ? ' Ein Punkt liegt deutlich daneben: Reihenfolge und Klick prüfen.' : '');
+      resTxt.textContent = t('{n} Markierungen: Restfehler ⌀ {err} mm, max. {maxErr} mm.', { n: bed.length, err: f(result.err), maxErr: f(result.maxErr) }) +
+        (bad ? t(' Ein Punkt liegt deutlich daneben: Reihenfolge und Klick prüfen.') : '');
       resTxt.classList.toggle('error', bad);
     }
     draw();
@@ -609,7 +610,7 @@ function openCalibration(ed: Editor) {
       c.fillStyle = getComputedStyle(dlg).getPropertyValue('--muted') || '#888';
       c.font = '13px sans-serif';
       c.textAlign = 'center';
-      c.fillText(cam.open ? 'Nach dem Lasern „Foto aufnehmen“.' : 'Kamera nicht verbunden.', r.width / 2, r.height / 2);
+      c.fillText(cam.open ? t('Nach dem Lasern „Foto aufnehmen“.') : t('Kamera nicht verbunden.'), r.width / 2, r.height / 2);
       skipBtn.disabled = backBtn.disabled = true;
       return;
     }
@@ -618,10 +619,10 @@ function openCalibration(ed: Editor) {
     skipBtn.disabled = mode !== 'click' || cur >= targets.length;
     backBtn.disabled = mode !== 'click' || cur === 0;
     if (mode === 'check') {
-      info.textContent = 'Entzerrtes Bild: Die roten Kreise sollten genau auf den gelaserten Markierungen liegen. „Prüfen“ schaltet zurück.';
+      info.textContent = t('Entzerrtes Bild: Die roten Kreise sollten genau auf den gelaserten Markierungen liegen. „Prüfen“ schaltet zurück.');
       return;
     }
-    info.textContent = cur < targets.length ? `Markierung ${cur + 1} von ${targets.length} anklicken.` : 'Alle Markierungen gesetzt.';
+    info.textContent = cur < targets.length ? t('Markierung {cur} von {targets} anklicken.', { cur: cur + 1, targets: targets.length }) : t('Alle Markierungen gesetzt.');
     // Gesetzte Punkte
     clicks.forEach((p, i) => {
       if (!p) return;
@@ -683,6 +684,6 @@ function openCalibration(ed: Editor) {
   dlg.addEventListener('keydown', (e) => e.stopPropagation());
   document.body.append(dlg);
   dlg.showModal();
-  if (s.calib) info.textContent = 'Die Kamera ist schon kalibriert. Eine neue Kalibrierung ersetzt die alte erst mit „Übernehmen“.';
+  if (s.calib) info.textContent = t('Die Kamera ist schon kalibriert. Eine neue Kalibrierung ersetzt die alte erst mit „Übernehmen“.');
   draw();
 }

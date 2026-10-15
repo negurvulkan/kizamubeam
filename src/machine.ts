@@ -1,6 +1,7 @@
 // Verbindung zur Maschine (FluidNC/GRBL). Die eigentliche Kommunikation läuft im Rust-Kern (src-tauri/src/machine.rs);
 // hier liegen Zustand, Statusauswertung und die Befehle für die Oberfläche.
 import { Device, FIRMWARES } from './gcode';
+import { t, tBackend } from './i18n';
 
 export const isTauri = () => '__TAURI_INTERNALS__' in window;
 
@@ -36,27 +37,27 @@ export interface PortInfo {
 
 /** Klartext für FluidNC-/GRBL-Alarme und häufige Fehler */
 const ALARMS: Record<string, string> = {
-  '1': 'Endschalter ausgelöst, Position unsicher. Neu referenzieren (Home).',
-  '2': 'Ziel außerhalb des Arbeitsbereichs (Soft-Limit).',
-  '3': 'Zurückgesetzt während der Bewegung, Position unsicher. Neu referenzieren.',
-  '4': 'Sonde nicht im erwarteten Zustand.',
-  '5': 'Sonde hat nicht ausgelöst.',
-  '6': 'Referenzfahrt abgebrochen.',
-  '7': 'Referenzfahrt: Tür geöffnet.',
-  '8': 'Referenzfahrt: Endschalter nicht freigefahren.',
-  '9': 'Referenzfahrt: Endschalter nicht gefunden.',
-  '10': 'Referenzfahrt: Endschalter doppelt ausgelöst.',
+  '1': t('Endschalter ausgelöst, Position unsicher. Neu referenzieren (Home).'),
+  '2': t('Ziel außerhalb des Arbeitsbereichs (Soft-Limit).'),
+  '3': t('Zurückgesetzt während der Bewegung, Position unsicher. Neu referenzieren.'),
+  '4': t('Sonde nicht im erwarteten Zustand.'),
+  '5': t('Sonde hat nicht ausgelöst.'),
+  '6': t('Referenzfahrt abgebrochen.'),
+  '7': t('Referenzfahrt: Tür geöffnet.'),
+  '8': t('Referenzfahrt: Endschalter nicht freigefahren.'),
+  '9': t('Referenzfahrt: Endschalter nicht gefunden.'),
+  '10': t('Referenzfahrt: Endschalter doppelt ausgelöst.'),
 };
 const ERRORS: Record<string, string> = {
-  '1': 'Befehl ohne Buchstaben',
-  '2': 'Zahl fehlt oder ist ungültig',
-  '3': 'Unbekannter $-Befehl',
-  '9': 'Gesperrt (Alarm). Mit $X entsperren oder Home fahren.',
-  '15': 'Fahrweg außerhalb des Arbeitsbereichs',
-  '20': 'Nicht unterstützter G-Code-Befehl',
-  '22': 'Vorschub fehlt',
-  '24': 'Zwei G-Code-Befehle derselben Gruppe in einer Zeile',
-  '33': 'Ziel ungültig',
+  '1': t('Befehl ohne Buchstaben'),
+  '2': t('Zahl fehlt oder ist ungültig'),
+  '3': t('Unbekannter $-Befehl'),
+  '9': t('Gesperrt (Alarm). Mit $X entsperren oder Home fahren.'),
+  '15': t('Fahrweg außerhalb des Arbeitsbereichs'),
+  '20': t('Nicht unterstützter G-Code-Befehl'),
+  '22': t('Vorschub fehlt'),
+  '24': t('Zwei G-Code-Befehle derselben Gruppe in einer Zeile'),
+  '33': t('Ziel ungültig'),
 };
 
 export function explain(line: string): string | null {
@@ -158,14 +159,14 @@ class Machine {
         this.jobTimes = null;
         this.jobIsFrame = false;
         this.emit({ type: 'progress' });
-        if (!frame || !e.payload.ok) this.emit({ type: 'done', ...e.payload });
+        if (!frame || !e.payload.ok) this.emit({ type: 'done', ok: e.payload.ok, message: tBackend(e.payload.message) });
       }),
       await listen<string>('machine-closed', (e) => {
         this.connected = false;
         this.progress = null;
         this.status = { state: '', mpos: null, wpos: null, feed: 0, power: 0 };
-        if (e.payload) this.log(e.payload, 'error');
-        this.log('Verbindung getrennt.');
+        if (e.payload) this.log(tBackend(e.payload), 'error');
+        this.log(t('Verbindung getrennt.'));
         this.emit({ type: 'connection' });
       }),
     );
@@ -192,7 +193,7 @@ class Machine {
 
   async connect(d: Device) {
     if (!isTauri()) {
-      this.log('Die Maschinenanbindung gibt es nur in der Desktop-App.', 'error');
+      this.log(t('Die Maschinenanbindung gibt es nur in der Desktop-App.'), 'error');
       return;
     }
     if (this.connected || this.connecting) return;
@@ -202,7 +203,7 @@ class Machine {
       await this.listen();
       const { invoke } = await import('@tauri-apps/api/core');
       const where = d.conn === 'serial' ? d.port : `${d.host}:${d.tcpPort}`;
-      this.log(`Verbinde mit ${where} …`);
+      this.log(t('Verbinde mit {where} …', { where }));
       const fw = FIRMWARES[d.fw];
       this.fw = fw;
       await invoke('machine_connect', {
@@ -211,10 +212,10 @@ class Machine {
       });
       this.connected = true;
       this.where = where;
-      this.log(`Verbunden mit ${where}.`);
+      this.log(t('Verbunden mit {where}.', { where }));
       if (d.homeOnConnect) await this.send(fw.home);
     } catch (e) {
-      this.log(`Verbindung fehlgeschlagen: ${e}`, 'error');
+      this.log(t('Verbindung fehlgeschlagen: {error}', { error: tBackend(String(e)) }), 'error');
     } finally {
       this.connecting = false;
       this.emit({ type: 'connection' });
@@ -229,13 +230,13 @@ class Machine {
 
   /** Eine Zeile senden (Konsole, Bewegen, Home …). Wird abgelehnt, solange ein Job läuft. */
   async send(line: string) {
-    if (!this.connected) return this.log('Nicht verbunden.', 'error');
+    if (!this.connected) return this.log(t('Nicht verbunden.'), 'error');
     const { invoke } = await import('@tauri-apps/api/core');
     this.log(line, 'out');
     try {
       await invoke('machine_send', { line });
     } catch (e) {
-      this.log(String(e), 'error');
+      this.log(tBackend(String(e)), 'error');
     }
   }
 
@@ -247,8 +248,8 @@ class Machine {
   }
 
   async runJob(lines: string[], times: Float64Array | null, frame = false) {
-    if (!this.connected) return this.log('Nicht verbunden.', 'error');
-    if (this.busy) return this.log('Es läuft bereits ein Auftrag.', 'error');
+    if (!this.connected) return this.log(t('Nicht verbunden.'), 'error');
+    if (this.busy) return this.log(t('Es läuft bereits ein Auftrag.'), 'error');
     const { invoke } = await import('@tauri-apps/api/core');
     this.jobTimes = times;
     this.jobIsFrame = frame;
@@ -261,7 +262,7 @@ class Machine {
       this.progress = null;
       this.jobTimes = null;
       this.emit({ type: 'progress' });
-      this.log(String(e), 'error');
+      this.log(tBackend(String(e)), 'error');
     }
   }
 
@@ -280,7 +281,7 @@ class Machine {
     if (!this.connected) return;
     const { invoke } = await import('@tauri-apps/api/core');
     await invoke('machine_stop');
-    this.log('Gestoppt.', 'info');
+    this.log(t('Gestoppt.'), 'info');
   }
 
   /** Geschätzte Restzeit des laufenden Jobs in Sekunden */

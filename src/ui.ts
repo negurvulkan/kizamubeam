@@ -13,6 +13,7 @@ import { buildLaser, frameJob, openDeviceDialog, openDevicesDialog, openPreview,
 import { openLayerDialog } from './layerdialog';
 import { openMaterialTestDialog } from './materialtest';
 import { BoolBase } from './ops';
+import { dec, LangPref, LANGUAGES, setLangPref, t, tn } from './i18n';
 
 const FONT_CANDIDATES = [
   'Arial', 'Helvetica', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Segoe UI', 'Calibri', 'Times New Roman', 'Georgia',
@@ -78,6 +79,7 @@ function initTheme(ed: Editor) {
 }
 
 export function buildUI(ed: Editor) {
+  translateStatic();
   initTheme(ed);
   buildMenu(ed);
   buildToolbar(ed);
@@ -102,102 +104,126 @@ export function buildUI(ed: Editor) {
   });
 }
 
+// ---------- Sprache ----------
+
+/** Sprachwahl speichern; die Oberfläche wird dafür neu aufgebaut (Neuladen), die Zeichnung bleibt. */
+function changeLanguage(ed: Editor, p: LangPref) {
+  if (!setLangPref(p)) return;
+  if (confirm(t('Für den Sprachwechsel wird die Oberfläche neu geladen. Die Zeichnung bleibt erhalten, der Rückgängig-Verlauf nicht. Jetzt neu laden?'))) {
+    ed.saveNow();
+    location.reload();
+  } else ed.hint = t('Die neue Sprache gilt ab dem nächsten Start.');
+  ed.emit('tool');
+}
+
+/** Feste Texte aus index.html */
+function translateStatic() {
+  document.title = 'Laserwerk';
+  $('#layers-panel .panel-title').textContent = t('Schnitte / Layer');
+  $('#laser-panel .panel-title').textContent = t('Laser');
+  ($('#texteditor textarea') as HTMLTextAreaElement).placeholder = t('Text eingeben …');
+  $('#texteditor .hint').textContent = t('Enter: neue Zeile · Ctrl+Enter oder Esc: fertig');
+}
+
 // ---------- Menü ----------
 
 type MenuItem = [label: string, key: string, action: () => void] | 'sep';
 
 function buildMenu(ed: Editor) {
   const menus: [string, MenuItem[]][] = [
-    ['Datei', [
-      ['Neu', '', () => ed.newDocument()],
-      ['Öffnen …', '', () => openProject(ed)],
-      ['Speichern …', '', () => saveProject(ed)],
+    [t('Datei'), [
+      [t('Neu'), '', () => ed.newDocument()],
+      [t('Öffnen …'), '', () => openProject(ed)],
+      [t('Speichern …'), '', () => saveProject(ed)],
       'sep',
-      ['Importieren …', 'Ctrl+I', () => importFile(ed)],
-      ['Als SVG exportieren …', '', () => exportSvg(ed)],
-      ['Bearbeitetes Bild speichern …', '', () => saveProcessedBitmap(ed)],
+      [t('Importieren …'), 'Ctrl+I', () => importFile(ed)],
+      [t('Als SVG exportieren …'), '', () => exportSvg(ed)],
+      [t('Bearbeitetes Bild speichern …'), '', () => saveProcessedBitmap(ed)],
     ]],
-    ['Bearbeiten', [
-      ['Rückgängig', 'Ctrl+Z', () => ed.doUndo()],
-      ['Wiederholen', 'Ctrl+Y', () => ed.doRedo()],
+    [t('Bearbeiten'), [
+      [t('Rückgängig'), 'Ctrl+Z', () => ed.doUndo()],
+      [t('Wiederholen'), 'Ctrl+Y', () => ed.doRedo()],
       'sep',
-      ['Ausschneiden', 'Ctrl+X', () => ed.cut()],
-      ['Kopieren', 'Ctrl+C', () => ed.copy()],
-      ['Einfügen', 'Ctrl+V', () => ed.paste()],
-      ['Duplizieren', 'Ctrl+D', () => ed.duplicate()],
-      ['Löschen', 'Entf', () => ed.deleteSel()],
+      [t('Ausschneiden'), 'Ctrl+X', () => ed.cut()],
+      [t('Kopieren'), 'Ctrl+C', () => ed.copy()],
+      [t('Einfügen'), 'Ctrl+V', () => ed.paste()],
+      [t('Duplizieren'), 'Ctrl+D', () => ed.duplicate()],
+      [t('Löschen'), t('Entf'), () => ed.deleteSel()],
       'sep',
-      ['Alles auswählen', 'Ctrl+A', () => ed.selectAll()],
-      ['In Pfad umwandeln', 'Ctrl+Shift+C', () => ed.convertSelToPath()],
+      [t('Alles auswählen'), 'Ctrl+A', () => ed.selectAll()],
+      [t('In Pfad umwandeln'), 'Ctrl+Shift+C', () => ed.convertSelToPath()],
     ]],
-    ['Werkzeuge', [
-      ['Auswählen', 'Esc', () => ed.setTool('select')],
-      ['Knoten bearbeiten', 'Ctrl+`', () => ed.setTool('node')],
-      ['Linien zeichnen', 'Ctrl+L', () => ed.setTool('line')],
-      ['Rechteck', 'Ctrl+R', () => ed.setTool('rect')],
-      ['Ellipse', 'Ctrl+E', () => ed.setTool('ellipse')],
-      ['Polygon', '', () => ed.setTool('polygon')],
-      ['Text', 'Ctrl+T', () => ed.setTool('text')],
+    [t('Werkzeuge'), [
+      [t('Auswählen'), 'Esc', () => ed.setTool('select')],
+      [t('Knoten bearbeiten'), 'Ctrl+`', () => ed.setTool('node')],
+      [t('Linien zeichnen'), 'Ctrl+L', () => ed.setTool('line')],
+      [t('Rechteck'), 'Ctrl+R', () => ed.setTool('rect')],
+      [t('Ellipse'), 'Ctrl+E', () => ed.setTool('ellipse')],
+      [t('Polygon'), '', () => ed.setTool('polygon')],
+      [t('Text'), 'Ctrl+T', () => ed.setTool('text')],
       'sep',
-      ['Vereinen', '', () => ed.booleanSel('union')],
-      ['Abziehen', '', () => ed.booleanSel('subtract')],
-      ['Vordere vom hinteren abziehen', '', () => ed.booleanSel('subtract', 'back')],
-      ['Hintere vom vorderen abziehen', '', () => ed.booleanSel('subtract', 'front')],
-      ['Schnittmenge', '', () => ed.booleanSel('intersect')],
-      ['Boolesche Optionen …', '', () => openBooleanDialog(ed)],
-      ['Offset …', 'Alt+O', () => openOffsetDialog(ed)],
-      ['Rasterarray …', 'Ctrl+Shift+A', () => openGridArrayDialog(ed)],
-      ['Kreisarray …', '', () => openCircularArrayDialog(ed)],
-      ['Verbindungen (Zinken, Zapfen, Keil, T-Slot) …', '', () => ed.setTool('joint')],
-      ['Biegeschnitte (Living Hinge) …', '', () => openHingeDialog(ed)],
+      [t('Vereinen'), '', () => ed.booleanSel('union')],
+      [t('Abziehen'), '', () => ed.booleanSel('subtract')],
+      [t('Vordere vom hinteren abziehen'), '', () => ed.booleanSel('subtract', 'back')],
+      [t('Hintere vom vorderen abziehen'), '', () => ed.booleanSel('subtract', 'front')],
+      [t('Schnittmenge'), '', () => ed.booleanSel('intersect')],
+      [t('Boolesche Optionen …'), '', () => openBooleanDialog(ed)],
+      [t('Offset …'), 'Alt+O', () => openOffsetDialog(ed)],
+      [t('Rasterarray …'), 'Ctrl+Shift+A', () => openGridArrayDialog(ed)],
+      [t('Kreisarray …'), '', () => openCircularArrayDialog(ed)],
+      [t('Verbindungen (Zinken, Zapfen, Keil, T-Slot) …'), '', () => ed.setTool('joint')],
+      [t('Biegeschnitte (Living Hinge) …'), '', () => openHingeDialog(ed)],
       'sep',
-      ['Bild anpassen …', '', () => openAdjustDialog(ed)],
-      ['Bild nachzeichnen …', 'Alt+T', () => openTraceDialog(ed)],
+      [t('Bild anpassen …'), '', () => openAdjustDialog(ed)],
+      [t('Bild nachzeichnen …'), 'Alt+T', () => openTraceDialog(ed)],
     ]],
-    ['Anordnen', [
-      ['Gruppieren', 'Ctrl+G', () => ed.group()],
-      ['Gruppierung aufheben', 'Ctrl+U', () => ed.ungroup()],
+    [t('Anordnen'), [
+      [t('Gruppieren'), 'Ctrl+G', () => ed.group()],
+      [t('Gruppierung aufheben'), 'Ctrl+U', () => ed.ungroup()],
       'sep',
-      ['Horizontal spiegeln', 'Ctrl+Shift+H', () => ed.mirror(true)],
-      ['Vertikal spiegeln', 'Ctrl+Shift+V', () => ed.mirror(false)],
-      ['90° im Uhrzeigersinn', '.', () => ed.rotateBy(-90)],
-      ['90° gegen Uhrzeigersinn', ',', () => ed.rotateBy(90)],
+      [t('Horizontal spiegeln'), 'Ctrl+Shift+H', () => ed.mirror(true)],
+      [t('Vertikal spiegeln'), 'Ctrl+Shift+V', () => ed.mirror(false)],
+      [t('90° im Uhrzeigersinn'), '.', () => ed.rotateBy(-90)],
+      [t('90° gegen Uhrzeigersinn'), ',', () => ed.rotateBy(90)],
       'sep',
-      ['Links ausrichten', 'L', () => ed.align('left')],
-      ['Rechts ausrichten', 'R', () => ed.align('right')],
-      ['Oben ausrichten', 'T', () => ed.align('top')],
-      ['Unten ausrichten', 'B', () => ed.align('bottom')],
-      ['Mitten horizontal', 'C', () => ed.align('hcenter')],
-      ['Mitten vertikal', 'E', () => ed.align('vcenter')],
-      ['Horizontal verteilen', '', () => ed.distribute(true)],
-      ['Vertikal verteilen', '', () => ed.distribute(false)],
+      [t('Links ausrichten'), 'L', () => ed.align('left')],
+      [t('Rechts ausrichten'), 'R', () => ed.align('right')],
+      [t('Oben ausrichten'), 'T', () => ed.align('top')],
+      [t('Unten ausrichten'), 'B', () => ed.align('bottom')],
+      [t('Mitten horizontal'), 'C', () => ed.align('hcenter')],
+      [t('Mitten vertikal'), 'E', () => ed.align('vcenter')],
+      [t('Horizontal verteilen'), '', () => ed.distribute(true)],
+      [t('Vertikal verteilen'), '', () => ed.distribute(false)],
     ]],
-    ['Laser', [
-      ['Vorschau …', 'Alt+P', () => openPreview(ed)],
-      ['G-Code speichern …', '', () => saveGCode(ed)],
+    [t('Laser'), [
+      [t('Vorschau …'), 'Alt+P', () => openPreview(ed)],
+      [t('G-Code speichern …'), '', () => saveGCode(ed)],
       'sep',
-      ['Start', '', () => startJob(ed)],
-      ['Rahmen', '', () => frameJob(ed, false)],
-      ['Kontur-Rahmen', '', () => frameJob(ed, true)],
+      [t('Start'), '', () => startJob(ed)],
+      [t('Rahmen'), '', () => frameJob(ed, false)],
+      [t('Kontur-Rahmen'), '', () => frameJob(ed, true)],
       'sep',
-      ['Materialtest …', '', () => openMaterialTestDialog(ed)],
+      [t('Materialtest …'), '', () => openMaterialTestDialog(ed)],
       'sep',
-      ['Geräte …', '', () => openDevicesDialog(ed)],
-      ['Geräteeinstellungen …', '', () => openDeviceDialog(ed)],
+      [t('Geräte …'), '', () => openDevicesDialog(ed)],
+      [t('Geräteeinstellungen …'), '', () => openDeviceDialog(ed)],
     ]],
-    ['Ansicht', [
-      ['Ganze Seite', 'Ctrl+0', () => ed.zoomPage()],
-      ['Auf Auswahl zoomen', '', () => ed.zoomSelection()],
-      ['Vergrößern', '+', () => ed.zoomAt(1.25)],
-      ['Verkleinern', '-', () => ed.zoomAt(0.8)],
+    [t('Ansicht'), [
+      [t('Ganze Seite'), 'Ctrl+0', () => ed.zoomPage()],
+      [t('Auf Auswahl zoomen'), '', () => ed.zoomSelection()],
+      [t('Vergrößern'), '+', () => ed.zoomAt(1.25)],
+      [t('Verkleinern'), '-', () => ed.zoomAt(0.8)],
       'sep',
-      ['Drahtgitter / Gefüllt', 'Alt+W', () => ((ed.filled = !ed.filled), ed.emit('view'))],
+      [t('Drahtgitter / Gefüllt'), 'Alt+W', () => ((ed.filled = !ed.filled), ed.emit('view'))],
       'sep',
-      ['Design: wie System', '', () => applyTheme(ed, 'system')],
-      ['Design: hell', '', () => applyTheme(ed, 'light')],
-      ['Design: dunkel', '', () => applyTheme(ed, 'dark')],
+      [t('Design: wie System'), '', () => applyTheme(ed, 'system')],
+      [t('Design: hell'), '', () => applyTheme(ed, 'light')],
+      [t('Design: dunkel'), '', () => applyTheme(ed, 'dark')],
+      'sep',
+      [t('Sprache: wie System'), '', () => changeLanguage(ed, 'system')],
+      ...LANGUAGES.map(([code, name]): MenuItem => [`${t('Sprache')}: ${name}`, '', () => changeLanguage(ed, code)]),
     ]],
-    ['Hilfe', [['Tastenkürzel', 'F1', () => showHelp()]]],
+    [t('Hilfe'), [[t('Tastenkürzel'), 'F1', () => showHelp()]]],
   ];
   const bar = $('#menubar');
   let openMenu: HTMLElement | null = null;
@@ -246,33 +272,33 @@ function buildMenu(ed: Editor) {
 
 function showHelp() {
   const rows: [string, string][] = [
-    ['Esc', 'Auswahlwerkzeug / Auswahl aufheben'],
-    ['Ctrl+L / R / E / T', 'Linie / Rechteck / Ellipse / Text'],
-    ['Ctrl+`', 'Knoten bearbeiten'],
-    ['Klick auf Auswahl', 'Zwischen Skalieren und Drehen wechseln'],
-    ['Shift / Ctrl beim Ziehen', 'Proportional bzw. frei / von der Mitte'],
-    ['Pfeiltasten', '1 mm verschieben (Shift 10 mm, Alt 0,1 mm)'],
-    ['. und ,', '90° drehen'],
-    ['L R T B C E', 'Ausrichten (mehrere Objekte gewählt)'],
-    ['Leertaste + Ziehen, Mitteltaste', 'Ansicht verschieben'],
-    ['Mausrad', 'Zoomen'],
-    ['Knoten: D I C S', 'Löschen, Einfügen, Ecke, Glatt'],
-    ['Alt+W', 'Drahtgitter / Gefüllt'],
-    ['Ctrl beim Ziehen', 'Fangen vorübergehend umkehren (aus, wenn eingeschaltet)'],
-    ['Alt beim Ziehen', 'Stärker fangen und Ausrichtungshilfen an anderen Objekten'],
-    ['Aus dem Lineal ziehen', 'Hilfslinie auf T1 (zurück ins Lineal: verwerfen)'],
-    ['Ctrl+I', 'Importieren (Bilder, SVG, DXF); Dateien auch auf die Arbeitsfläche ziehen oder mit Ctrl+V einfügen'],
-    ['Ctrl+Shift+A', 'Rasterarray'],
-    ['Alt+T', 'Bild nachzeichnen'],
-    ['Alt+P', 'Vorschau mit Zeitschätzung'],
-    ['Palette', 'Farbe anklicken = Auswahl diesem Layer zuordnen'],
+    ['Esc', t('Auswahlwerkzeug / Auswahl aufheben')],
+    ['Ctrl+L / R / E / T', t('Linie / Rechteck / Ellipse / Text')],
+    ['Ctrl+`', t('Knoten bearbeiten')],
+    [t('Klick auf Auswahl'), t('Zwischen Skalieren und Drehen wechseln')],
+    [t('Shift / Ctrl beim Ziehen'), t('Proportional bzw. frei / von der Mitte')],
+    [t('Pfeiltasten'), t('1 mm verschieben (Shift 10 mm, Alt 0,1 mm)')],
+    [t('. und ,'), t('90° drehen')],
+    ['L R T B C E', t('Ausrichten (mehrere Objekte gewählt)')],
+    [t('Leertaste + Ziehen, Mitteltaste'), t('Ansicht verschieben')],
+    [t('Mausrad'), t('Zoomen')],
+    [t('Knoten: D I L C E S'), t('Löschen, Einfügen, Gerade, Kurve, Ecke, Glatt')],
+    ['Alt+W', t('Drahtgitter / Gefüllt')],
+    [t('Ctrl beim Ziehen'), t('Fangen vorübergehend umkehren (aus, wenn eingeschaltet)')],
+    [t('Alt beim Ziehen'), t('Stärker fangen und Ausrichtungshilfen an anderen Objekten')],
+    [t('Aus dem Lineal ziehen'), t('Hilfslinie auf T1 (zurück ins Lineal: verwerfen)')],
+    ['Ctrl+I', t('Importieren (Bilder, SVG, DXF); Dateien auch auf die Arbeitsfläche ziehen oder mit Ctrl+V einfügen')],
+    ['Ctrl+Shift+A', t('Rasterarray')],
+    ['Alt+T', t('Bild nachzeichnen')],
+    ['Alt+P', t('Vorschau mit Zeitschätzung')],
+    [t('Palette'), t('Farbe anklicken = Auswahl diesem Layer zuordnen')],
   ];
   const dlg = h(
     'dialog',
     {},
-    h('h3', {}, 'Tastenkürzel'),
+    h('h3', {}, t('Tastenkürzel')),
     h('table', {}, ...rows.map(([k, d]) => h('tr', {}, h('td', {}, h('kbd', {}, k)), h('td', {}, d)))),
-    h('p', {}, h('button', { class: 'btn', onclick: () => dlg.close() }, 'Schließen')),
+    h('p', {}, h('button', { class: 'btn', onclick: () => dlg.close() }, t('Schließen'))),
   );
   dlg.addEventListener('close', () => dlg.remove());
   document.body.append(dlg);
@@ -292,49 +318,49 @@ function buildToolbar(ed: Editor) {
     bar.append(b);
     return b;
   };
-  add(null, 'new', 'Neu (rückgängig machbar)', () => ed.newDocument());
-  add(null, 'open', 'Öffnen', () => openProject(ed));
-  add(null, 'save', 'Speichern', () => saveProject(ed));
-  add(null, 'import', 'Importieren: Bilder, SVG, DXF (Ctrl+I)', () => importFile(ed));
-  add(null, 'export', 'Als SVG exportieren', () => exportSvg(ed));
+  add(null, 'new', t('Neu (rückgängig machbar)'), () => ed.newDocument());
+  add(null, 'open', t('Öffnen'), () => openProject(ed));
+  add(null, 'save', t('Speichern'), () => saveProject(ed));
+  add(null, 'import', t('Importieren: Bilder, SVG, DXF (Ctrl+I)'), () => importFile(ed));
+  add(null, 'export', t('Als SVG exportieren'), () => exportSvg(ed));
   bar.append(sep());
-  add(null, 'undo', 'Rückgängig (Ctrl+Z)', () => ed.doUndo());
-  add(null, 'redo', 'Wiederholen (Ctrl+Y)', () => ed.doRedo());
+  add(null, 'undo', t('Rückgängig (Ctrl+Z)'), () => ed.doUndo());
+  add(null, 'redo', t('Wiederholen (Ctrl+Y)'), () => ed.doRedo());
   bar.append(sep());
-  add(needSel, 'cut', 'Ausschneiden (Ctrl+X)', () => ed.cut());
-  add(needSel, 'copy', 'Kopieren (Ctrl+C)', () => ed.copy());
-  add(null, 'paste', 'Einfügen (Ctrl+V)', () => ed.paste());
-  add(needSel, 'delete', 'Löschen (Entf)', () => ed.deleteSel());
+  add(needSel, 'cut', t('Ausschneiden (Ctrl+X)'), () => ed.cut());
+  add(needSel, 'copy', t('Kopieren (Ctrl+C)'), () => ed.copy());
+  add(null, 'paste', t('Einfügen (Ctrl+V)'), () => ed.paste());
+  add(needSel, 'delete', t('Löschen (Entf)'), () => ed.deleteSel());
   bar.append(sep());
-  add(null, 'zoomin', 'Vergrößern (+)', () => ed.zoomAt(1.25));
-  add(null, 'zoomout', 'Verkleinern (-)', () => ed.zoomAt(0.8));
-  add(null, 'zoompage', 'Ganze Seite (Ctrl+0)', () => ed.zoomPage());
-  add(needSel, 'zoomsel', 'Auf Auswahl zoomen', () => ed.zoomSelection());
+  add(null, 'zoomin', t('Vergrößern (+)'), () => ed.zoomAt(1.25));
+  add(null, 'zoomout', t('Verkleinern (-)'), () => ed.zoomAt(0.8));
+  add(null, 'zoompage', t('Ganze Seite (Ctrl+0)'), () => ed.zoomPage());
+  add(needSel, 'zoomsel', t('Auf Auswahl zoomen'), () => ed.zoomSelection());
   bar.append(sep());
-  add(null, 'preview', 'Vorschau (Alt+P)', () => openPreview(ed));
-  add(null, 'settings', 'Geräteeinstellungen', () => openDeviceDialog(ed));
+  add(null, 'preview', t('Vorschau (Alt+P)'), () => openPreview(ed));
+  add(null, 'settings', t('Geräteeinstellungen'), () => openDeviceDialog(ed));
   bar.append(sep());
-  add(needMulti, 'group', 'Gruppieren (Ctrl+G)', () => ed.group());
-  add(needSel, 'ungroup', 'Gruppierung aufheben (Ctrl+U)', () => ed.ungroup());
-  add(needSel, 'mirrorh', 'Horizontal spiegeln (Ctrl+Shift+H)', () => ed.mirror(true));
-  add(needSel, 'mirrorv', 'Vertikal spiegeln (Ctrl+Shift+V)', () => ed.mirror(false));
-  add(needSel, 'rotccw', '90° gegen Uhrzeigersinn (,)', () => ed.rotateBy(90));
-  add(needSel, 'rotcw', '90° im Uhrzeigersinn (.)', () => ed.rotateBy(-90));
-  add(needSel, 'tolines', 'In Pfad umwandeln (Ctrl+Shift+C)', () => ed.convertSelToPath());
+  add(needMulti, 'group', t('Gruppieren (Ctrl+G)'), () => ed.group());
+  add(needSel, 'ungroup', t('Gruppierung aufheben (Ctrl+U)'), () => ed.ungroup());
+  add(needSel, 'mirrorh', t('Horizontal spiegeln (Ctrl+Shift+H)'), () => ed.mirror(true));
+  add(needSel, 'mirrorv', t('Vertikal spiegeln (Ctrl+Shift+V)'), () => ed.mirror(false));
+  add(needSel, 'rotccw', t('90° gegen Uhrzeigersinn (,)'), () => ed.rotateBy(90));
+  add(needSel, 'rotcw', t('90° im Uhrzeigersinn (.)'), () => ed.rotateBy(-90));
+  add(needSel, 'tolines', t('In Pfad umwandeln (Ctrl+Shift+C)'), () => ed.convertSelToPath());
   bar.append(sep());
-  add(needMulti, 'alignl', 'Links ausrichten (L)', () => ed.align('left'));
-  add(needMulti, 'alignhc', 'Mitten horizontal ausrichten (C)', () => ed.align('hcenter'));
-  add(needMulti, 'alignr', 'Rechts ausrichten (R)', () => ed.align('right'));
-  add(needMulti, 'alignt', 'Oben ausrichten (T)', () => ed.align('top'));
-  add(needMulti, 'alignvc', 'Mitten vertikal ausrichten (E)', () => ed.align('vcenter'));
-  add(needMulti, 'alignb', 'Unten ausrichten (B)', () => ed.align('bottom'));
-  add(needThree, 'disth', 'Horizontal verteilen', () => ed.distribute(true));
-  add(needThree, 'distv', 'Vertikal verteilen', () => ed.distribute(false));
+  add(needMulti, 'alignl', t('Links ausrichten (L)'), () => ed.align('left'));
+  add(needMulti, 'alignhc', t('Mitten horizontal ausrichten (C)'), () => ed.align('hcenter'));
+  add(needMulti, 'alignr', t('Rechts ausrichten (R)'), () => ed.align('right'));
+  add(needMulti, 'alignt', t('Oben ausrichten (T)'), () => ed.align('top'));
+  add(needMulti, 'alignvc', t('Mitten vertikal ausrichten (E)'), () => ed.align('vcenter'));
+  add(needMulti, 'alignb', t('Unten ausrichten (B)'), () => ed.align('bottom'));
+  add(needThree, 'disth', t('Horizontal verteilen'), () => ed.distribute(true));
+  add(needThree, 'distv', t('Vertikal verteilen'), () => ed.distribute(false));
   bar.append(sep());
   const themeBtn = add(null, 'moon', '', () => applyTheme(ed, isDark() ? 'light' : 'dark'));
   const refreshTheme = () => {
     themeBtn.innerHTML = isDark() ? ICONS.sun : ICONS.moon;
-    themeBtn.title = isDark() ? 'Helles Design' : 'Dunkles Design';
+    themeBtn.title = isDark() ? t('Helles Design') : t('Dunkles Design');
   };
   themeListeners.add(refreshTheme);
   refreshTheme();
@@ -356,18 +382,18 @@ function buildNumbar(ed: Editor) {
     ay = 0.5,
     lock = true;
   const bed = () => ed.doc.bed;
-  const fx = numInput('num', (v) => ed.setSelBox({ x: v }, ax, ay, lock), 'X-Position (mm)');
-  const fy = numInput('num', (v) => ed.setSelBox({ y: bed().h - v }, ax, ay, lock), 'Y-Position (mm, Ursprung unten links)');
-  const fw = numInput('num', (v) => ed.setSelBox({ w: v }, ax, ay, lock), 'Breite (mm)');
-  const fh = numInput('num', (v) => ed.setSelBox({ h: v }, ax, ay, lock), 'Höhe (mm)');
+  const fx = numInput('num', (v) => ed.setSelBox({ x: v }, ax, ay, lock), t('X-Position (mm)'));
+  const fy = numInput('num', (v) => ed.setSelBox({ y: bed().h - v }, ax, ay, lock), t('Y-Position (mm, Ursprung unten links)'));
+  const fw = numInput('num', (v) => ed.setSelBox({ w: v }, ax, ay, lock), t('Breite (mm)'));
+  const fh = numInput('num', (v) => ed.setSelBox({ h: v }, ax, ay, lock), t('Höhe (mm)'));
   const fwp = numInput('small', (v) => {
     const b = ed.selBounds();
     if (b) ed.setSelBox({ w: (b.w * v) / 100 }, ax, ay, lock);
-  }, 'Breite in %');
+  }, t('Breite in %'));
   const fhp = numInput('small', (v) => {
     const b = ed.selBounds();
     if (b) ed.setSelBox({ h: (b.h * v) / 100 }, ax, ay, lock);
-  }, 'Höhe in %');
+  }, t('Höhe in %'));
   const currentRot = () => {
     if (ed.sel.length !== 1) return 0;
     const m = ed.sel[0].m;
@@ -377,14 +403,14 @@ function buildNumbar(ed: Editor) {
     const b = ed.selBounds();
     if (!b) return;
     ed.rotateBy(v - currentRot(), { x: b.x + ax * b.w, y: b.y + ay * b.h });
-  }, 'Drehung in Grad (gegen den Uhrzeigersinn)');
-  const lockBtn = h('button', { class: 'ib on', title: 'Seitenverhältnis sperren', html: ICONS.lock });
+  }, t('Drehung in Grad (gegen den Uhrzeigersinn)'));
+  const lockBtn = h('button', { class: 'ib on', title: t('Seitenverhältnis sperren'), html: ICONS.lock });
   lockBtn.addEventListener('click', () => {
     lock = !lock;
     lockBtn.classList.toggle('on', lock);
     lockBtn.innerHTML = lock ? ICONS.lock : ICONS.unlock;
   });
-  const anchor = h('div', { class: 'anchor', title: 'Bezugspunkt' });
+  const anchor = h('div', { class: 'anchor', title: t('Bezugspunkt') });
   const anchorBtns: HTMLButtonElement[] = [];
   for (let r = 0; r < 3; r++)
     for (let c = 0; c < 3; c++) {
@@ -405,21 +431,21 @@ function buildNumbar(ed: Editor) {
     'div',
     { class: 'field' },
     h('label', {}, 'X', fx), h('label', {}, 'Y', fy), anchor,
-    h('label', {}, 'B', fw), h('label', {}, 'H', fh), lockBtn,
+    h('label', {}, t('B'), fw), h('label', {}, t('H'), fh), lockBtn,
     h('label', {}, fwp, '%'), h('label', {}, fhp, '%'),
-    h('label', {}, '↻', fr, '°'), h('span', { class: 'toggle', title: 'Einheit' }, 'mm'),
+    h('label', {}, '↻', fr, '°'), h('span', { class: 'toggle', title: t('Einheit') }, 'mm'),
   );
 
   // Formeigenschaften
-  const fRad = numInput('small', (v) => ed.updateShapes('rect', { r: Math.max(0, v) }), 'Eckenradius (mm)');
-  const fSides = numInput('small', (v) => ed.updateShapes('polygon', { sides: Math.max(3, Math.min(64, Math.round(v))) }), 'Anzahl Ecken');
-  const starBtn = h('button', { class: 'toggle', title: 'Stern' }, 'Stern');
+  const fRad = numInput('small', (v) => ed.updateShapes('rect', { r: Math.max(0, v) }), t('Eckenradius (mm)'));
+  const fSides = numInput('small', (v) => ed.updateShapes('polygon', { sides: Math.max(3, Math.min(64, Math.round(v))) }), t('Anzahl Ecken'));
+  const starBtn = h('button', { class: 'toggle', title: t('Stern') }, t('Stern'));
   starBtn.addEventListener('click', () => ed.updateShapes('polygon', { star: !starBtn.classList.contains('on') }));
-  const rectProps = h('label', {}, 'Radius', fRad);
-  const polyProps = h('span', { class: 'field' }, h('label', {}, 'Ecken', fSides), starBtn);
+  const rectProps = h('label', {}, t('Radius'), fRad);
+  const polyProps = h('span', { class: 'field' }, h('label', {}, t('Ecken'), fSides), starBtn);
 
   // Text
-  const fontSel = h('select', { title: 'Schriftart' }) as HTMLSelectElement;
+  const fontSel = h('select', { title: t('Schriftart') }) as HTMLSelectElement;
   for (const f of availableFonts()) fontSel.append(h('option', { value: f }, f));
   fontSel.addEventListener('change', () => ed.updateTexts({ font: fontSel.value }));
   systemFonts().then((list) => {
@@ -428,21 +454,21 @@ function buildNumbar(ed: Editor) {
     fontSel.replaceChildren(...list.map((f) => h('option', { value: f }, f)));
     fontSel.value = list.includes(cur) ? cur : list[0];
   });
-  const fSize = numInput('small', (v) => v > 0 && ed.updateTexts({ size: v }), 'Schriftgröße (mm)');
-  const fHs = numInput('small', (v) => ed.updateTexts({ hSpace: v }), 'Zeichenabstand (mm)');
-  const fVs = numInput('small', (v) => ed.updateTexts({ vSpace: v }), 'Zeilenabstand (mm)');
+  const fSize = numInput('small', (v) => v > 0 && ed.updateTexts({ size: v }), t('Schriftgröße (mm)'));
+  const fHs = numInput('small', (v) => ed.updateTexts({ hSpace: v }), t('Zeichenabstand (mm)'));
+  const fVs = numInput('small', (v) => ed.updateTexts({ vSpace: v }), t('Zeilenabstand (mm)'));
   const tog = (label: string, key: 'bold' | 'italic' | 'upper', title: string) => {
     const b = h('button', { class: 'toggle', title }, label);
     b.addEventListener('click', () => ed.updateTexts({ [key]: !b.classList.contains('on') } as Partial<TextShape>));
     return b;
   };
-  const bBold = tog('F', 'bold', 'Fett');
+  const bBold = tog(t('F'), 'bold', t('Fett'));
   bBold.style.fontWeight = '700';
-  const bItal = tog('K', 'italic', 'Kursiv');
+  const bItal = tog(t('K'), 'italic', t('Kursiv'));
   bItal.style.fontStyle = 'italic';
-  const bUp = tog('AB', 'upper', 'Großbuchstaben');
+  const bUp = tog('AB', 'upper', t('Großbuchstaben'));
   const alignBtns = (['left', 'center', 'right'] as const).map((a) => {
-    const b = iconBtn(a === 'left' ? 'alignTextL' : a === 'center' ? 'alignTextC' : 'alignTextR', `Ausrichtung ${a === 'left' ? 'links' : a === 'center' ? 'mittig' : 'rechts'}`, () => ed.updateTexts({ align: a }));
+    const b = iconBtn(a === 'left' ? 'alignTextL' : a === 'center' ? 'alignTextC' : 'alignTextR', a === 'left' ? t('Ausrichtung links') : a === 'center' ? t('Ausrichtung mittig') : t('Ausrichtung rechts'), () => ed.updateTexts({ align: a }));
     b.style.width = b.style.height = '24px';
     b.dataset.align = a;
     return b;
@@ -450,8 +476,8 @@ function buildNumbar(ed: Editor) {
   const textProps = h(
     'div',
     { class: 'field' },
-    h('label', {}, 'Schrift', fontSel), h('label', {}, 'Höhe', fSize),
-    h('label', {}, 'Abst. H', fHs), h('label', {}, 'V', fVs), ...alignBtns, bBold, bItal, bUp,
+    h('label', {}, t('Schrift'), fontSel), h('label', {}, t('Höhe'), fSize),
+    h('label', {}, t('Abst. H'), fHs), h('label', {}, 'V', fVs), ...alignBtns, bBold, bItal, bUp,
   );
 
   // Knotenbearbeitung
@@ -461,11 +487,11 @@ function buildNumbar(ed: Editor) {
     'div',
     { class: 'field' },
     nodeInfo,
-    nodeBtn('Gerade', 'Segmente zwischen den ausgewählten Knoten in Geraden umwandeln (L)', () => ed.setSegmentType(false)),
-    nodeBtn('Kurve', 'Segmente zwischen den ausgewählten Knoten in Kurven umwandeln (C)', () => ed.setSegmentType(true)),
-    nodeBtn('Ecke', 'Ausgewählte Knoten zu Ecken machen, Anfasser entfernen (E)', () => ed.setNodeType(false)),
-    nodeBtn('Glatt', 'Ausgewählte Knoten glätten (S)', () => ed.setNodeType(true)),
-    nodeBtn('Löschen', 'Ausgewählte Knoten löschen (Entf)', () => ed.deleteNodes()),
+    nodeBtn(t('Gerade'), t('Segmente zwischen den ausgewählten Knoten in Geraden umwandeln (L)'), () => ed.setSegmentType(false)),
+    nodeBtn(t('Kurve'), t('Segmente zwischen den ausgewählten Knoten in Kurven umwandeln (C)'), () => ed.setSegmentType(true)),
+    nodeBtn(t('Ecke'), t('Ausgewählte Knoten zu Ecken machen, Anfasser entfernen (E)'), () => ed.setNodeType(false)),
+    nodeBtn(t('Glatt'), t('Ausgewählte Knoten glätten (S)'), () => ed.setNodeType(true)),
+    nodeBtn(t('Löschen'), t('Ausgewählte Knoten löschen (Entf)'), () => ed.deleteNodes()),
   );
   const sepNode = sep();
 
@@ -475,8 +501,8 @@ function buildNumbar(ed: Editor) {
     'div',
     { class: 'field' },
     h('span', { html: ICONS.image, class: 'muted icon-inline' }), imgInfo,
-    h('button', { class: 'toggle', title: 'Helligkeit, Kontrast, Gamma, Schärfen, Bildmodus', onclick: () => openAdjustDialog(ed) }, 'Anpassen …'),
-    h('button', { class: 'toggle', title: 'Bild in Vektoren umwandeln (Alt+T)', onclick: () => openTraceDialog(ed) }, 'Nachzeichnen …'),
+    h('button', { class: 'toggle', title: t('Helligkeit, Kontrast, Gamma, Schärfen, Bildmodus'), onclick: () => openAdjustDialog(ed) }, t('Anpassen …')),
+    h('button', { class: 'toggle', title: t('Bild in Vektoren umwandeln (Alt+T)'), onclick: () => openTraceDialog(ed) }, t('Nachzeichnen …')),
   );
   const sepImg = sep();
 
@@ -504,10 +530,10 @@ function buildNumbar(ed: Editor) {
         s = o.shape as ImageShape;
       const L = ed.imgLayer(o.layer);
       const g = outputGrid(s, o.m, L.interval);
-      imgInfo.textContent = imgs.length > 1 ? `${imgs.length} Bilder` : `${s.pxW} × ${s.pxH} px → ${g.cols} × ${g.rows} Punkte (${Math.round(25.4 / L.interval)} DPI)`;
+      imgInfo.textContent = imgs.length > 1 ? t('{n} Bilder', { n: imgs.length }) : t('{pxW} × {pxH} px → {cols} × {rows} Punkte ({dpi} DPI)', { pxW: s.pxW, pxH: s.pxH, cols: g.cols, rows: g.rows, dpi: Math.round(25.4 / L.interval) });
     }
     const nn = ed.nodeSelCount;
-    nodeInfo.textContent = nn ? `${nn} Knoten` : 'Knoten';
+    nodeInfo.textContent = nn ? t('{n} Knoten', { n: nn }) : t('Knoten');
     nodeProps.classList.toggle('group-disabled', ed.tool === 'node' && !ed.sel.length);
 
     const rect = ed.sel.find((o) => o.shape.kind === 'rect');
@@ -521,17 +547,17 @@ function buildNumbar(ed: Editor) {
     starBtn.classList.toggle('on', pv.star);
 
     const ts = ed.selTexts();
-    const t = ts.length ? (ts[0].shape as TextShape) : ed.textDefaults;
+    const tx = ts.length ? (ts[0].shape as TextShape) : ed.textDefaults;
     textProps.classList.toggle('group-disabled', !ts.length && ed.tool !== 'text');
-    if (![...fontSel.options].some((o) => o.value === t.font)) fontSel.append(h('option', { value: t.font }, t.font));
-    if (document.activeElement !== fontSel) fontSel.value = t.font;
-    setVal(fSize, f2(t.size));
-    setVal(fHs, f2(t.hSpace));
-    setVal(fVs, f2(t.vSpace));
-    bBold.classList.toggle('on', t.bold);
-    bItal.classList.toggle('on', t.italic);
-    bUp.classList.toggle('on', t.upper);
-    alignBtns.forEach((b) => b.classList.toggle('on', b.dataset.align === t.align));
+    if (![...fontSel.options].some((o) => o.value === tx.font)) fontSel.append(h('option', { value: tx.font }, tx.font));
+    if (document.activeElement !== fontSel) fontSel.value = tx.font;
+    setVal(fSize, f2(tx.size));
+    setVal(fHs, f2(tx.hSpace));
+    setVal(fVs, f2(tx.vSpace));
+    bBold.classList.toggle('on', tx.bold);
+    bItal.classList.toggle('on', tx.italic);
+    bUp.classList.toggle('on', tx.upper);
+    alignBtns.forEach((b) => b.classList.toggle('on', b.dataset.align === tx.align));
   };
   ed.on((w) => w !== 'view' && refresh());
   refresh();
@@ -542,13 +568,13 @@ function buildNumbar(ed: Editor) {
 function buildTools(ed: Editor) {
   const bar = $('#tools');
   const tools: [Tool, string, string][] = [
-    ['select', 'select', 'Auswählen (Esc)'],
-    ['node', 'node', 'Knoten bearbeiten (Ctrl+`)'],
-    ['line', 'line', 'Linien zeichnen (Ctrl+L)'],
-    ['rect', 'rect', 'Rechteck (Ctrl+R)'],
-    ['ellipse', 'ellipse', 'Ellipse (Ctrl+E)'],
-    ['polygon', 'polygon', 'Polygon'],
-    ['text', 'text', 'Text (Ctrl+T)'],
+    ['select', 'select', t('Auswählen (Esc)')],
+    ['node', 'node', t('Knoten bearbeiten (Ctrl+`)')],
+    ['line', 'line', t('Linien zeichnen (Ctrl+L)')],
+    ['rect', 'rect', t('Rechteck (Ctrl+R)')],
+    ['ellipse', 'ellipse', t('Ellipse (Ctrl+E)')],
+    ['polygon', 'polygon', t('Polygon')],
+    ['text', 'text', t('Text (Ctrl+T)')],
   ];
   const btns = new Map<Tool, HTMLButtonElement>();
   tools.forEach(([t, icon, title], i) => {
@@ -560,26 +586,26 @@ function buildTools(ed: Editor) {
   });
   bar.append(sep());
   const mods = [
-    iconBtn('union', 'Vereinen: alle gewählten Formen verschmelzen', () => ed.booleanSel('union')),
+    iconBtn('union', t('Vereinen: alle gewählten Formen verschmelzen'), () => ed.booleanSel('union')),
     iconBtn('subtract', '', () => ed.booleanSel('subtract')),
-    iconBtn('intersect', 'Schnittmenge: nur die gemeinsame Fläche behalten', () => ed.booleanSel('intersect')),
+    iconBtn('intersect', t('Schnittmenge: nur die gemeinsame Fläche behalten'), () => ed.booleanSel('intersect')),
   ];
-  const boolOpts = iconBtn('settings', 'Boolesche Optionen: Basis und Originale behalten', () => openBooleanDialog(ed));
+  const boolOpts = iconBtn('settings', t('Boolesche Optionen: Basis und Originale behalten'), () => openBooleanDialog(ed));
   boolOpts.classList.add('small');
-  const off = iconBtn('offset', 'Offset (Alt+O)', () => openOffsetDialog(ed));
+  const off = iconBtn('offset', t('Offset (Alt+O)'), () => openOffsetDialog(ed));
   const arrays = [
-    iconBtn('gridArray', 'Rasterarray: Auswahl in Spalten und Zeilen kopieren (Ctrl+Shift+A)', () => openGridArrayDialog(ed)),
-    iconBtn('circArray', 'Kreisarray: Auswahl im Kreis um einen Mittelpunkt kopieren', () => openCircularArrayDialog(ed)),
+    iconBtn('gridArray', t('Rasterarray: Auswahl in Spalten und Zeilen kopieren (Ctrl+Shift+A)'), () => openGridArrayDialog(ed)),
+    iconBtn('circArray', t('Kreisarray: Auswahl im Kreis um einen Mittelpunkt kopieren'), () => openCircularArrayDialog(ed)),
   ];
-  const joint = iconBtn('joint', 'Verbindung: Fingerzinken, Zapfen, Überblattung, Schnapp-, Haken-, Keil- oder T-Slot-Verbindung auf gerade Kanten anwenden', () => ed.setTool('joint'));
+  const joint = iconBtn('joint', t('Verbindung: Fingerzinken, Zapfen, Überblattung, Schnapp-, Haken-, Keil- oder T-Slot-Verbindung auf gerade Kanten anwenden'), () => ed.setTool('joint'));
   joint.dataset.tool = 'joint';
   btns.set('joint', joint);
-  const hinge = iconBtn('hinge', 'Biegeschnitte (Living Hinge): gewählte Form mit einem Schnittmuster füllen, damit sich die Platte dort biegen lässt', () => openHingeDialog(ed));
+  const hinge = iconBtn('hinge', t('Biegeschnitte (Living Hinge): gewählte Form mit einem Schnittmuster füllen, damit sich die Platte dort biegen lässt'), () => openHingeDialog(ed));
   bar.append(...mods, boolOpts, off, ...arrays, joint, hinge);
   const refresh = () => {
     btns.forEach((b, t) => b.classList.toggle('on', ed.tool === t));
     mods.forEach((b) => (b.disabled = ed.sel.length < 2));
-    mods[1].title = `Abziehen: ${BOOL_BASE_HINT[ed.boolBase]}${ed.boolKeep ? ' (Originale bleiben)' : ''}`;
+    mods[1].title = `Abziehen: ${BOOL_BASE_HINT[ed.boolBase]}${ed.boolKeep ? t(' (Originale bleiben)') : ''}`;
     off.disabled = ed.sel.length < 1;
     arrays.forEach((b) => (b.disabled = ed.sel.length < 1));
   };
@@ -596,9 +622,9 @@ function buildTools(ed: Editor) {
 // ---------- Boolesche Optionen ----------
 
 const BOOL_BASE_HINT: Record<BoolBase, string> = {
-  selection: 'weitere Formen von der zuerst gewählten abziehen',
-  back: 'vordere Formen von der hintersten abziehen',
-  front: 'hintere Formen von der vordersten abziehen',
+  selection: t('weitere Formen von der zuerst gewählten abziehen'),
+  back: t('vordere Formen von der hintersten abziehen'),
+  front: t('hintere Formen von der vordersten abziehen'),
 };
 
 function openBooleanDialog(ed: Editor) {
@@ -609,31 +635,31 @@ function openBooleanDialog(ed: Editor) {
   const dlg = h(
     'dialog',
     { class: 'offset-dialog bool-dialog' },
-    h('h3', {}, 'Boolesche Optionen'),
+    h('h3', {}, t('Boolesche Optionen')),
     h(
       'div',
       { class: 'form' },
-      h('label', {}, 'Basis'),
+      h('label', {}, t('Basis')),
       h('div', { class: 'radios column' },
-        radio('selection', 'Zuerst gewählte Form'),
-        radio('back', 'Hinterste Form (vordere werden abgezogen)'),
-        radio('front', 'Vorderste Form (hintere werden abgezogen)'),
+        radio('selection', t('Zuerst gewählte Form')),
+        radio('back', t('Hinterste Form (vordere werden abgezogen)')),
+        radio('front', t('Vorderste Form (hintere werden abgezogen)')),
       ),
-      h('label', { for: 'bool-keep' }, 'Originale behalten'),
+      h('label', { for: 'bool-keep' }, t('Originale behalten')),
       h('input', { type: 'checkbox', id: 'bool-keep', checked: keep, onchange: (e: Event) => (keep = (e.target as HTMLInputElement).checked) }),
     ),
-    h('div', { class: 'note' }, 'Die Basis bestimmt beim Abziehen, wovon abgezogen wird, und bei allen Operationen die Ebene des Ergebnisses. Vorn ist, was in der Stapelreihenfolge oben liegt (zuletzt gezeichnet).'),
+    h('div', { class: 'note' }, t('Die Basis bestimmt beim Abziehen, wovon abgezogen wird, und bei allen Operationen die Ebene des Ergebnisses. Vorn ist, was in der Stapelreihenfolge oben liegt (zuletzt gezeichnet).')),
     h(
       'div',
       { class: 'dialog-buttons' },
-      h('button', { class: 'btn', onclick: () => dlg.close() }, 'Abbrechen'),
+      h('button', { class: 'btn', onclick: () => dlg.close() }, t('Abbrechen')),
       h('button', {
         class: 'btn primary',
         onclick: () => {
           ed.setBoolOptions({ base, keep });
           dlg.close();
         },
-      }, 'Übernehmen'),
+      }, t('Übernehmen')),
     ),
   );
   dlg.addEventListener('close', () => dlg.remove());
@@ -653,39 +679,39 @@ function openOffsetDialog(ed: Editor) {
   const dist = numInput('', (v) => {
     if (v > 0) st.distance = v;
     preview();
-  }, 'Abstand in mm');
+  }, t('Abstand in mm'));
   dist.id = 'offset-distance';
   dist.value = String(st.distance);
   const radio = <T extends string>(name: string, value: T, label: string, cur: T, set: (v: T) => void) =>
     h('label', {}, h('input', { type: 'radio', name, value, checked: value === cur, onchange: () => (set(value), preview()) }), label);
   const join = h('select', { id: 'offset-join', onchange: (e: Event) => ((st.join = (e.target as HTMLSelectElement).value as typeof st.join), preview()) },
-    h('option', { value: 'round', selected: st.join === 'round' }, 'Rund'),
-    h('option', { value: 'miter', selected: st.join === 'miter' }, 'Spitz'),
-    h('option', { value: 'square', selected: st.join === 'square' }, 'Abgeschrägt'),
+    h('option', { value: 'round', selected: st.join === 'round' }, t('Rund')),
+    h('option', { value: 'miter', selected: st.join === 'miter' }, t('Spitz')),
+    h('option', { value: 'square', selected: st.join === 'square' }, t('Abgeschrägt')),
   ) as HTMLSelectElement;
   const keep = h('input', { type: 'checkbox', id: 'offset-keep', checked: st.keep, onchange: (e: Event) => (st.keep = (e.target as HTMLInputElement).checked) }) as HTMLInputElement;
   const dlg = h(
     'dialog',
     { class: 'offset-dialog' },
-    h('h3', {}, 'Offset'),
+    h('h3', {}, t('Offset')),
     h(
       'div',
       { class: 'form' },
-      h('label', { for: 'offset-distance' }, 'Abstand (mm)'), dist,
-      h('label', {}, 'Richtung'),
+      h('label', { for: 'offset-distance' }, t('Abstand (mm)')), dist,
+      h('label', {}, t('Richtung')),
       h('div', { class: 'radios' },
-        radio('dir', 'outward', 'Außen', st.direction, (v) => (st.direction = v)),
-        radio('dir', 'inward', 'Innen', st.direction, (v) => (st.direction = v)),
-        radio('dir', 'both', 'Beides', st.direction, (v) => (st.direction = v)),
+        radio('dir', 'outward', t('Außen'), st.direction, (v) => (st.direction = v)),
+        radio('dir', 'inward', t('Innen'), st.direction, (v) => (st.direction = v)),
+        radio('dir', 'both', t('Beides'), st.direction, (v) => (st.direction = v)),
       ),
-      h('label', { for: 'offset-join' }, 'Ecken'), join,
-      h('label', { for: 'offset-keep' }, 'Original behalten'), keep,
+      h('label', { for: 'offset-join' }, t('Ecken')), join,
+      h('label', { for: 'offset-keep' }, t('Original behalten')), keep,
     ),
-    h('div', { class: 'note' }, 'Orange gestrichelt: Vorschau. Offene Linien bekommen eine geschlossene Kontur im Abstand.'),
+    h('div', { class: 'note' }, t('Orange gestrichelt: Vorschau. Offene Linien bekommen eine geschlossene Kontur im Abstand.')),
     h(
       'div',
       { class: 'dialog-buttons' },
-      h('button', { class: 'btn', onclick: () => dlg.close() }, 'Abbrechen'),
+      h('button', { class: 'btn', onclick: () => dlg.close() }, t('Abbrechen')),
       h('button', {
         class: 'btn primary',
         onclick: async () => {
@@ -695,7 +721,7 @@ function openOffsetDialog(ed: Editor) {
           dlg.close();
           await ed.offsetSel({ distance: st.distance, direction: st.direction, join: st.join }, st.keep);
         },
-      }, 'Übernehmen'),
+      }, t('Übernehmen')),
     ),
   );
   dlg.addEventListener('close', () => {
@@ -719,13 +745,13 @@ function buildLayers(ed: Editor) {
     if (ed.activeLayer === null || !used.includes(ed.activeLayer)) ed.activeLayer = used[0] ?? null;
     root.replaceChildren();
     if (!used.length) {
-      root.append(h('div', { class: 'empty' }, 'Noch keine Objekte. Zeichne links eine Form oder einen Text, oder importiere ein Bild (Ctrl+I). Die Farbe unten bestimmt den Layer.'));
+      root.append(h('div', { class: 'empty' }, t('Noch keine Objekte. Zeichne links eine Form oder einen Text, oder importiere ein Bild (Ctrl+I). Die Farbe unten bestimmt den Layer.')));
       return;
     }
     const table = h(
       'table',
       { class: 'layers' },
-      h('tr', {}, ...['Nr.', 'Layer', 'Modus', 'Speed', 'Leist.', 'Air', 'Aus', 'Zeig.'].map((t) => h('th', {}, t))),
+      h('tr', {}, ...[t('Nr.'), t('Layer'), t('Modus'), t('Speed'), t('Leist.'), t('Air'), t('Aus'), t('Zeig.')].map((s) => h('th', {}, s))),
     );
     const partsOf = new Map(used.map((i) => [i, ed.layerParts(i)]));
     const ap = partsOf.get(ed.activeLayer!)!;
@@ -741,17 +767,17 @@ function buildLayers(ed: Editor) {
         const isImg = p === 'img';
         const IL = isImg ? ed.imgLayer(i) : null;
         const mode = isImg
-          ? h('span', { class: 'mode-img', title: 'Bilder dieses Layers' }, 'Bild')
+          ? h('span', { class: 'mode-img', title: t('Bilder dieses Layers') }, t('Bild'))
           : h('select', { onchange: (e: Event) => ed.updateLayer(i, { mode: (e.target as HTMLSelectElement).value as Layer['mode'] }) },
-              h('option', { value: 'line', selected: L.mode === 'line' }, 'Linie'),
-              h('option', { value: 'fill', selected: L.mode === 'fill' }, 'Füllen'),
+              h('option', { value: 'line', selected: L.mode === 'line' }, t('Linie')),
+              h('option', { value: 'fill', selected: L.mode === 'fill' }, t('Füllen')),
             );
         const out = h('input', { type: 'checkbox', checked: L.output, onchange: (e: Event) => ed.updateLayer(i, { output: (e.target as HTMLInputElement).checked }) });
         const show = h('input', { type: 'checkbox', checked: L.show, onchange: (e: Event) => ed.updateLayer(i, { show: (e.target as HTMLInputElement).checked }) });
-        const air = h('input', { type: 'checkbox', checked: L.air, title: 'Air Assist', onchange: (e: Event) => ed.updateLayer(i, { air: (e.target as HTMLInputElement).checked }) });
+        const air = h('input', { type: 'checkbox', checked: L.air, title: t('Air Assist'), onchange: (e: Event) => ed.updateLayer(i, { air: (e.target as HTMLInputElement).checked }) });
         const row = h(
           'tr',
-          { class: ed.activeLayer === i && part === p ? 'active' : '', title: isImg ? 'Doppelklick: Bild anpassen' : 'Doppelklick: Layer-Einstellungen' },
+          { class: ed.activeLayer === i && part === p ? 'active' : '', title: isImg ? t('Doppelklick: Bild anpassen') : t('Doppelklick: Layer-Einstellungen') },
           h('td', {}, h('span', { class: 'swatch', style: `background:${PALETTE[i]}` }, layerLabel(i))),
           h('td', {}, L.name),
           h('td', {}, mode),
@@ -784,15 +810,15 @@ function buildLayers(ed: Editor) {
       h(
         'div',
         { class: 'layer-tools' },
-        h('button', { title: 'Nach oben (früher ausgeben)', onclick: () => ed.moveLayer(a, -1), html: '▲' }),
-        h('button', { title: 'Nach unten (später ausgeben)', onclick: () => ed.moveLayer(a, 1), html: '▼' }),
-        h('button', { onclick: () => ed.selectLayer(a) }, 'Formen auswählen'),
-        part === 'vec' ? h('button', { title: 'Alle Einstellungen dieses Layers (Doppelklick auf den Layer)', onclick: () => openLayerDialog(ed, a) }, 'Einstellungen …') : null,
+        h('button', { title: t('Nach oben (früher ausgeben)'), onclick: () => ed.moveLayer(a, -1), html: '▲' }),
+        h('button', { title: t('Nach unten (später ausgeben)'), onclick: () => ed.moveLayer(a, 1), html: '▼' }),
+        h('button', { onclick: () => ed.selectLayer(a) }, t('Formen auswählen')),
+        part === 'vec' ? h('button', { title: t('Alle Einstellungen dieses Layers (Doppelklick auf den Layer)'), onclick: () => openLayerDialog(ed, a) }, t('Einstellungen …')) : null,
       ),
     );
     const L = ed.layer(a);
     const name = h('input', { type: 'text', value: L.name, onchange: (e: Event) => ed.updateLayer(a, { name: (e.target as HTMLInputElement).value }) });
-    const head = [h('label', {}, h('span', { class: 'swatch', style: `background:${PALETTE[a]}` }, layerLabel(a)), ' Name'), name];
+    const head = [h('label', {}, h('span', { class: 'swatch', style: `background:${PALETTE[a]}` }, layerLabel(a)), ' ', t('Name')), name];
     if (part === 'img') {
       root.append(imageLayerForm(ed, a, head));
       return;
@@ -810,14 +836,14 @@ function buildLayers(ed: Editor) {
         'div',
         { class: 'form' },
         ...head,
-        h('label', {}, 'Geschwindigkeit (mm/min)'), num('speed', 1, 100000),
-        h('label', {}, 'Max. Leistung (%)'), num('power', 0, 100),
-        h('label', {}, 'Min. Leistung (%)'), num('minPower', 0, 100),
-        h('label', {}, 'Durchgänge'), num('passes', 1, 100, true),
-        ...(L.mode === 'fill' ? [h('label', {}, 'Zeilenabstand (mm)'), num('interval', 0.01, 5)] : []),
+        h('label', {}, t('Geschwindigkeit (mm/min)')), num('speed', 1, 100000),
+        h('label', {}, t('Max. Leistung (%)')), num('power', 0, 100),
+        h('label', {}, t('Min. Leistung (%)')), num('minPower', 0, 100),
+        h('label', {}, t('Durchgänge')), num('passes', 1, 100, true),
+        ...(L.mode === 'fill' ? [h('label', {}, t('Zeilenabstand (mm)')), num('interval', 0.01, 5)] : []),
         h('span', { class: 'checks' },
-          h('label', { class: 'check', title: 'Luftunterstützung während dieses Layers (M8/M7, aus mit M9)' },
-            h('input', { type: 'checkbox', checked: L.air, onchange: (e: Event) => ed.updateLayer(a, { air: (e.target as HTMLInputElement).checked }) }), 'Air Assist'),
+          h('label', { class: 'check', title: t('Luftunterstützung während dieses Layers (M8/M7, aus mit M9)') },
+            h('input', { type: 'checkbox', checked: L.air, onchange: (e: Event) => ed.updateLayer(a, { air: (e.target as HTMLInputElement).checked }) }), t('Air Assist')),
         ),
       ),
       h('div', { class: 'note' }, layerSummary(L)),
@@ -841,14 +867,14 @@ function buildLayers(ed: Editor) {
 /** Kurzfassung der weiteren Einstellungen aus dem Layer-Dialog */
 function layerSummary(L: Layer): string {
   const parts: string[] = [];
-  if (L.kerf) parts.push(`Kerf ${fmtNum(L.kerf)} mm`);
-  if (L.mode === 'line' && L.tabs.enabled) parts.push(L.tabs.useCount ? `${L.tabs.count} Stege je Form` : `Stege alle ${fmtNum(L.tabs.spacing)} mm`);
+  if (L.kerf) parts.push(t('Kerf {kerf} mm', { kerf: fmtNum(L.kerf) }));
+  if (L.mode === 'line' && L.tabs.enabled) parts.push(L.tabs.useCount ? t('{count} Stege je Form', { count: L.tabs.count }) : t('Stege alle {spacing} mm', { spacing: fmtNum(L.tabs.spacing) }));
   if (L.mode === 'fill') {
-    if (L.angle) parts.push(`Winkel ${fmtNum(L.angle)}°`);
-    if (L.crossHatch) parts.push('Kreuzschraffur');
-    if (!L.bidirectional) parts.push('nur eine Richtung');
+    if (L.angle) parts.push(t('Winkel {angle}°', { angle: fmtNum(L.angle) }));
+    if (L.crossHatch) parts.push(t('Kreuzschraffur'));
+    if (!L.bidirectional) parts.push(t('nur eine Richtung'));
   }
-  return parts.length ? `Außerdem: ${parts.join(', ')}.` : 'Kerf, Haltestege, Scanwinkel und mehr: Doppelklick auf den Layer.';
+  return parts.length ? t('Außerdem: {list}.', { list: parts.join(', ') }) : t('Kerf, Haltestege, Scanwinkel und mehr: Doppelklick auf den Layer.');
 }
 
 /** Felder für die Bild-Einstellungen eines Layers (auch im Dialog „Bild anpassen“ verwendet) */
@@ -867,21 +893,21 @@ function imageLayerFields(ed: Editor, i: number, live: boolean, onChange?: () =>
     const c = Math.max(0.01, Math.min(2, v));
     set({ interval: c });
     dpi.value = String(Math.round(25.4 / c));
-  }, 'Zeilenabstand in mm');
+  }, t('Zeilenabstand in mm'));
   interval.value = String(IL.interval);
   const dpi = numInput('', (v) => {
     const c = Math.max(12.7, Math.min(2540, v));
     set({ interval: Math.round((25.4 / c) * 10000) / 10000 });
     interval.value = String(ed.imgLayer(i).interval);
-  }, 'Auflösung in Punkten pro Zoll');
+  }, t('Auflösung in Punkten pro Zoll'));
   dpi.value = String(Math.round(25.4 / IL.interval));
   const modeSel = h('select', {}, ...DITHER_MODES.map(([v, t]) => h('option', { value: v, selected: IL.dither === v }, t))) as HTMLSelectElement;
   const extra = h('div', { class: 'form sub' });
   const renderExtra = () => {
     const d = ed.imgLayer(i).dither;
     extra.replaceChildren(
-      ...(d === 'threshold' ? [h('label', {}, 'Schwellwert (0–255)'), num('threshold', 0, 255, true)] : []),
-      ...(d === 'halftone' ? [h('label', {}, 'Zellen pro Zoll'), num('cells', 2, 300), h('label', {}, 'Rasterwinkel (°)'), num('angle', -90, 90)] : []),
+      ...(d === 'threshold' ? [h('label', {}, t('Schwellwert (0–255)')), num('threshold', 0, 255, true)] : []),
+      ...(d === 'halftone' ? [h('label', {}, t('Zellen pro Zoll')), num('cells', 2, 300), h('label', {}, t('Rasterwinkel (°)')), num('angle', -90, 90)] : []),
     );
     extra.hidden = !extra.childElementCount;
   };
@@ -893,17 +919,17 @@ function imageLayerFields(ed: Editor, i: number, live: boolean, onChange?: () =>
   const check = (key: 'negative' | 'bidirectional', label: string) =>
     h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: IL[key], onchange: (e: Event) => set({ [key]: (e.target as HTMLInputElement).checked }) }), label);
   return [
-    h('label', {}, 'Bildmodus'), modeSel,
+    h('label', {}, t('Bildmodus')), modeSel,
     extra,
-    h('label', {}, 'Zeilenabstand (mm)'), interval,
+    h('label', {}, t('Zeilenabstand (mm)')), interval,
     h('label', {}, 'DPI'), dpi,
-    h('span', { class: 'checks' }, check('negative', 'Negativ'), check('bidirectional', 'Bidirektional')),
+    h('span', { class: 'checks' }, check('negative', t('Negativ')), check('bidirectional', t('Bidirektional'))),
     ...(live ? [] : [
-      h('label', {}, 'Geschwindigkeit (mm/min)'), num('speed', 1, 100000),
-      h('label', {}, 'Max. Leistung (%)'), num('power', 0, 100),
-      h('label', {}, 'Min. Leistung (%)'), num('minPower', 0, 100),
-      h('label', {}, 'Durchgänge'), num('passes', 1, 100, true),
-      h('label', {}, 'Überfahrweg (%)'), num('overscan', 0, 50),
+      h('label', {}, t('Geschwindigkeit (mm/min)')), num('speed', 1, 100000),
+      h('label', {}, t('Max. Leistung (%)')), num('power', 0, 100),
+      h('label', {}, t('Min. Leistung (%)')), num('minPower', 0, 100),
+      h('label', {}, t('Durchgänge')), num('passes', 1, 100, true),
+      h('label', {}, t('Überfahrweg (%)')), num('overscan', 0, 50),
     ]),
   ];
 }
@@ -914,7 +940,7 @@ function imageLayerForm(ed: Editor, i: number, head: HTMLElement[]) {
     {},
     h('div', { class: 'form' }, ...head, ...imageLayerFields(ed, i, false)),
     h('div', { class: 'layer-tools' },
-      h('button', { onclick: () => openAdjustDialog(ed, i) }, 'Bild anpassen …'),
+      h('button', { onclick: () => openAdjustDialog(ed, i) }, t('Bild anpassen …')),
     ),
   );
 }
@@ -935,7 +961,7 @@ function slider(label: string, min: number, max: number, step: number, value: nu
   };
   return { el: [h('label', {}, label), h('span', { class: 'slider' }, inp, out)], set };
 }
-const fmtNum = (v: number) => String(Math.round(v * 100) / 100).replace('.', ',');
+const fmtNum = (v: number) => dec(String(Math.round(v * 100) / 100));
 
 function targetImages(ed: Editor, layer?: number): Obj[] {
   const sel = ed.selImages();
@@ -947,7 +973,7 @@ function targetImages(ed: Editor, layer?: number): Obj[] {
 function openAdjustDialog(ed: Editor, layer?: number) {
   const targets = targetImages(ed, layer);
   if (!targets.length) {
-    ed.hint = 'Erst ein Bild auswählen.';
+    ed.hint = t('Erst ein Bild auswählen.');
     ed.emit('tool');
     return;
   }
@@ -999,12 +1025,12 @@ function openAdjustDialog(ed: Editor, layer?: number) {
     ed.setImageAdjust(targets, patch, false);
     drawPreview();
   };
-  const sB = slider('Helligkeit', -100, 100, 1, adj.brightness, (v) => setAdj({ brightness: v }));
-  const sC = slider('Kontrast', -100, 100, 1, adj.contrast, (v) => setAdj({ contrast: v }));
-  const sG = slider('Gamma', 0.1, 4, 0.01, adj.gamma, (v) => setAdj({ gamma: v }));
-  const sS = slider('Schärfen (%)', 0, 300, 1, adj.sharpen, (v) => setAdj({ sharpen: v }));
-  const sR = slider('Radius', 1, 10, 0.5, adj.sharpenRadius, (v) => setAdj({ sharpenRadius: v }));
-  const sD = slider('Entrauschen', 0, 50, 1, adj.denoise, (v) => setAdj({ denoise: v }));
+  const sB = slider(t('Helligkeit'), -100, 100, 1, adj.brightness, (v) => setAdj({ brightness: v }));
+  const sC = slider(t('Kontrast'), -100, 100, 1, adj.contrast, (v) => setAdj({ contrast: v }));
+  const sG = slider(t('Gamma'), 0.1, 4, 0.01, adj.gamma, (v) => setAdj({ gamma: v }));
+  const sS = slider(t('Schärfen (%)'), 0, 300, 1, adj.sharpen, (v) => setAdj({ sharpen: v }));
+  const sR = slider(t('Radius'), 1, 10, 0.5, adj.sharpenRadius, (v) => setAdj({ sharpenRadius: v }));
+  const sD = slider(t('Entrauschen'), 0, 50, 1, adj.denoise, (v) => setAdj({ denoise: v }));
   const fields = imageLayerFields(ed, li, true, drawPreview);
   const chk = (label: string, f: (v: boolean) => void) =>
     h('label', { class: 'check' }, h('input', { type: 'checkbox', onchange: (e: Event) => (f((e.target as HTMLInputElement).checked), drawPreview()) }), label);
@@ -1012,23 +1038,23 @@ function openAdjustDialog(ed: Editor, layer?: number) {
   const dlg = h(
     'dialog',
     { class: 'adjust-dialog' },
-    h('h3', {}, targets.length > 1 ? `Bild anpassen (${targets.length} Bilder)` : 'Bild anpassen'),
+    h('h3', {}, targets.length > 1 ? t('Bild anpassen ({n} Bilder)', { n: targets.length }) : t('Bild anpassen')),
     h(
       'div',
       { class: 'adjust-body' },
       h('div', { class: 'adjust-left' },
         view,
-        h('div', { class: 'checks' }, chk('Original zeigen', (v) => (showOrig = v)), chk('Ausschnitt 1:1', (v) => (oneToOne = v))),
+        h('div', { class: 'checks' }, chk(t('Original zeigen'), (v) => (showOrig = v)), chk(t('Ausschnitt 1:1'), (v) => (oneToOne = v))),
       ),
       h('div', { class: 'adjust-right' },
         h('div', { class: 'form' }, ...sB.el, ...sC.el, ...sG.el),
-        h('div', { class: 'form-title' }, 'Schärfen'),
+        h('div', { class: 'form-title' }, t('Schärfen')),
         h('div', { class: 'form' }, ...sS.el, ...sR.el, ...sD.el),
-        h('div', { class: 'form-title' }, `Layer ${layerLabel(li)}: Bildausgabe`),
+        h('div', { class: 'form-title' }, t('Layer {layer}: Bildausgabe', { layer: layerLabel(li) })),
         h('div', { class: 'form' }, ...fields),
       ),
     ),
-    h('div', { class: 'note' }, 'Die Arbeitsfläche zeigt das Ergebnis live. Bildmodus und Auflösung gelten für alle Bilder des Layers.'),
+    h('div', { class: 'note' }, t('Die Arbeitsfläche zeigt das Ergebnis live. Bildmodus und Auflösung gelten für alle Bilder des Layers.')),
     h(
       'div',
       { class: 'dialog-buttons' },
@@ -1039,16 +1065,16 @@ function openAdjustDialog(ed: Editor, layer?: number) {
           sB.set(0), sC.set(0), sG.set(1), sS.set(0), sR.set(1), sD.set(0);
           setAdj(d);
         },
-      }, 'Zurücksetzen'),
+      }, t('Zurücksetzen')),
       h('span', { style: 'flex:1' }),
-      h('button', { class: 'btn', onclick: () => dlg.close() }, 'Abbrechen'),
+      h('button', { class: 'btn', onclick: () => dlg.close() }, t('Abbrechen')),
       h('button', {
         class: 'btn primary',
         onclick: () => {
           applied = true;
           dlg.close();
         },
-      }, 'Übernehmen'),
+      }, t('Übernehmen')),
     ),
   );
   dlg.addEventListener('close', () => {
@@ -1083,7 +1109,7 @@ let traceState = { threshold: 128, ignoreLess: 10, smooth: 0.3, deleteImage: fal
 function openTraceDialog(ed: Editor) {
   const o = ed.selImages()[0];
   if (!o) {
-    ed.hint = 'Erst ein Bild auswählen.';
+    ed.hint = t('Erst ein Bild auswählen.');
     ed.emit('tool');
     return;
   }
@@ -1093,32 +1119,32 @@ function openTraceDialog(ed: Editor) {
   let timer = 0;
   const preview = () => {
     clearTimeout(timer);
-    info.textContent = 'Berechne …';
+    info.textContent = t('Berechne …');
     timer = window.setTimeout(() => {
       const t0 = performance.now();
       subs = ed.traceImage(o, st);
       ed.setPreview(subs);
       const nodes = subs.reduce((n, sp) => n + sp.nodes.length, 0);
-      info.textContent = `${subs.length} Konturen, ${nodes} Knoten (${Math.round(performance.now() - t0)} ms). Orange gestrichelt: Vorschau.`;
+      info.textContent = t('{contours} Konturen, {nodes} Knoten ({ms} ms). Orange gestrichelt: Vorschau.', { contours: subs.length, nodes, ms: Math.round(performance.now() - t0) });
     }, 120);
   };
-  const sT = slider('Schwellwert', 0, 255, 1, st.threshold, (v) => ((st.threshold = v), preview()));
-  const sI = slider('Kleines ignorieren (px²)', 0, 500, 1, st.ignoreLess, (v) => ((st.ignoreLess = v), preview()));
-  const sS = slider('Glättung', 0, 1, 0.05, st.smooth, (v) => ((st.smooth = v), preview()));
+  const sT = slider(t('Schwellwert'), 0, 255, 1, st.threshold, (v) => ((st.threshold = v), preview()));
+  const sI = slider(t('Kleines ignorieren (px²)'), 0, 500, 1, st.ignoreLess, (v) => ((st.ignoreLess = v), preview()));
+  const sS = slider(t('Glättung'), 0, 1, 0.05, st.smooth, (v) => ((st.smooth = v), preview()));
   const del = h('input', { type: 'checkbox', checked: st.deleteImage, onchange: (e: Event) => (st.deleteImage = (e.target as HTMLInputElement).checked) });
   let applied = false;
   const dlg = h(
     'dialog',
     { class: 'offset-dialog trace-dialog' },
-    h('h3', {}, 'Bild nachzeichnen'),
-    h('div', { class: 'form' }, ...sT.el, ...sI.el, ...sS.el, h('span', { class: 'checks' }, h('label', { class: 'check' }, del, 'Bild danach löschen'))),
-    h('div', { class: 'note' }, 'Dunkler als der Schwellwert wird zur Fläche. Helligkeit, Kontrast und Gamma aus „Bild anpassen“ wirken mit.'),
+    h('h3', {}, t('Bild nachzeichnen')),
+    h('div', { class: 'form' }, ...sT.el, ...sI.el, ...sS.el, h('span', { class: 'checks' }, h('label', { class: 'check' }, del, t('Bild danach löschen')))),
+    h('div', { class: 'note' }, t('Dunkler als der Schwellwert wird zur Fläche. Helligkeit, Kontrast und Gamma aus „Bild anpassen“ wirken mit.')),
     info,
     h(
       'div',
       { class: 'dialog-buttons' },
-      h('button', { class: 'btn', onclick: () => dlg.close() }, 'Abbrechen'),
-      h('button', { class: 'btn primary', onclick: () => ((applied = true), dlg.close()) }, 'Übernehmen'),
+      h('button', { class: 'btn', onclick: () => dlg.close() }, t('Abbrechen')),
+      h('button', { class: 'btn primary', onclick: () => ((applied = true), dlg.close()) }, t('Übernehmen')),
     ),
   );
   dlg.addEventListener('close', () => {
@@ -1146,7 +1172,7 @@ function buildPalette(ed: Editor) {
     const b = h('button', {
       class: i >= 30 ? 'tool' : '',
       style: `background:${c}`,
-      title: i >= 30 ? `Werkzeug-Layer ${layerLabel(i)} (wird nicht gelasert)` : `Layer ${layerLabel(i)}: Auswahl zuordnen`,
+      title: i >= 30 ? t('Werkzeug-Layer {layer} (wird nicht gelasert)', { layer: layerLabel(i) }) : t('Layer {layer}: Auswahl zuordnen', { layer: layerLabel(i) }),
       onclick: () => ed.assignLayer(i),
     }, layerLabel(i));
     btns.push(b);
@@ -1166,23 +1192,25 @@ function buildStatus(ed: Editor) {
   const hint = h('span', { class: 'hint' });
   const snap = h('input', { type: 'checkbox', onchange: (e: Event) => ed.setSnap({ grid: (e.target as HTMLInputElement).checked }) }) as HTMLInputElement;
   const snapObj = h('input', { type: 'checkbox', onchange: (e: Event) => ed.setSnap({ objects: (e.target as HTMLInputElement).checked }) }) as HTMLInputElement;
-  const step = numInput('', (v) => v > 0 && ed.setSnap({ step: v }), 'Rasterweite (mm)');
+  const step = numInput('', (v) => v > 0 && ed.setSnap({ step: v }), t('Rasterweite (mm)'));
   step.style.width = '40px';
   step.value = String(ed.gridStep);
   const filled = h('input', { type: 'checkbox', checked: ed.filled, onchange: (e: Event) => ((ed.filled = (e.target as HTMLInputElement).checked), ed.emit('view')) }) as HTMLInputElement;
   const zoom = h('span', {});
   root.append(
     coords, selInfo, hint,
-    h('label', { title: 'An Knoten, Mittelpunkten, Zentren, Schnittpunkten und Linien fangen (Ctrl beim Ziehen: umkehren, Alt: stärker und Ausrichtungshilfen)' }, snapObj, 'Fang'),
-    h('label', { title: 'Am Raster fangen' }, snap, 'Raster', step, 'mm'),
-    h('label', { title: 'Füll-Layer gefüllt anzeigen (Alt+W)' }, filled, 'Gefüllt'),
+    h('label', { title: t('An Knoten, Mittelpunkten, Zentren, Schnittpunkten und Linien fangen (Ctrl beim Ziehen: umkehren, Alt: stärker und Ausrichtungshilfen)') }, snapObj, t('Fang')),
+    h('label', { title: t('Am Raster fangen') }, snap, t('Raster'), step, 'mm'),
+    h('label', { title: t('Füll-Layer gefüllt anzeigen (Alt+W)') }, filled, t('Gefüllt')),
     zoom,
   );
   const refresh = () => {
     const m = ed.toMachine(ed.cursor);
     coords.textContent = `x ${m.x.toFixed(2)}  y ${m.y.toFixed(2)} mm`;
     const b = ed.selBounds();
-    selInfo.textContent = b ? `${ed.sel.length} Objekt${ed.sel.length > 1 ? 'e' : ''} · ${b.w.toFixed(2)} × ${b.h.toFixed(2)} mm` : `${ed.doc.objs.length} Objekte`;
+    selInfo.textContent = b
+      ? `${tn('{n} Objekt', '{n} Objekte', ed.sel.length)} · ${b.w.toFixed(2)} × ${b.h.toFixed(2)} mm`
+      : tn('{n} Objekt', '{n} Objekte', ed.doc.objs.length);
     hint.textContent = ed.hint;
     snap.checked = ed.snapGrid;
     snapObj.checked = ed.snapObjects;

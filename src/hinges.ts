@@ -11,6 +11,7 @@
 import ClipperLib from 'clipper-lib';
 import { Node, Obj, Pt, SubPath } from './model';
 import { region, SCALE } from './ops';
+import { dec, locale, t } from './i18n';
 
 export type HingeKind = 'straight' | 'wave' | 'diamond' | 'honeycomb' | 'triangle' | 'cross' | 'spiral';
 export type HingeOrient = 'auto' | 'vertical' | 'horizontal' | 'angle';
@@ -46,13 +47,13 @@ export const DEFAULT_HINGE: HingeOptions = {
 };
 
 export const HINGE_KINDS: [HingeKind, string][] = [
-  ['straight', 'Gerade Schnitte (Mauerwerk)'],
-  ['wave', 'Wellen'],
-  ['diamond', 'Rauten (Diamant)'],
-  ['honeycomb', 'Waben'],
-  ['triangle', 'Dreiecke (3D)'],
-  ['cross', 'Kreuz / Flechtmuster (3D)'],
-  ['spiral', 'Spirale'],
+  ['straight', t('Gerade Schnitte (Mauerwerk)')],
+  ['wave', t('Wellen')],
+  ['diamond', t('Rauten (Diamant)')],
+  ['honeycomb', t('Waben')],
+  ['triangle', t('Dreiecke (3D)')],
+  ['cross', t('Kreuz / Flechtmuster (3D)')],
+  ['spiral', t('Spirale')],
 ];
 
 /** Gittermuster aus geraden Schnitten mit Stegen an den Knoten */
@@ -77,7 +78,7 @@ type Path = ClipperLib.Path;
 type Paths = ClipperLib.Paths;
 const { Clipper, ClipType, PolyType, PolyFillType, ClipperOffset, JoinType, EndType, PolyTree } = ClipperLib;
 
-const de = (v: number, d = 1) => v.toFixed(d).replace('.', ',');
+const de = (v: number, d = 1) => dec(v.toFixed(d));
 
 /** Fläche, in der geschnitten wird: alle gewählten Formen vereint, um den Rand verkleinert */
 function hingeArea(objs: Obj[], margin: number): Paths {
@@ -130,16 +131,16 @@ function reverseNodes(nodes: Node[]): Node[] {
 
 export function computeHinge(objs: Obj[], o: HingeOptions): HingeResult {
   const fail = (error: string): HingeResult => ({ subs: [], info: '', error });
-  if (!objs.length) return fail('Erst eine geschlossene Form auswählen, die das Muster füllen soll.');
-  if (o.kind !== 'spiral' && !(o.cutLength > 0)) return fail('Die Schnittlänge muss größer als 0 sein.');
-  if (o.kind !== 'spiral' && !(o.bridge >= 0.3)) return fail('Die Stegbreite muss mindestens 0,3 mm betragen.');
-  if (o.kind === 'diamond' && !(o.diamondAngle >= 10 && o.diamondAngle <= 170)) return fail('Der Rautenwinkel muss zwischen 10° und 170° liegen.');
-  if ((o.kind !== 'diamond' && o.kind !== 'honeycomb' && o.kind !== 'triangle') && !(o.spacing >= 0.3)) return fail('Der Zeilenabstand muss mindestens 0,3 mm betragen.');
-  if (o.kind === 'wave' && !(o.waveLength >= 1)) return fail('Die Wellenlänge muss mindestens 1 mm betragen.');
-  if (o.kind === 'wave' && !(o.waveAmp >= 0)) return fail('Die Wellenhöhe darf nicht negativ sein.');
+  if (!objs.length) return fail(t('Erst eine geschlossene Form auswählen, die das Muster füllen soll.'));
+  if (o.kind !== 'spiral' && !(o.cutLength > 0)) return fail(t('Die Schnittlänge muss größer als 0 sein.'));
+  if (o.kind !== 'spiral' && !(o.bridge >= 0.3)) return fail(t('Die Stegbreite muss mindestens 0,3 mm betragen.'));
+  if (o.kind === 'diamond' && !(o.diamondAngle >= 10 && o.diamondAngle <= 170)) return fail(t('Der Rautenwinkel muss zwischen 10° und 170° liegen.'));
+  if ((o.kind !== 'diamond' && o.kind !== 'honeycomb' && o.kind !== 'triangle') && !(o.spacing >= 0.3)) return fail(t('Der Zeilenabstand muss mindestens 0,3 mm betragen.'));
+  if (o.kind === 'wave' && !(o.waveLength >= 1)) return fail(t('Die Wellenlänge muss mindestens 1 mm betragen.'));
+  if (o.kind === 'wave' && !(o.waveAmp >= 0)) return fail(t('Die Wellenhöhe darf nicht negativ sein.'));
 
   const area = hingeArea(objs, Math.max(0, o.margin));
-  if (!area.length) return fail(o.margin > 0 ? 'Der Rand ist zu groß für die Form, es bleibt keine Fläche übrig.' : 'Keine geschlossene Form gewählt.');
+  if (!area.length) return fail(o.margin > 0 ? t('Der Rand ist zu groß für die Form, es bleibt keine Fläche übrig.') : t('Keine geschlossene Form gewählt.'));
 
   // Ausdehnung der Fläche in Weltkoordinaten
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -180,7 +181,7 @@ export function computeHinge(objs: Obj[], o: HingeOptions): HingeResult {
   const K = Math.floor(((vmax - vmin) / 2 + A) / o.spacing);
   const P = o.cutLength + o.bridge;
   const est = (2 * K + 1) * Math.ceil((umax - umin) / P + 1);
-  if (est > MAX_CUTS * 1.5) return fail(`Zu viele Schnitte (etwa ${est.toLocaleString('de-DE')}, höchstens ${MAX_CUTS.toLocaleString('de-DE')}): Zeilenabstand oder Schnittlänge vergrößern.`);
+  if (est > MAX_CUTS * 1.5) return fail(t('Zu viele Schnitte (etwa {est}, höchstens {MAX_CUTS}): Zeilenabstand oder Schnittlänge vergrößern.', { est: est.toLocaleString(locale), MAX_CUTS: MAX_CUTS.toLocaleString(locale) }));
 
   /** Mindestlänge eines am Rand gekürzten Schnitts; kürzere Reste entfallen */
   const minPiece = Math.max(0.5, Math.min(o.bridge, o.cutLength / 2));
@@ -253,15 +254,15 @@ export function computeHinge(objs: Obj[], o: HingeOptions): HingeResult {
       total += e - s;
     }
     rows++;
-    if (subs.length > MAX_CUTS) return fail(`Zu viele Schnitte (höchstens ${MAX_CUTS.toLocaleString('de-DE')}): Zeilenabstand oder Schnittlänge vergrößern.`);
+    if (subs.length > MAX_CUTS) return fail(t('Zu viele Schnitte (höchstens {MAX_CUTS}): Zeilenabstand oder Schnittlänge vergrößern.', { MAX_CUTS: MAX_CUTS.toLocaleString(locale) }));
   }
-  if (!subs.length) return fail('Die Form ist zu klein für das Muster: Rand, Schnittlänge oder Stegbreite verkleinern.');
+  if (!subs.length) return fail(t('Die Form ist zu klein für das Muster: Rand, Schnittlänge oder Stegbreite verkleinern.'));
   if (wave) {
     // Schräg verlaufende Wellen rücken näher zusammen als der Zeilenabstand
     const eff = o.spacing * Math.cos(Math.atan(A * k));
-    return { subs, info: `${subs.length} Schnitte in ${rows} Zeilen, kleinster Abstand zwischen den Wellen ${de(eff, 2)} mm` };
+    return { subs, info: t('{subs} Schnitte in {rows} Zeilen, kleinster Abstand zwischen den Wellen {eff} mm', { subs: subs.length, rows, eff: de(eff, 2) }) };
   }
-  return { subs, info: `${subs.length} Schnitte in ${rows} Zeilen, zusammen ${de(total / 1000, 2)} m Schnittlänge` };
+  return { subs, info: t('{subs} Schnitte in {rows} Zeilen, zusammen {total} m Schnittlänge', { subs: subs.length, rows, total: de(total / 1000, 2) }) };
 }
 
 /** Gerade Schnitte (u, v relativ zur Mitte) in die Fläche schneiden; zu kurze Reste entfallen */
@@ -298,7 +299,7 @@ function latticeHinge(area: Paths, o: HingeOptions, U: Pt, V: Pt, uc: number, vc
   // Grobe Schätzung vorab, damit riesige Muster gar nicht erst entstehen
   const cellArea = o.kind === 'cross' ? (e * o.spacing) : e * e * 0.4;
   const est = ((2 * hu + 2 * e) * (2 * hv + 2 * e)) / cellArea;
-  if (est > MAX_CUTS * 1.5) return { subs: [], info: '', error: `Zu viele Schnitte (etwa ${Math.round(est).toLocaleString('de-DE')}, höchstens ${MAX_CUTS.toLocaleString('de-DE')}): Schnittlänge oder Zeilenabstand vergrößern.` };
+  if (est > MAX_CUTS * 1.5) return { subs: [], info: '', error: t('Zu viele Schnitte (etwa {est}, höchstens {MAX_CUTS}): Schnittlänge oder Zeilenabstand vergrößern.', { est: Math.round(est).toLocaleString(locale), MAX_CUTS: MAX_CUTS.toLocaleString(locale) }) };
 
   if (o.kind === 'diamond') {
     const a = (o.diamondAngle * Math.PI) / 360;
@@ -352,8 +353,8 @@ function latticeHinge(area: Paths, o: HingeOptions, U: Pt, V: Pt, uc: number, vc
   };
   const minPiece = Math.max(0.5, Math.min(g, L / 2));
   const cuts = clipSegments(area, segs, toWorld, minPiece);
-  if (!cuts.length) return { subs: [], info: '', error: 'Die Form ist zu klein für das Muster: Rand, Schnittlänge oder Stegbreite verkleinern.' };
-  if (cuts.length > MAX_CUTS) return { subs: [], info: '', error: `Zu viele Schnitte (höchstens ${MAX_CUTS.toLocaleString('de-DE')}): Schnittlänge oder Zeilenabstand vergrößern.` };
+  if (!cuts.length) return { subs: [], info: '', error: t('Die Form ist zu klein für das Muster: Rand, Schnittlänge oder Stegbreite verkleinern.') };
+  if (cuts.length > MAX_CUTS) return { subs: [], info: '', error: t('Zu viele Schnitte (höchstens {MAX_CUTS}): Schnittlänge oder Zeilenabstand vergrößern.', { MAX_CUTS: MAX_CUTS.toLocaleString(locale) }) };
   // Grob zeilenweise sortieren, damit der Laser nicht kreuz und quer springt
   const key = (p: Pt) => p.x * V.x + p.y * V.y;
   const row = Math.max(1, o.kind === 'cross' ? e : L / 2);
@@ -363,7 +364,7 @@ function latticeHinge(area: Paths, o: HingeOptions, U: Pt, V: Pt, uc: number, vc
     total += Math.hypot(b.x - a.x, b.y - a.y);
     return { closed: false, nodes: [{ ...a }, { ...b }] };
   });
-  return { subs, info: `${subs.length} Schnitte, zusammen ${de(total / 1000, 2)} m Schnittlänge` };
+  return { subs, info: t('{subs} Schnitte, zusammen {total} m Schnittlänge', { subs: subs.length, total: de(total / 1000, 2) }) };
 }
 
 /** Archimedische Spirale r = r0 + b·θ um die Mitte der Fläche, als Bézierkurve (Hermite-Stücke je Achteldrehung) */
@@ -373,8 +374,8 @@ function spiralHinge(area: Paths, o: HingeOptions, c: Pt): HingeResult {
   let rmax = 0;
   for (const p of area) for (const q of p) rmax = Math.max(rmax, Math.hypot(q.X / SCALE - c.x, q.Y / SCALE - c.y));
   const tmax = (rmax - r0) / b + Math.PI / 4;
-  if (tmax <= 0) return { subs: [], info: '', error: 'Die Form ist zu klein für eine Spirale: Rand oder Zeilenabstand verkleinern.' };
-  if (tmax / (2 * Math.PI) > 5000) return { subs: [], info: '', error: 'Zu viele Windungen: Zeilenabstand vergrößern.' };
+  if (tmax <= 0) return { subs: [], info: '', error: t('Die Form ist zu klein für eine Spirale: Rand oder Zeilenabstand verkleinern.') };
+  if (tmax / (2 * Math.PI) > 5000) return { subs: [], info: '', error: t('Zu viele Windungen: Zeilenabstand vergrößern.') };
   const r = (t: number) => r0 + b * t;
   const P = (t: number): Pt => ({ x: c.x + r(t) * Math.cos(t), y: c.y + r(t) * Math.sin(t) });
   const D = (t: number): Pt => ({ x: b * Math.cos(t) - r(t) * Math.sin(t), y: b * Math.sin(t) + r(t) * Math.cos(t) });
@@ -424,7 +425,9 @@ function spiralHinge(area: Paths, o: HingeOptions, c: Pt): HingeResult {
     subs.push({ closed: false, nodes });
     total += len;
   }
-  if (!subs.length) return { subs: [], info: '', error: 'Die Form ist zu klein für eine Spirale: Rand oder Zeilenabstand verkleinern.' };
+  if (!subs.length) return { subs: [], info: '', error: t('Die Form ist zu klein für eine Spirale: Rand oder Zeilenabstand verkleinern.') };
   const turns = iv.length ? (iv[iv.length - 1][1] - iv[0][0]) / (2 * Math.PI) : 0;
-  return { subs, info: `Spirale mit ${de(turns, 1)} Windungen${subs.length > 1 ? ` in ${subs.length} Stücken` : ''}, zusammen ${de(total / 1000, 2)} m Schnittlänge` };
+  return { subs, info: subs.length > 1
+    ? t('Spirale mit {turns} Windungen in {pieces} Stücken, zusammen {length} m Schnittlänge', { turns: de(turns, 1), pieces: subs.length, length: de(total / 1000, 2) })
+    : t('Spirale mit {turns} Windungen, zusammen {length} m Schnittlänge', { turns: de(turns, 1), length: de(total / 1000, 2) }) };
 }

@@ -3,6 +3,7 @@ import { Editor } from './editor';
 import { circularMatrices, CircularOptions, DEFAULT_GRID, gridMatrices, GridOptions, MAX_COPIES } from './arrays';
 import { evalExpr, f2, h } from './dom';
 import { Mat } from './model';
+import { t, tn } from './i18n';
 
 let gridState: GridOptions & { group: boolean } = { ...DEFAULT_GRID, group: false };
 let circState = { count: 6, span: 360, ccw: true, rotate: true, group: false };
@@ -49,7 +50,7 @@ function arrayDialog(ed: Editor, title: string, body: HTMLElement[], compute: ()
     if (!dlg.open) return;
     const { mats, center } = compute();
     const n = (mats.length - 1) * ed.sel.length;
-    info.textContent = mats.length < 2 ? `Keine Kopien (höchstens ${MAX_COPIES}).` : `${n} neue Objekt${n > 1 ? 'e' : ''}. Orange gestrichelt: Vorschau.`;
+    info.textContent = mats.length < 2 ? t('Keine Kopien (höchstens {MAX_COPIES}).', { MAX_COPIES }) : tn('{n} neues Objekt. Orange gestrichelt: Vorschau.', '{n} neue Objekte. Orange gestrichelt: Vorschau.', n);
     ed.setArrayPreview(mats, center ?? null);
   };
   const dlg = h(
@@ -61,8 +62,8 @@ function arrayDialog(ed: Editor, title: string, body: HTMLElement[], compute: ()
     h(
       'div',
       { class: 'dialog-buttons' },
-      h('button', { class: 'btn', onclick: () => dlg.close() }, 'Abbrechen'),
-      h('button', { class: 'btn primary', onclick: () => ((applied = true), dlg.close()) }, 'Übernehmen'),
+      h('button', { class: 'btn', onclick: () => dlg.close() }, t('Abbrechen')),
+      h('button', { class: 'btn primary', onclick: () => ((applied = true), dlg.close()) }, t('Übernehmen')),
     ),
   );
   dlg.addEventListener('input', preview);
@@ -88,47 +89,47 @@ function arrayDialog(ed: Editor, title: string, body: HTMLElement[], compute: ()
 export function openGridArrayDialog(ed: Editor) {
   const b = ed.selBounds();
   if (!b) {
-    ed.hint = 'Rasterarray: erst Objekte auswählen.';
+    ed.hint = t('Rasterarray: erst Objekte auswählen.');
     ed.emit('tool');
     return;
   }
   const st = { ...gridState };
-  const spacingLabel = () => (st.spacing === 'gap' ? 'Abstand' : 'Mittenabstand');
+  const spacingLabel = () => (st.spacing === 'gap' ? t('Abstand') : t('Mittenabstand'));
   const lx = h('label', { for: 'grid-dx' }, `${spacingLabel()} X (mm)`),
     ly = h('label', { for: 'grid-dy' }, `${spacingLabel()} Y (mm)`);
   const body = [
-    h('label', { for: 'grid-cols' }, 'Spalten'), numField('grid-cols', st.columns, (v) => (st.columns = Math.max(1, Math.round(v)))),
-    h('label', { for: 'grid-rows' }, 'Zeilen'), numField('grid-rows', st.rows, (v) => (st.rows = Math.max(1, Math.round(v)))),
-    h('label', { for: 'grid-spacing' }, 'Abstand messen'),
-    select('grid-spacing', st.spacing, [['gap', 'Zwischen den Objekten'], ['center', 'Von Mitte zu Mitte']], (v) => {
+    h('label', { for: 'grid-cols' }, t('Spalten')), numField('grid-cols', st.columns, (v) => (st.columns = Math.max(1, Math.round(v)))),
+    h('label', { for: 'grid-rows' }, t('Zeilen')), numField('grid-rows', st.rows, (v) => (st.rows = Math.max(1, Math.round(v)))),
+    h('label', { for: 'grid-spacing' }, t('Abstand messen')),
+    select('grid-spacing', st.spacing, [['gap', t('Zwischen den Objekten')], ['center', t('Von Mitte zu Mitte')]], (v) => {
       st.spacing = v;
       lx.textContent = `${spacingLabel()} X (mm)`;
       ly.textContent = `${spacingLabel()} Y (mm)`;
     }),
     lx, numField('grid-dx', st.dx, (v) => (st.dx = v)),
     ly, numField('grid-dy', st.dy, (v) => (st.dy = v)),
-    h('label', { for: 'grid-dirx' }, 'Spalten nach'),
-    select('grid-dirx', String(st.dirX) as '1' | '-1', [['1', 'Rechts'], ['-1', 'Links']], (v) => (st.dirX = v === '1' ? 1 : -1)),
-    h('label', { for: 'grid-diry' }, 'Zeilen nach'),
-    select('grid-diry', String(st.dirY) as '1' | '-1', [['-1', 'Unten'], ['1', 'Oben']], (v) => (st.dirY = v === '1' ? 1 : -1)),
-    h('label', { for: 'grid-rowshift' }, 'Jede 2. Zeile versetzen (mm)'), numField('grid-rowshift', st.rowShift, (v) => (st.rowShift = v), 'Waagerechter Versatz jeder zweiten Zeile'),
-    h('label', { for: 'grid-colshift' }, 'Jede 2. Spalte versetzen (mm)'), numField('grid-colshift', st.colShift, (v) => (st.colShift = v), 'Senkrechter Versatz jeder zweiten Spalte, positiv nach oben'),
+    h('label', { for: 'grid-dirx' }, t('Spalten nach')),
+    select('grid-dirx', String(st.dirX) as '1' | '-1', [['1', t('Rechts')], ['-1', t('Links')]], (v) => (st.dirX = v === '1' ? 1 : -1)),
+    h('label', { for: 'grid-diry' }, t('Zeilen nach')),
+    select('grid-diry', String(st.dirY) as '1' | '-1', [['-1', t('Unten')], ['1', t('Oben')]], (v) => (st.dirY = v === '1' ? 1 : -1)),
+    h('label', { for: 'grid-rowshift' }, t('Jede 2. Zeile versetzen (mm)')), numField('grid-rowshift', st.rowShift, (v) => (st.rowShift = v), t('Waagerechter Versatz jeder zweiten Zeile')),
+    h('label', { for: 'grid-colshift' }, t('Jede 2. Spalte versetzen (mm)')), numField('grid-colshift', st.colShift, (v) => (st.colShift = v), t('Senkrechter Versatz jeder zweiten Spalte, positiv nach oben')),
     h('span', { class: 'checks' },
-      check(st.mirrorCols, (v) => (st.mirrorCols = v), 'Jede 2. Spalte spiegeln'),
-      check(st.mirrorRows, (v) => (st.mirrorRows = v), 'Jede 2. Zeile spiegeln'),
-      check(st.group, (v) => (st.group = v), 'Als Gruppe'),
+      check(st.mirrorCols, (v) => (st.mirrorCols = v), t('Jede 2. Spalte spiegeln')),
+      check(st.mirrorRows, (v) => (st.mirrorRows = v), t('Jede 2. Zeile spiegeln')),
+      check(st.group, (v) => (st.group = v), t('Als Gruppe')),
     ),
   ];
-  arrayDialog(ed, 'Rasterarray', body, () => ({ mats: gridMatrices(b, st) }), (mats) => {
+  arrayDialog(ed, t('Rasterarray'), body, () => ({ mats: gridMatrices(b, st) }), (mats) => {
     gridState = st;
-    ed.applyArray(mats, st.group, 'Rasterarray');
+    ed.applyArray(mats, st.group, t('Rasterarray'));
   });
 }
 
 export function openCircularArrayDialog(ed: Editor) {
   const b = ed.selBounds();
   if (!b) {
-    ed.hint = 'Kreisarray: erst Objekte auswählen.';
+    ed.hint = t('Kreisarray: erst Objekte auswählen.');
     ed.emit('tool');
     return;
   }
@@ -138,22 +139,22 @@ export function openCircularArrayDialog(ed: Editor) {
   const c = { x: b.x + b.w / 2, y: bedH - (b.y + b.h / 2) - Math.max(20, 1.5 * Math.max(b.w, b.h)) };
   const opts = (): CircularOptions => ({ count: st.count, span: st.span, ccw: st.ccw, rotate: st.rotate, cx: c.x, cy: bedH - c.y });
   const body = [
-    h('label', { for: 'circ-count' }, 'Anzahl (mit Original)'), numField('circ-count', st.count, (v) => (st.count = Math.max(1, Math.round(v)))),
-    h('label', { for: 'circ-cx' }, 'Mittelpunkt X (mm)'), numField('circ-cx', c.x, (v) => (c.x = v)),
-    h('label', { for: 'circ-cy' }, 'Mittelpunkt Y (mm)'), numField('circ-cy', c.y, (v) => (c.y = v)),
-    h('label', { for: 'circ-span' }, 'Winkelbereich (°)'), numField('circ-span', st.span, (v) => (st.span = v), '360 = gleichmäßig auf dem ganzen Kreis, sonst von der ersten bis zur letzten Kopie'),
-    h('label', { for: 'circ-dir' }, 'Richtung'),
-    select('circ-dir', st.ccw ? 'ccw' : 'cw', [['ccw', 'Gegen den Uhrzeigersinn'], ['cw', 'Im Uhrzeigersinn']], (v) => (st.ccw = v === 'ccw')),
+    h('label', { for: 'circ-count' }, t('Anzahl (mit Original)')), numField('circ-count', st.count, (v) => (st.count = Math.max(1, Math.round(v)))),
+    h('label', { for: 'circ-cx' }, t('Mittelpunkt X (mm)')), numField('circ-cx', c.x, (v) => (c.x = v)),
+    h('label', { for: 'circ-cy' }, t('Mittelpunkt Y (mm)')), numField('circ-cy', c.y, (v) => (c.y = v)),
+    h('label', { for: 'circ-span' }, t('Winkelbereich (°)')), numField('circ-span', st.span, (v) => (st.span = v), t('360 = gleichmäßig auf dem ganzen Kreis, sonst von der ersten bis zur letzten Kopie')),
+    h('label', { for: 'circ-dir' }, t('Richtung')),
+    select('circ-dir', st.ccw ? 'ccw' : 'cw', [['ccw', t('Gegen den Uhrzeigersinn')], ['cw', t('Im Uhrzeigersinn')]], (v) => (st.ccw = v === 'ccw')),
     h('span', { class: 'checks' },
-      check(st.rotate, (v) => (st.rotate = v), 'Objekte mitdrehen'),
-      check(st.group, (v) => (st.group = v), 'Als Gruppe'),
+      check(st.rotate, (v) => (st.rotate = v), t('Objekte mitdrehen')),
+      check(st.group, (v) => (st.group = v), t('Als Gruppe')),
     ),
   ];
-  arrayDialog(ed, 'Kreisarray', body, () => {
+  arrayDialog(ed, t('Kreisarray'), body, () => {
     const o = opts();
     return { mats: circularMatrices(b, o), center: { x: o.cx, y: o.cy } };
   }, (mats) => {
     circState = st;
-    ed.applyArray(mats, st.group, 'Kreisarray');
+    ed.applyArray(mats, st.group, t('Kreisarray'));
   });
 }

@@ -11,6 +11,7 @@ import { isTauri, machine, PortInfo } from './machine';
 import type { Doc, ImageLayer, Layer } from './model';
 import { materialTab } from './materialui';
 import { cameraTab } from './cameraui';
+import { dec, locale, t, tBackend, tn } from './i18n';
 
 const store = loadDevices();
 /** Das gewählte Gerät (live gebunden: wechselt mit der Auswahl) */
@@ -35,7 +36,7 @@ function selectDevice(ed: Editor, id: string) {
   const d = store.devices.find((x) => x.id === id);
   if (!d || d === device) return;
   if (machine.connected || machine.connecting) {
-    notify('Zum Wechseln des Geräts erst die Verbindung trennen.', true);
+    notify(t('Zum Wechseln des Geräts erst die Verbindung trennen.'), true);
     deviceChanged();
     return;
   }
@@ -79,39 +80,41 @@ async function makeJob(ed: Editor, forPreview: boolean, src?: JobSource): Promis
 
 function nothingToDo(job: Job): boolean {
   if (job.moves.n) return false;
-  notify(device.cutSelected ? 'Nichts zu lasern: Die Auswahl ist leer oder liegt nur auf Layern ohne Ausgabe.' : 'Nichts zu lasern: Keine Objekte auf Layern mit Ausgabe.', true);
+  notify(device.cutSelected ? t('Nichts zu lasern: Die Auswahl ist leer oder liegt nur auf Layern ohne Ausgabe.') : t('Nichts zu lasern: Keine Objekte auf Layern mit Ausgabe.'), true);
   return true;
 }
 
 /** Liegt der Job (inkl. Überfahrwegen) im Arbeitsbereich? Sonst nachfragen. */
 function boundsOk(ed: Editor, job: Job): boolean {
-  const t = job.travel;
-  if (!t) return true;
+  const tb = job.travel;
+  if (!tb) return true;
   const { w, h: bh } = ed.doc.bed;
   if (device.startFrom === 'user') return true; // Lage hängt vom gesetzten Ursprung ab
   const e = 0.01;
-  if (t.x0 >= -e && t.y0 >= -e && t.x1 <= w + e && t.y1 <= bh + e) return true;
+  if (tb.x0 >= -e && tb.y0 >= -e && tb.x1 <= w + e && tb.y1 <= bh + e) return true;
   return confirm(
-    `Der Job reicht über den Arbeitsbereich (${w} × ${bh} mm) hinaus:\n` +
-      `X ${t.x0.toFixed(1)} … ${t.x1.toFixed(1)}, Y ${t.y0.toFixed(1)} … ${t.y1.toFixed(1)} mm (inkl. Überfahrweg).\n\nTrotzdem starten?`,
+    t('Der Job reicht über den Arbeitsbereich ({w} × {bh} mm) hinaus:\n', { w, bh }) +
+      t('X {x0} … {x1}, Y {y0} … {y1} mm (inkl. Überfahrweg).\n\nTrotzdem starten?', { x0: tb.x0.toFixed(1), x1: tb.x1.toFixed(1), y0: tb.y0.toFixed(1), y1: tb.y1.toFixed(1) }),
   );
 }
 
 function canRun(): boolean {
   if (!machine.connected) {
-    notify('Nicht verbunden.', true);
+    notify(t('Nicht verbunden.'), true);
     return false;
   }
   if (machine.busy) {
-    notify('Es läuft bereits ein Auftrag.', true);
+    notify(t('Es läuft bereits ein Auftrag.'), true);
     return false;
   }
   if (machine.status.state.startsWith('Alarm')) {
-    notify(`Die Maschine ist im Alarmzustand. Erst referenzieren (Home)${fw().unlock ? ` oder entsperren (${fw().unlock})` : ''}.`, true);
+    notify(fw().unlock
+      ? t('Die Maschine ist im Alarmzustand. Erst referenzieren (Home) oder entsperren ({unlock}).', { unlock: fw().unlock! })
+      : t('Die Maschine ist im Alarmzustand. Erst referenzieren (Home).'), true);
     return false;
   }
   if (device.startFrom === 'current' && !machine.status.wpos) {
-    notify('Die aktuelle Position ist noch nicht bekannt.', true);
+    notify(t('Die aktuelle Position ist noch nicht bekannt.'), true);
     return false;
   }
   return true;
@@ -124,7 +127,7 @@ export async function startJob(ed: Editor, src?: JobSource) {
   job.warnings.forEach((w) => notify(w));
   const est = estimate(job.moves, device);
   const g = writeGCode(job, device, est, src?.name);
-  notify(`Job gestartet, geschätzt ${formatDuration(est.total)}.`);
+  notify(t('Job gestartet, geschätzt {total}.', { total: formatDuration(est.total) }));
   await machine.runJob(g.lines, g.times);
 }
 
@@ -140,7 +143,7 @@ export async function frameJob(ed: Editor, contour: boolean, src?: JobSource) {
 export async function saveGCode(ed: Editor, src?: JobSource) {
   const job = await makeJob(ed, false, src);
   if (nothingToDo(job)) return;
-  if (device.startFrom === 'current') notify('Hinweis: Die Datei enthält die aktuelle Laserposition als Startpunkt.');
+  if (device.startFrom === 'current') notify(t('Hinweis: Die Datei enthält die aktuelle Laserposition als Startpunkt.'));
   const g = writeGCode(job, device, estimate(job.moves, device), src?.name);
   await saveText(src ? `${src.name.toLowerCase().replace(/[^a-z0-9äöüß]+/g, '-')}.gcode` : 'projekt.gcode', 'G-Code', 'gcode', 'text/plain', g.lines.join('\n') + '\n');
 }
@@ -153,11 +156,11 @@ export function buildLaser(ed: Editor) {
   const body = $('#laser');
   applyBed(ed);
   const tabs: [string, HTMLElement][] = [
-    ['Laser', laserTab(ed)],
-    ['Verschieben', moveTab(ed)],
-    ['Konsole', consoleTab()],
-    ['Material', materialTab(ed)],
-    ['Kamera', cameraTab(ed)],
+    [t('Laser'), laserTab(ed)],
+    [t('Verschieben'), moveTab(ed)],
+    [t('Konsole'), consoleTab()],
+    [t('Material'), materialTab(ed)],
+    [t('Kamera'), cameraTab(ed)],
   ];
   title.textContent = '';
   title.classList.add('tabs');
@@ -195,14 +198,14 @@ export function buildLaser(ed: Editor) {
 }
 
 function stateText(): [string, string] {
-  if (machine.connecting) return ['Verbinde …', 'busy'];
-  if (!machine.connected) return ['Nicht verbunden', ''];
+  if (machine.connecting) return [t('Verbinde …'), 'busy'];
+  if (!machine.connected) return [t('Nicht verbunden'), ''];
   const s = machine.status.state;
   const names: Record<string, string> = {
-    Idle: 'Bereit', Run: 'Läuft', Hold: 'Angehalten', Jog: 'Fährt', Alarm: 'Alarm', Door: 'Tür offen', Home: 'Referenzfahrt', Check: 'Prüfmodus', Sleep: 'Ruhezustand',
+    Idle: t('Bereit'), Run: t('Läuft'), Hold: t('Angehalten'), Jog: t('Fährt'), Alarm: t('Alarm'), Door: t('Tür offen'), Home: t('Referenzfahrt'), Check: t('Prüfmodus'), Sleep: t('Ruhezustand'),
   };
-  const t = names[s] ?? (s || 'Verbunden');
-  return [t, s === 'Alarm' || s === 'Door' ? 'error' : s === 'Idle' || !s ? 'ok' : 'busy'];
+  const label = names[s] ?? (s || t('Verbunden'));
+  return [label, s === 'Alarm' || s === 'Door' ? 'error' : s === 'Idle' || !s ? 'ok' : 'busy'];
 }
 
 function laserTab(ed: Editor): HTMLElement {
@@ -212,32 +215,32 @@ function laserTab(ed: Editor): HTMLElement {
   const dot = h('span', { class: 'dot' });
   const stTxt = h('span', {});
   const posTxt = h('span', { class: 'pos' });
-  const portSel = h('select', { class: 'port', title: 'Schnittstelle oder Netzwerk' }) as HTMLSelectElement;
-  const refreshBtn = h('button', { class: 'ib small', title: 'Schnittstellen neu suchen', html: ICONS.refresh, onclick: () => loadPorts() });
-  const connBtn = h('button', { class: 'btn' }, 'Verbinden') as HTMLButtonElement;
+  const portSel = h('select', { class: 'port', title: t('Schnittstelle oder Netzwerk') }) as HTMLSelectElement;
+  const refreshBtn = h('button', { class: 'ib small', title: t('Schnittstellen neu suchen'), html: ICONS.refresh, onclick: () => loadPorts() });
+  const connBtn = h('button', { class: 'btn' }, t('Verbinden')) as HTMLButtonElement;
   connBtn.addEventListener('click', async () => {
     if (machine.connected) return machine.disconnect();
     applyPortChoice();
     await machine.connect(device);
   });
-  const startB = big('play', 'Start', 'Job starten', () => startJob(ed));
-  const pauseB = big('pause', 'Pause', 'Anhalten / fortsetzen', () => (machine.status.state.startsWith('Hold') ? machine.resume() : machine.pause()));
-  const stopB = big('stop', 'Stopp', 'Job abbrechen', () => machine.stop());
-  const frameB = big('frame', 'Rahmen', 'Rechteck um den Job abfahren', () => frameJob(ed, false));
-  const contourB = big('contour', 'Kontur', 'Umriss des Jobs abfahren (Gummiband)', () => frameJob(ed, true));
-  const homeB = big('home', 'Home', 'Referenzfahrt', () => machine.send(fw().home));
-  const originB = big('origin', 'Ursprung', 'Zum Nullpunkt fahren', () => machine.send('G0 X0 Y0'));
-  const previewB = big('preview', 'Vorschau', 'Vorschau mit Zeitschätzung (Alt+P)', () => openPreview(ed));
-  const saveB = big('gcode', 'G-Code', 'G-Code speichern', () => saveGCode(ed));
+  const startB = big('play', t('Start'), t('Job starten'), () => startJob(ed));
+  const pauseB = big('pause', t('Pause'), t('Anhalten / fortsetzen'), () => (machine.status.state.startsWith('Hold') ? machine.resume() : machine.pause()));
+  const stopB = big('stop', t('Stopp'), t('Job abbrechen'), () => machine.stop());
+  const frameB = big('frame', t('Rahmen'), t('Rechteck um den Job abfahren'), () => frameJob(ed, false));
+  const contourB = big('contour', t('Kontur'), t('Umriss des Jobs abfahren (Gummiband)'), () => frameJob(ed, true));
+  const homeB = big('home', t('Home'), t('Referenzfahrt'), () => machine.send(fw().home));
+  const originB = big('origin', t('Ursprung'), t('Zum Nullpunkt fahren'), () => machine.send('G0 X0 Y0'));
+  const previewB = big('preview', t('Vorschau'), t('Vorschau mit Zeitschätzung (Alt+P)'), () => openPreview(ed));
+  const saveB = big('gcode', 'G-Code', t('G-Code speichern'), () => saveGCode(ed));
   const bar = h('div', { class: 'progress' }, h('div', { class: 'fill' }));
   const progTxt = h('div', { class: 'progress-text' });
   const msg = h('div', { class: 'note laser-msg' });
   const startFrom = h('select', { onchange: (e: Event) => ((device.startFrom = (e.target as HTMLSelectElement).value as StartFrom), deviceChanged()) },
-    h('option', { value: 'absolute' }, 'Absolute Koordinaten'),
-    h('option', { value: 'user' }, 'Benutzer-Ursprung'),
-    h('option', { value: 'current' }, 'Aktuelle Position'),
+    h('option', { value: 'absolute' }, t('Absolute Koordinaten')),
+    h('option', { value: 'user' }, t('Benutzer-Ursprung')),
+    h('option', { value: 'current' }, t('Aktuelle Position')),
   ) as HTMLSelectElement;
-  const originGrid = h('div', { class: 'origin-grid', title: 'Job-Ursprung: dieser Punkt des Jobs liegt am Startpunkt' });
+  const originGrid = h('div', { class: 'origin-grid', title: t('Job-Ursprung: dieser Punkt des Jobs liegt am Startpunkt') });
   const originBtns = Array.from({ length: 9 }, (_, k) => {
     const b = h('button', { onclick: () => ((device.jobOrigin = k), deviceChanged()) });
     originGrid.append(b);
@@ -249,29 +252,29 @@ function laserTab(ed: Editor): HTMLElement {
     c.checked = get();
     return h('label', { class: 'check', title }, c, label);
   };
-  const devSel = h('select', { class: 'port', title: 'Gerät', onchange: (e: Event) => selectDevice(ed, (e.target as HTMLSelectElement).value) }) as HTMLSelectElement;
+  const devSel = h('select', { class: 'port', title: t('Gerät'), onchange: (e: Event) => selectDevice(ed, (e.target as HTMLSelectElement).value) }) as HTMLSelectElement;
   const fillDevices = () => {
     devSel.textContent = '';
     for (const d of store.devices) devSel.append(h('option', { value: d.id }, `${d.name} (${FIRMWARES[d.fw].label})`));
     devSel.value = device.id;
   };
   root.append(
-    h('div', { class: 'conn-row' }, devSel, h('button', { class: 'btn', title: 'Geräte hinzufügen, bearbeiten, löschen', onclick: () => openDevicesDialog(ed) }, 'Geräte …')),
+    h('div', { class: 'conn-row' }, devSel, h('button', { class: 'btn', title: t('Geräte hinzufügen, bearbeiten, löschen'), onclick: () => openDevicesDialog(ed) }, t('Geräte …'))),
     h('div', { class: 'laser-status' }, h('span', {}, dot, stTxt), posTxt),
     h('div', { class: 'conn-row' }, portSel, refreshBtn, connBtn),
     h('div', { class: 'laser-grid' }, startB, pauseB, stopB, frameB, contourB, homeB, originB, previewB, saveB),
     bar,
     progTxt,
     h('div', { class: 'form' },
-      h('label', {}, 'Starten ab'), startFrom,
-      h('label', {}, 'Job-Ursprung'), originGrid,
+      h('label', {}, t('Starten ab')), startFrom,
+      h('label', {}, t('Job-Ursprung')), originGrid,
     ),
     h('div', { class: 'checks' },
-      check('Nur Auswahl', 'Nur die ausgewählten Objekte lasern', () => device.cutSelected, (v) => (device.cutSelected = v)),
-      check('Pfad optimieren', 'Innere Formen zuerst, kurze Leerwege', () => device.optimize, (v) => (device.optimize = v)),
+      check(t('Nur Auswahl'), t('Nur die ausgewählten Objekte lasern'), () => device.cutSelected, (v) => (device.cutSelected = v)),
+      check(t('Pfad optimieren'), t('Innere Formen zuerst, kurze Leerwege'), () => device.optimize, (v) => (device.optimize = v)),
     ),
     h('div', { class: 'conn-row' },
-      h('button', { class: 'btn', onclick: () => openDeviceDialog(ed) }, h('span', { html: ICONS.settings }), 'Geräteeinstellungen'),
+      h('button', { class: 'btn', onclick: () => openDeviceDialog(ed) }, h('span', { html: ICONS.settings }), t('Geräteeinstellungen')),
     ),
     msg,
   );
@@ -294,8 +297,8 @@ function laserTab(ed: Editor): HTMLElement {
       const p = ports.find((x) => x.name === n);
       portSel.append(h('option', { value: n }, p?.description ? `${n} (${p.description})` : n));
     }
-    if (!names.length) portSel.append(h('option', { value: '', disabled: true }, 'Keine serielle Schnittstelle gefunden'));
-    portSel.append(h('option', { value: NET }, `WLAN: ${device.host}:${device.tcpPort}`));
+    if (!names.length) portSel.append(h('option', { value: '', disabled: true }, t('Keine serielle Schnittstelle gefunden')));
+    portSel.append(h('option', { value: NET }, t('WLAN: {address}', { address: `${device.host}:${device.tcpPort}` })));
     portSel.value = device.conn === 'tcp' ? NET : device.port || names[0] || NET;
   };
   const applyPortChoice = () => {
@@ -308,7 +311,7 @@ function laserTab(ed: Editor): HTMLElement {
     try {
       ports = await machine.ports();
     } catch (e) {
-      notify(`Schnittstellen konnten nicht gelesen werden: ${e}`, true);
+      notify(t('Schnittstellen konnten nicht gelesen werden: {error}', { error: tBackend(String(e)) }), true);
     }
     fillPorts();
   };
@@ -316,15 +319,15 @@ function laserTab(ed: Editor): HTMLElement {
   else fillPorts();
 
   const refresh = () => {
-    const [t, cls] = stateText();
-    stTxt.textContent = t + (machine.connected ? ` · ${machine.where}` : '');
+    const [stateLabel, cls] = stateText();
+    stTxt.textContent = stateLabel + (machine.connected ? ` · ${machine.where}` : '');
     dot.className = `dot ${cls}`;
     const p = machine.connected ? machine.status.wpos : null;
     posTxt.textContent = p ? `X ${p[0].toFixed(2)}  Y ${p[1].toFixed(2)}` : '';
     devSel.disabled = machine.connected || machine.connecting;
     const on = machine.connected,
       busy = machine.busy;
-    connBtn.textContent = on ? 'Trennen' : machine.connecting ? 'Verbinde …' : 'Verbinden';
+    connBtn.textContent = on ? t('Trennen') : machine.connecting ? t('Verbinde …') : t('Verbinden');
     connBtn.disabled = machine.connecting || (!isTauri() && !on);
     portSel.disabled = on || machine.connecting || !isTauri();
     refreshBtn.disabled = portSel.disabled;
@@ -332,7 +335,7 @@ function laserTab(ed: Editor): HTMLElement {
     pauseB.disabled = !on;
     stopB.disabled = !on;
     const hold = machine.status.state.startsWith('Hold');
-    pauseB.lastChild!.textContent = hold ? 'Weiter' : 'Pause';
+    pauseB.lastChild!.textContent = hold ? t('Weiter') : t('Pause');
     (pauseB.firstChild as HTMLElement).innerHTML = hold ? ICONS.play : ICONS.pause;
     const pr = machine.progress;
     const showProg = !!pr && !machine.jobIsFrame;
@@ -342,7 +345,7 @@ function laserTab(ed: Editor): HTMLElement {
       (bar.firstChild as HTMLElement).style.width = `${(f * 100).toFixed(1)}%`;
       const rest = machine.remaining();
       const el = (performance.now() - machine.jobStarted) / 1000;
-      progTxt.textContent = `${Math.floor(f * 100)} % · ${formatDuration(el)} vergangen${rest !== null ? ` · noch etwa ${formatDuration(rest)}` : ''}${pr.errors ? ` · ${pr.errors} Fehler` : ''}`;
+      progTxt.textContent = `${Math.floor(f * 100)} % · ${t('{time} vergangen', { time: formatDuration(el) })}${rest !== null ? t(' · noch etwa {rest}', { rest: formatDuration(rest) }) : ''}${pr.errors ? tn(' · {n} Fehler', ' · {n} Fehler', pr.errors) : ''}`;
     }
     startFrom.value = device.startFrom;
     originBtns.forEach((b, k) => b.classList.toggle('cur', k === device.jobOrigin));
@@ -366,7 +369,7 @@ function moveTab(ed: Editor): HTMLElement {
   const root = h('div', { class: 'move-tab' });
   const st = { step: 10, speed: 3000 };
   const jog = (dx: number, dy: number) => {
-    if (!machine.connected) return notify('Nicht verbunden.', true);
+    if (!machine.connected) return notify(t('Nicht verbunden.'), true);
     for (const l of fw().jog(dx * st.step, dy * st.step, st.speed)) machine.send(l);
   };
   const pad = h('div', { class: 'jog' });
@@ -379,46 +382,46 @@ function moveTab(ed: Editor): HTMLElement {
     pad.append(
       h('button', {
         class: 'btn',
-        title: dx || dy ? `${st.step} mm verfahren` : 'Zum Nullpunkt fahren',
+        title: dx || dy ? t('{step} mm verfahren', { step: st.step }) : t('Zum Nullpunkt fahren'),
         onclick: () => (dx || dy ? jog(dx, dy) : machine.send('G0 X0 Y0')),
       }, label),
     );
   const stepSel = h('select', { onchange: (e: Event) => (st.step = Number((e.target as HTMLSelectElement).value)) },
-    ...[0.1, 1, 5, 10, 50, 100].map((v) => h('option', { value: String(v), selected: v === st.step }, `${String(v).replace('.', ',')} mm`)),
+    ...[0.1, 1, 5, 10, 50, 100].map((v) => h('option', { value: String(v), selected: v === st.step }, `${dec(String(v))} mm`)),
   );
-  const speed = numInput('', (v) => v > 0 && (st.speed = v), 'Geschwindigkeit in mm/min');
+  const speed = numInput('', (v) => v > 0 && (st.speed = v), t('Geschwindigkeit in mm/min'));
   speed.value = String(st.speed);
   const pos = h('div', { class: 'move-pos' });
   const toSelection = () => {
     const b = ed.selBounds();
-    if (!b) return notify('Keine Auswahl.', true);
+    if (!b) return notify(t('Keine Auswahl.'), true);
     const box = { x0: b.x, y0: ed.doc.bed.h - b.y - b.h, x1: b.x + b.w, y1: ed.doc.bed.h - b.y };
     const a = anchorOf(box, device.jobOrigin);
     machine.send(`G0 X${a.x.toFixed(3)} Y${a.y.toFixed(3)}`);
   };
-  const setO = h('button', { class: 'btn', title: 'Werkstück-Nullpunkt an die aktuelle Position legen', onclick: () => machine.send(fw().setOrigin) }, 'Ursprung hier setzen') as HTMLButtonElement;
-  const clearO = h('button', { class: 'btn', title: 'Werkstück-Nullpunkt auf den Maschinen-Nullpunkt zurücksetzen', onclick: () => fw().clearOrigin && machine.send(fw().clearOrigin!) }, 'Ursprung löschen') as HTMLButtonElement;
-  const unlock = h('button', { class: 'btn', title: 'Alarm aufheben', onclick: () => fw().unlock && machine.send(fw().unlock!) }, 'Entsperren') as HTMLButtonElement;
+  const setO = h('button', { class: 'btn', title: t('Werkstück-Nullpunkt an die aktuelle Position legen'), onclick: () => machine.send(fw().setOrigin) }, t('Ursprung hier setzen')) as HTMLButtonElement;
+  const clearO = h('button', { class: 'btn', title: t('Werkstück-Nullpunkt auf den Maschinen-Nullpunkt zurücksetzen'), onclick: () => fw().clearOrigin && machine.send(fw().clearOrigin!) }, t('Ursprung löschen')) as HTMLButtonElement;
+  const unlock = h('button', { class: 'btn', title: t('Alarm aufheben'), onclick: () => fw().unlock && machine.send(fw().unlock!) }, t('Entsperren')) as HTMLButtonElement;
   root.append(
     pos,
     h('div', { class: 'move-row' }, pad,
       h('div', { class: 'form move-form' },
-        h('label', {}, 'Schritt'), stepSel,
+        h('label', {}, t('Schritt')), stepSel,
         h('label', {}, 'mm/min'), speed,
       ),
     ),
     h('div', { class: 'move-buttons' },
       setO,
       clearO,
-      h('button', { class: 'btn', title: 'Laser zum Job-Ursprung der Auswahl fahren (absolute Koordinaten)', onclick: toSelection }, 'Laser zur Auswahl'),
+      h('button', { class: 'btn', title: t('Laser zum Job-Ursprung der Auswahl fahren (absolute Koordinaten)'), onclick: toSelection }, t('Laser zur Auswahl')),
       unlock,
     ),
   );
   const refresh = () => {
     const s = machine.status;
     pos.textContent = machine.connected && s.wpos
-      ? `Position X ${s.wpos[0].toFixed(2)}  Y ${s.wpos[1].toFixed(2)} mm` + (s.mpos && (Math.abs(s.mpos[0] - s.wpos[0]) > 1e-3 || Math.abs(s.mpos[1] - s.wpos[1]) > 1e-3) ? ` (Maschine ${s.mpos[0].toFixed(2)} / ${s.mpos[1].toFixed(2)})` : '')
-      : 'Nicht verbunden';
+      ? t('Position X {x}  Y {y} mm', { x: s.wpos[0].toFixed(2), y: s.wpos[1].toFixed(2) }) + (s.mpos && (Math.abs(s.mpos[0] - s.wpos[0]) > 1e-3 || Math.abs(s.mpos[1] - s.wpos[1]) > 1e-3) ? t(' (Maschine {x} / {y})', { x: s.mpos[0].toFixed(2), y: s.mpos[1].toFixed(2) }) : '')
+      : t('Nicht verbunden');
     root.querySelectorAll('button').forEach((b) => ((b as HTMLButtonElement).disabled = !machine.connected || machine.busy));
     if (!fw().clearOrigin) clearO.disabled = true;
     if (!fw().unlock) unlock.disabled = true;
@@ -434,7 +437,7 @@ function moveTab(ed: Editor): HTMLElement {
 function consoleTab(): HTMLElement {
   const root = h('div', { class: 'console-tab' });
   const log = h('div', { class: 'console-log' });
-  const input = h('input', { type: 'text', placeholder: 'Befehl, z. B. $I oder G0 X10', spellcheck: false }) as HTMLInputElement;
+  const input = h('input', { type: 'text', placeholder: t('Befehl, z. B. $I oder G0 X10'), spellcheck: false }) as HTMLInputElement;
   const history: string[] = [];
   let hi = 0;
   input.addEventListener('keydown', (e) => {
@@ -461,13 +464,13 @@ function consoleTab(): HTMLElement {
   const fillQuick = () => {
     quickRow.textContent = '';
     const f = fw();
-    if (device.fw === 'marlin') quickRow.append(quick('M115', 'M115', 'Firmware-Version'), quick('M114', 'M114', 'Position'), quick('M503', 'M503', 'Einstellungen anzeigen'));
+    if (device.fw === 'marlin') quickRow.append(quick('M115', 'M115', t('Firmware-Version')), quick('M114', 'M114', t('Position')), quick('M503', 'M503', t('Einstellungen anzeigen')));
     else {
-      if (f.unlock) quickRow.append(quick(f.unlock, f.unlock, 'Entsperren'));
-      quickRow.append(quick(f.home, f.home, 'Referenzfahrt'));
-      if (device.fw !== 'smoothie') quickRow.append(quick('$I', '$I', 'Version und Gerät'), quick('$$', '$$', 'Einstellungen anzeigen'));
+      if (f.unlock) quickRow.append(quick(f.unlock, f.unlock, t('Entsperren')));
+      quickRow.append(quick(f.home, f.home, t('Referenzfahrt')));
+      if (device.fw !== 'smoothie') quickRow.append(quick('$I', '$I', t('Version und Gerät')), quick('$$', '$$', t('Einstellungen anzeigen')));
     }
-    quickRow.append(h('button', { class: 'btn', title: 'Konsole leeren', onclick: () => (log.textContent = '') }, 'Leeren'));
+    quickRow.append(h('button', { class: 'btn', title: t('Konsole leeren'), onclick: () => (log.textContent = '') }, t('Leeren')));
   };
   fillQuick();
   deviceListeners.add(fillQuick);
@@ -479,7 +482,7 @@ function consoleTab(): HTMLElement {
     while (log.childElementCount > 1000) log.firstChild!.remove();
     if (atEnd) log.scrollTop = log.scrollHeight;
   });
-  if (!isTauri()) machine.log('Im Browser gibt es keine Maschinenanbindung. Vorschau und G-Code speichern funktionieren.');
+  if (!isTauri()) machine.log(t('Im Browser gibt es keine Maschinenanbindung. Vorschau und G-Code speichern funktionieren.'));
   return root;
 }
 
@@ -506,8 +509,8 @@ export function openDeviceDialog(ed: Editor, target: Device = device, onDone?: (
     rows.push(h('label', { title }, label), h('span', {}, el));
   };
   const head = (t: string) => rows.push(h('div', { class: 'sub' }, t));
-  head('Gerät');
-  text('Name', () => d.name, (v) => (d.name = v));
+  head(t('Gerät'));
+  text(t('Name'), () => d.name, (v) => (d.name = v));
   const sMaxRef: { el?: HTMLInputElement } = {};
   const fwSel = h('select', {
     onchange: (e: Event) => {
@@ -518,39 +521,39 @@ export function openDeviceDialog(ed: Editor, target: Device = device, onDone?: (
       readBtn.disabled = !canRead();
     },
   }, ...(Object.keys(FIRMWARES) as Firmware[]).map((k) => h('option', { value: k, selected: k === d.fw }, FIRMWARES[k].label))) as HTMLSelectElement;
-  rows.push(h('label', {}, 'Steuerung (Firmware)'), fwSel);
-  const bw = num('Breite (mm)', () => bed.w, (v) => (bed.w = v), 'Arbeitsbereich X');
-  const bh = num('Höhe (mm)', () => bed.h, (v) => (bed.h = v), 'Arbeitsbereich Y');
-  sMaxRef.el = num('S-Wert für 100 %', () => d.sMax, (v) => (d.sMax = v), 'GRBL $30 bzw. FluidNC speed_map (meist 1000), Marlin meist 255, Smoothieware 1');
-  head('Verbindung');
-  rows.push(h('label', {}, 'Anschluss'), h('select', { onchange: (e: Event) => (d.conn = (e.target as HTMLSelectElement).value as Device['conn']) },
-    h('option', { value: 'serial', selected: d.conn === 'serial' }, 'USB (seriell)'),
-    h('option', { value: 'tcp', selected: d.conn === 'tcp' }, 'WLAN (Telnet)'),
+  rows.push(h('label', {}, t('Steuerung (Firmware)')), fwSel);
+  const bw = num(t('Breite (mm)'), () => bed.w, (v) => (bed.w = v), t('Arbeitsbereich X'));
+  const bh = num(t('Höhe (mm)'), () => bed.h, (v) => (bed.h = v), t('Arbeitsbereich Y'));
+  sMaxRef.el = num(t('S-Wert für 100 %'), () => d.sMax, (v) => (d.sMax = v), t('GRBL $30 bzw. FluidNC speed_map (meist 1000), Marlin meist 255, Smoothieware 1'));
+  head(t('Verbindung|Gerät'));
+  rows.push(h('label', {}, t('Anschluss')), h('select', { onchange: (e: Event) => (d.conn = (e.target as HTMLSelectElement).value as Device['conn']) },
+    h('option', { value: 'serial', selected: d.conn === 'serial' }, t('USB (seriell)')),
+    h('option', { value: 'tcp', selected: d.conn === 'tcp' }, t('WLAN (Telnet)')),
   ));
   // Schnittstelle frei eintragbar (z. B. COM3, /dev/ttyUSB0), erkannte Schnittstellen als Vorschlag
   const portList = h('datalist', { id: `ports-${Math.random().toString(36).slice(2)}` });
-  const portIn = h('input', { type: 'text', value: d.port, placeholder: 'z. B. COM3 oder /dev/ttyUSB0', oninput: (e: Event) => (d.port = (e.target as HTMLInputElement).value.trim()) });
+  const portIn = h('input', { type: 'text', value: d.port, placeholder: t('z. B. COM3 oder /dev/ttyUSB0'), oninput: (e: Event) => (d.port = (e.target as HTMLInputElement).value.trim()) });
   portIn.setAttribute('list', portList.id);
-  rows.push(h('label', { title: 'Feste USB-Schnittstelle dieses Geräts' }, 'USB-Schnittstelle'), portIn, portList);
+  rows.push(h('label', { title: t('Feste USB-Schnittstelle dieses Geräts') }, t('USB-Schnittstelle')), portIn, portList);
   machine.ports().then((ps) => ps.forEach((p) => portList.append(h('option', { value: p.name }, p.description || p.name)))).catch(() => {});
   const baud = h('select', { onchange: (e: Event) => (d.baud = Number((e.target as HTMLSelectElement).value)) },
     ...[57600, 115200, 230400, 250000, 460800, 921600].map((b) => h('option', { value: String(b), selected: b === d.baud }, String(b))),
   );
-  rows.push(h('label', {}, 'Baudrate'), baud);
-  text('WLAN-Adresse', () => d.host, (v) => (d.host = v.trim()));
-  num('Telnet-Port', () => d.tcpPort, (v) => (d.tcpPort = Math.round(v)));
-  bool('Beim Verbinden referenzieren', () => d.homeOnConnect, (v) => (d.homeOnConnect = v), 'Nach dem Verbinden eine Referenzfahrt starten');
-  head('Bewegung (für die Zeitschätzung)');
-  const rapid = num('Eilgang (mm/min)', () => d.rapid, (v) => (d.rapid = v));
-  const accel = num('Beschleunigung (mm/s²)', () => d.accel, (v) => (d.accel = v));
-  bool('Nach dem Job zurück zum Start', () => d.returnHome, (v) => (d.returnHome = v));
-  head('Rahmen');
-  num('Geschwindigkeit (mm/min)', () => d.frameSpeed, (v) => (d.frameSpeed = v));
-  bool('Mit Laser (schwach)', () => d.frameLaser, (v) => (d.frameLaser = v), 'Rahmen mit niedriger Leistung sichtbar machen');
-  num('Leistung (%)', () => d.framePower, (v) => (d.framePower = Math.min(100, v)));
-  head('Air Assist');
-  rows.push(h('label', { title: 'Wird auf Layern mit „Air Assist“ vor dem Lasern gesendet, ausgeschaltet wird mit M9' }, 'Einschalten mit'), h('select', { onchange: (e: Event) => (d.airCmd = (e.target as HTMLSelectElement).value as Device['airCmd']) },
-    h('option', { value: 'M8', selected: d.airCmd !== 'M7' }, 'M8 (Flood, üblich)'),
+  rows.push(h('label', {}, t('Baudrate')), baud);
+  text(t('WLAN-Adresse'), () => d.host, (v) => (d.host = v.trim()));
+  num(t('Telnet-Port'), () => d.tcpPort, (v) => (d.tcpPort = Math.round(v)));
+  bool(t('Beim Verbinden referenzieren'), () => d.homeOnConnect, (v) => (d.homeOnConnect = v), t('Nach dem Verbinden eine Referenzfahrt starten'));
+  head(t('Bewegung (für die Zeitschätzung)'));
+  const rapid = num(t('Eilgang (mm/min)'), () => d.rapid, (v) => (d.rapid = v));
+  const accel = num(t('Beschleunigung (mm/s²)'), () => d.accel, (v) => (d.accel = v));
+  bool(t('Nach dem Job zurück zum Start'), () => d.returnHome, (v) => (d.returnHome = v));
+  head(t('Rahmen'));
+  num(t('Geschwindigkeit (mm/min)'), () => d.frameSpeed, (v) => (d.frameSpeed = v));
+  bool(t('Mit Laser (schwach)'), () => d.frameLaser, (v) => (d.frameLaser = v), t('Rahmen mit niedriger Leistung sichtbar machen'));
+  num(t('Leistung (%)'), () => d.framePower, (v) => (d.framePower = Math.min(100, v)));
+  head(t('Air Assist'));
+  rows.push(h('label', { title: t('Wird auf Layern mit „Air Assist“ vor dem Lasern gesendet, ausgeschaltet wird mit M9') }, t('Einschalten mit')), h('select', { onchange: (e: Event) => (d.airCmd = (e.target as HTMLSelectElement).value as Device['airCmd']) },
+    h('option', { value: 'M8', selected: d.airCmd !== 'M7' }, t('M8 (Flood, üblich)')),
     h('option', { value: 'M7', selected: d.airCmd === 'M7' }, 'M7 (Mist)'),
   ));
   const readNote = h('div', { class: 'note' });
@@ -559,9 +562,9 @@ export function openDeviceDialog(ed: Editor, target: Device = device, onDone?: (
   const readBtn: HTMLButtonElement = h('button', {
     class: 'btn',
     disabled: !canRead(),
-    title: 'Arbeitsbereich, Eilgang, Beschleunigung und Leistungsskala aus der Steuerung lesen (FluidNC, GRBL, grblHAL)',
+    title: t('Arbeitsbereich, Eilgang, Beschleunigung und Leistungsskala aus der Steuerung lesen (FluidNC, GRBL, grblHAL)'),
     onclick: () => {
-      readNote.textContent = 'Lese Einstellungen …';
+      readNote.textContent = t('Lese Einstellungen …');
       const got: Record<string, number> = {};
       const off = machine.on((e) => {
         if (e.type !== 'line') return;
@@ -585,24 +588,24 @@ export function openDeviceDialog(ed: Editor, target: Device = device, onDone?: (
           bed.h = got['y.max_travel_mm'];
           bw.value = String(bed.w);
           bh.value = String(bed.h);
-          found.push(`Arbeitsbereich ${bed.w} × ${bed.h} mm`);
+          found.push(t('Arbeitsbereich {w} × {h} mm', { w: bed.w, h: bed.h }));
         }
         const r = Math.min(got['x.max_rate_mm_per_min'] || Infinity, got['y.max_rate_mm_per_min'] || Infinity);
-        if (isFinite(r)) ((d.rapid = r), (rapid.value = String(r)), found.push(`Eilgang ${r} mm/min`));
+        if (isFinite(r)) ((d.rapid = r), (rapid.value = String(r)), found.push(t('Eilgang {r} mm/min', { r })));
         const a = Math.min(got['x.acceleration_mm_per_sec2'] || Infinity, got['y.acceleration_mm_per_sec2'] || Infinity);
-        if (isFinite(a)) ((d.accel = a), (accel.value = String(a)), found.push(`Beschleunigung ${a} mm/s²`));
-        if (got.smax && sMaxRef.el) ((d.sMax = got.smax), (sMaxRef.el.value = String(got.smax)), found.push(`S-Wert für 100 % ${got.smax}`));
-        readNote.textContent = found.length ? `Gelesen: ${found.join(', ')}. Mit „Übernehmen“ speichern.` : 'Keine Werte erhalten. Details stehen in der Konsole.';
+        if (isFinite(a)) ((d.accel = a), (accel.value = String(a)), found.push(t('Beschleunigung {a} mm/s²', { a })));
+        if (got.smax && sMaxRef.el) ((d.sMax = got.smax), (sMaxRef.el.value = String(got.smax)), found.push(t('S-Wert für 100 % {smax}', { smax: got.smax })));
+        readNote.textContent = found.length ? t('Gelesen: {found}. Mit „Übernehmen“ speichern.', { found: found.join(', ') }) : t('Keine Werte erhalten. Details stehen in der Konsole.');
       }, 2500);
     },
-  }, 'Von der Maschine lesen');
+  }, t('Von der Maschine lesen'));
   const dlg = h('dialog', { class: 'device-dialog' },
-    h('h3', {}, `Geräteeinstellungen: ${target.name}`),
+    h('h3', {}, t('Geräteeinstellungen: {name}', { name: target.name })),
     h('div', { class: 'form' }, ...rows),
     h('div', { class: 'conn-row' }, readBtn),
     readNote,
     h('div', { class: 'dialog-buttons' },
-      h('button', { class: 'btn', onclick: () => dlg.close() }, 'Abbrechen'),
+      h('button', { class: 'btn', onclick: () => dlg.close() }, t('Abbrechen')),
       h('button', {
         class: 'btn primary',
         onclick: () => {
@@ -614,7 +617,7 @@ export function openDeviceDialog(ed: Editor, target: Device = device, onDone?: (
           dlg.close();
           onDone?.();
         },
-      }, 'Übernehmen'),
+      }, t('Übernehmen')),
     ),
   );
   dlg.addEventListener('close', () => dlg.remove());
@@ -630,10 +633,10 @@ export function openDevicesDialog(ed: Editor) {
   const list = h('table', { class: 'devices' });
   const fill = () => {
     list.textContent = '';
-    list.append(h('tr', {}, h('th', {}), h('th', {}, 'Name'), h('th', {}, 'Steuerung'), h('th', {}, 'Bereich (mm)'), h('th', {})));
+    list.append(h('tr', {}, h('th', {}), h('th', {}, t('Name')), h('th', {}, t('Steuerung')), h('th', {}, t('Bereich (mm)')), h('th', {})));
     for (const d of store.devices) {
       const radio = h('input', {
-        type: 'radio', name: 'cur-device', checked: d === device, title: 'Dieses Gerät verwenden',
+        type: 'radio', name: 'cur-device', checked: d === device, title: t('Dieses Gerät verwenden'),
         disabled: machine.connected || machine.connecting,
         onchange: () => (selectDevice(ed, d.id), fill()),
       });
@@ -644,14 +647,14 @@ export function openDevicesDialog(ed: Editor) {
         h('td', {}, FIRMWARES[d.fw].label),
         h('td', {}, `${d.bedW} × ${d.bedH}`),
         h('td', {}, h('div', { class: 'actions' },
-          btn('Bearbeiten', 'Einstellungen dieses Geräts', () => openDeviceDialog(ed, d, fill)),
-          btn('Kopieren', 'Als neues Gerät kopieren', () => {
-            store.devices.push({ ...d, id: newDevice(d).id, name: `${d.name} (Kopie)` });
+          btn(t('Bearbeiten'), t('Einstellungen dieses Geräts'), () => openDeviceDialog(ed, d, fill)),
+          btn(t('Kopieren'), t('Als neues Gerät kopieren'), () => {
+            store.devices.push({ ...d, id: newDevice(d).id, name: t('{name} (Kopie)', { name: d.name }) });
             deviceChanged();
             fill();
           }),
-          btn('Löschen', store.devices.length < 2 ? 'Das letzte Gerät kann nicht gelöscht werden' : 'Gerät löschen', () => {
-            if (!confirm(`Gerät „${d.name}“ löschen?`)) return;
+          btn(t('Löschen'), store.devices.length < 2 ? t('Das letzte Gerät kann nicht gelöscht werden') : t('Gerät löschen'), () => {
+            if (!confirm(t('Gerät „{name}“ löschen?', { name: d.name }))) return;
             store.devices = store.devices.filter((x) => x !== d);
             if (d === device) selectDevice(ed, store.devices[0].id);
             deviceChanged();
@@ -672,11 +675,11 @@ export function openDevicesDialog(ed: Editor) {
     openDeviceDialog(ed, d, fill);
   };
   const dlg = h('dialog', { class: 'devices-dialog' },
-    h('h3', {}, 'Geräte'),
+    h('h3', {}, t('Geräte')),
     list,
-    h('div', { class: 'conn-row' }, h('label', {}, 'Neues Gerät aus Vorlage'), presetSel, h('button', { class: 'btn primary', onclick: add }, 'Hinzufügen')),
-    h('div', { class: 'note' }, 'Die Maße der Vorlagen stammen aus den Herstellerangaben. Bitte vor dem ersten Job prüfen, am einfachsten mit „Von der Maschine lesen“ in den Geräteeinstellungen (FluidNC, GRBL, grblHAL).'),
-    h('div', { class: 'dialog-buttons' }, h('button', { class: 'btn', onclick: () => dlg.close() }, 'Schließen')),
+    h('div', { class: 'conn-row' }, h('label', {}, t('Neues Gerät aus Vorlage')), presetSel, h('button', { class: 'btn primary', onclick: add }, t('Hinzufügen'))),
+    h('div', { class: 'note' }, t('Die Maße der Vorlagen stammen aus den Herstellerangaben. Bitte vor dem ersten Job prüfen, am einfachsten mit „Von der Maschine lesen“ in den Geräteeinstellungen (FluidNC, GRBL, grblHAL).')),
+    h('div', { class: 'dialog-buttons' }, h('button', { class: 'btn', onclick: () => dlg.close() }, t('Schließen'))),
   );
   fill();
   dlg.addEventListener('close', () => dlg.remove());
@@ -697,8 +700,8 @@ export async function openPreview(ed: Editor, src?: JobSource) {
   const acc = document.createElement('canvas');
   const slider = h('input', { type: 'range', min: '0', max: '1000', value: '1000', step: '1' }) as HTMLInputElement;
   const timeTxt = h('span', { class: 'preview-time' });
-  const playBtn = h('button', { class: 'btn', title: 'Abspielen' }, h('span', { html: ICONS.play }));
-  const speedSel = h('select', { title: 'Abspielgeschwindigkeit' },
+  const playBtn = h('button', { class: 'btn', title: t('Abspielen') }, h('span', { html: ICONS.play }));
+  const speedSel = h('select', { title: t('Abspielgeschwindigkeit') },
     ...[1, 2, 5, 10, 20, 50, 100, 200].map((v) => h('option', { value: String(v), selected: v === 10 }, `${v}×`)),
   ) as HTMLSelectElement;
   const rapidChk = h('input', { type: 'checkbox', checked: true }) as HTMLInputElement;
@@ -706,26 +709,26 @@ export async function openPreview(ed: Editor, src?: JobSource) {
   const stat = (k: string, v: string) => [h('dt', {}, k), h('dd', {}, v)];
   const b = job.bounds!;
   const info = h('dl', { class: 'preview-stats' },
-    ...stat('Geschätzte Dauer', formatDuration(est.total)),
-    ...stat('Laserweg', `${(est.cutLength / 1000).toFixed(2)} m`),
-    ...stat('Leerweg', `${(est.rapidLength / 1000).toFixed(2)} m`),
-    ...stat('Bereich', `${(b.x1 - b.x0).toFixed(1)} × ${(b.y1 - b.y0).toFixed(1)} mm`),
-    ...stat('Bewegungen', mv.n.toLocaleString('de-DE')),
+    ...stat(t('Geschätzte Dauer'), formatDuration(est.total)),
+    ...stat(t('Laserweg'), `${(est.cutLength / 1000).toFixed(2)} m`),
+    ...stat(t('Leerweg'), `${(est.rapidLength / 1000).toFixed(2)} m`),
+    ...stat(t('Bereich'), `${(b.x1 - b.x0).toFixed(1)} × ${(b.y1 - b.y0).toFixed(1)} mm`),
+    ...stat(t('Bewegungen'), mv.n.toLocaleString(locale)),
   );
   const warn = h('div', { class: 'note' }, ...job.warnings.map((w) => h('div', {}, w)));
   const dlg = h('dialog', { class: 'preview-dialog' },
     h('div', { class: 'preview-main' },
       cv,
       h('div', { class: 'preview-side' },
-        h('h3', {}, 'Vorschau'),
+        h('h3', {}, t('Vorschau')),
         info,
-        h('label', { class: 'check' }, rapidChk, 'Leerwege zeigen'),
-        h('label', { class: 'check' }, shadeChk, 'Nach Leistung schattieren'),
+        h('label', { class: 'check' }, rapidChk, t('Leerwege zeigen')),
+        h('label', { class: 'check' }, shadeChk, t('Nach Leistung schattieren')),
         warn,
-        h('div', { class: 'note' }, 'Mausrad zoomt, Ziehen verschiebt, Doppelklick passt ein. Die Zeit ist eine Schätzung aus Eilgang und Beschleunigung in den Geräteeinstellungen.'),
+        h('div', { class: 'note' }, t('Mausrad zoomt, Ziehen verschiebt, Doppelklick passt ein. Die Zeit ist eine Schätzung aus Eilgang und Beschleunigung in den Geräteeinstellungen.')),
         h('div', { class: 'dialog-buttons' },
-          h('button', { class: 'btn', onclick: () => saveGCode(ed, src) }, 'G-Code speichern'),
-          h('button', { class: 'btn primary', onclick: () => dlg.close() }, 'Schließen'),
+          h('button', { class: 'btn', onclick: () => saveGCode(ed, src) }, t('G-Code speichern')),
+          h('button', { class: 'btn primary', onclick: () => dlg.close() }, t('Schließen')),
         ),
       ),
     ),
