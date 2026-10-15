@@ -1222,3 +1222,10 @@ table.layers td:nth-child(2) {
   padding: 4px 5px 3px;
   white-space: nowrap;
 }
+
+.joint-dialog [hidden] {
+  display: none !important;
+}
+.note.error {
+  color: #d03030;
+}
