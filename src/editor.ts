@@ -9,9 +9,10 @@ import { ImportResult, transformSubs } from './importers';
 import { traceGray, TraceOptions } from './trace';
 import { BoolOp, booleanOp, OffsetOptions, offsetOp } from './ops';
 import { loadFont, onFontLoaded, textToSubs } from './fonts';
+import { MAX_COPIES } from './arrays';
 import {
-  bezierPt, Box, boundsOf, drawText, hitLeaf, invalidate, invalidateText, leafIntersectsBox, segments, shapeSubs, subsToPath2D,
-  worldPath,
+  bezierPt, Box, boundsOf, drawText, hitLeaf, invalidate, invalidateText, leafIntersectsBox, localPath, segments, shapeSubs, subsToPath2D,
+  textOutline, worldPath,
 } from './geom';
 import { AlignGuide, alignBox, alignPoint, buildSnapSet, findSnap, SNAP_LABELS, SnapHit, SnapSet } from './snap';
 
@@ -1359,6 +1360,47 @@ export class Editor {
 
   /** Vorschau für den Offset-Dialog (ohne das Dokument zu ändern) */
   offsetPreview: SubPath[] | null = null;
+  /** Vorschau für die Array-Dialoge: Weltmatrix je Kopie (die erste ist das Original) */
+  arrayPreview: Mat[] | null = null;
+  /** Mittelpunkt des Kreisarrays (Welt), wird als Kreuz gezeigt */
+  arrayCenter: Pt | null = null;
+  setArrayPreview(mats: Mat[] | null, center: Pt | null = null) {
+    this.arrayPreview = mats;
+    this.arrayCenter = mats ? center : null;
+    this.redraw();
+  }
+  /** Array anlegen: Auswahl je Matrix kopieren (erste Matrix = Original), optional alles gruppieren. */
+  applyArray(mats: Mat[], asGroup: boolean, what: string) {
+    if (!this.sel.length || mats.length < 2) return;
+    if (mats.length * this.sel.length > MAX_COPIES) {
+      this.hint = `${what}: zu viele Kopien (höchstens ${MAX_COPIES}).`;
+      this.emit('tool');
+      return;
+    }
+    this.snapshot();
+    const originals = this.doc.objs.filter((o) => this.sel.includes(o));
+    const copies: Obj[] = [];
+    for (const M of mats.slice(1)) {
+      for (const o of originals) {
+        const c = cloneObj(o);
+        c.m = mul(M, o.m);
+        copies.push(c);
+      }
+    }
+    const all = [...originals, ...copies];
+    if (asGroup) {
+      const idx = this.doc.objs.indexOf(originals[originals.length - 1]);
+      const g: Obj = { id: newId(), m: IDENT, layer: originals[0].layer, shape: { kind: 'group', children: all } };
+      this.doc.objs.splice(idx + 1, 0, g);
+      this.doc.objs = this.doc.objs.filter((o) => !originals.includes(o));
+      this.setSel([g]);
+    } else {
+      this.doc.objs.push(...copies);
+      this.setSel(all);
+    }
+    this.hint = `${what}: ${mats.length - 1} Kopie${mats.length > 2 ? 'n' : ''} angelegt.`;
+    this.emit('doc');
+  }
   /** Position des Laserkopfs (Werkstückkoordinaten, y nach oben), solange verbunden */
   laserPos: Pt | null = null;
   async previewOffset(opt: OffsetOptions | null) {
@@ -1637,6 +1679,8 @@ export class Editor {
     if (data && this.externalPaste && (await this.externalPaste(data))) return;
     this.paste();
   }
+  /** Rasterarray-Dialog öffnen (Ctrl+Shift+A, von der Oberfläche gesetzt) */
+  onGridArray: (() => void) | null = null;
   /** Datei > Importieren (von der Oberfläche gesetzt) */
   onImport: (() => void) | null = null;
   cut() {
@@ -1982,6 +2026,7 @@ export class Editor {
       if (k === 'v') return run(() => this.mirror(false));
       if (k === 'z') return run(() => this.doRedo());
       if (k === 'c') return run(() => this.convertSelToPath());
+      if (k === 'a') return run(() => this.onGridArray?.());
     }
     const nodeMode = this.tool === 'node' && !!this.nodeTarget();
     if (ctrl && !e.shiftKey && k === 'a' && nodeMode) return run(() => this.selectAllNodes());
@@ -2215,6 +2260,33 @@ export class Editor {
       ctx.lineWidth = 1.5 * px;
       ctx.stroke(subsToPath2D(this.offsetPreview));
       ctx.setLineDash([]);
+    }
+
+    // Array-Vorschau: Umrisse der Kopien
+    if (this.arrayPreview && this.sel.length) {
+      const p = new Path2D();
+      for (const M of this.arrayPreview.slice(1)) {
+        for (const [leaf, m] of leaves(this.sel, M)) {
+          const s = leaf.shape;
+          const local = s.kind === 'text' ? textOutline(s)?.path : s.kind === 'image' ? rectPath(s.w, s.h) : localPath(s);
+          if (local) p.addPath(local, new DOMMatrix(m));
+        }
+      }
+      ctx.strokeStyle = '#ff6020';
+      ctx.setLineDash([4 * px, 2 * px]);
+      ctx.lineWidth = 1.2 * px;
+      ctx.stroke(p);
+      ctx.setLineDash([]);
+      if (this.arrayCenter) {
+        const { x, y } = this.arrayCenter;
+        ctx.lineWidth = 1.5 * px;
+        ctx.beginPath();
+        ctx.moveTo(x - 7 * px, y);
+        ctx.lineTo(x + 7 * px, y);
+        ctx.moveTo(x, y - 7 * px);
+        ctx.lineTo(x, y + 7 * px);
+        ctx.stroke();
+      }
     }
 
     // Laserkopf (Werkstückkoordinaten der Maschine, y nach oben)
@@ -2555,6 +2627,12 @@ function cachedWorldPath(o: Obj, m: Mat): Path2D {
   const path = worldPath(o.shape, m);
   worldCache.set(o, { m, shape: o.shape, path, ver: shapeVersions.get(o.shape) ?? 0 });
   return path;
+}
+
+function rectPath(w: number, h: number): Path2D {
+  const p = new Path2D();
+  p.rect(0, 0, w, h);
+  return p;
 }
 
 function closedPath(subs: SubPath[], m: Mat): Path2D {

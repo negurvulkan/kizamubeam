@@ -69,4 +69,6 @@ export const ICONS: Record<string, string> = {
   refresh: svg('<path d="M19 12a7 7 0 11-2.1-5M19 4v4h-4"/>'),
   target: svg('<circle cx="12" cy="12" r="6"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/>'),
   offset: svg('<rect x="8" y="8" width="8" height="8" rx="1"/><rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke-dasharray="2.2 1.8"/>'),
+  gridArray: svg('<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1" stroke-dasharray="2 1.5"/><rect x="3" y="14" width="7" height="7" rx="1" stroke-dasharray="2 1.5"/><rect x="14" y="14" width="7" height="7" rx="1" stroke-dasharray="2 1.5"/>'),
+  circArray: svg('<circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="4.5" r="2.5"/><circle cx="19.5" cy="12" r="2.5" stroke-dasharray="1.8 1.4"/><circle cx="12" cy="19.5" r="2.5" stroke-dasharray="1.8 1.4"/><circle cx="4.5" cy="12" r="2.5" stroke-dasharray="1.8 1.4"/>'),
 };
