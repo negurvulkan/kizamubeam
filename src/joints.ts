@@ -1,4 +1,4 @@
-// Holzverbindungen für gelaserte Bauteile: Fingerzinken, Schlitz und Zapfen sowie Überblattung.
+// Holzverbindungen für gelaserte Bauteile: Fingerzinken, Schlitz und Zapfen, Überblattung, Schnapp- und Hakenverbindung.
 // Eine Verbindung wird auf gerade Kanten vorhandener Formen angewendet. Die Kante wird durch das Zinken- bzw.
 // Zapfenprofil ersetzt, Schlitze kommen als geschlossene Unterpfade hinzu. Alles bleibt ein normaler Pfad mit
 // geraden Segmenten (exakte Ecken, keine Näherung) und lässt sich danach im Knoteneditor weiter bearbeiten.
@@ -8,7 +8,7 @@ import { Mat, Obj, Pt, SubPath } from './model';
 import { bezierPt, segments, shapeSubs } from './geom';
 import { transformSubs } from './importers';
 
-export type JointKind = 'finger' | 'tenon' | 'lap';
+export type JointKind = 'finger' | 'tenon' | 'lap' | 'snap' | 'hook';
 
 export interface JointOptions {
   kind: JointKind;
@@ -29,6 +29,14 @@ export interface JointOptions {
   lapCount: number;
   /** Überblattung: Schlitztiefe der ersten Kante in % der Plattenbreite; die zweite Kante bekommt den Rest */
   lapDepth: number;
+  /** Schnappverbindung: seitlicher Überstand der Rasthaken und Länge der Einführschräge (mm) */
+  snapLip: number;
+  snapLength: number;
+  /** Schnappverbindung: wie tief der Federschlitz zwischen den Zungen in die Platte reicht (mm); längere Zungen federn leichter */
+  snapRelief: number;
+  /** Hakenverbindung: wie weit der Haken seitlich übersteht (= Schiebeweg) und Haken in die andere Richtung */
+  hookLength: number;
+  hookFlip: boolean;
   /** Schnittbreite des Lasers in mm: Zinken/Zapfen werden um so viel breiter, Lücken/Schlitze schmaler gezeichnet */
   kerf: number;
   /** Spiel in mm: positiv = lockerer, negativ = strammer (Press-Fit) */
@@ -37,7 +45,7 @@ export interface JointOptions {
 
 export const DEFAULT_JOINT: JointOptions = {
   kind: 'finger', thickness: 3, fingerWidth: 10, direction: 'in', swap: false,
-  tenonCount: 2, tenonWidth: 15, slotOffset: 0, lapCount: 1, lapDepth: 50, kerf: 0, clearance: 0,
+  tenonCount: 2, tenonWidth: 15, slotOffset: 0, lapCount: 1, lapDepth: 50, snapLip: 0.6, snapLength: 3, snapRelief: 8, hookLength: 6, hookFlip: false, kerf: 0, clearance: 0,
 };
 
 /** Gewählte gerade Kante: Blatt-Objekt, seine Weltmatrix und das Segment in shapeSubs(obj.shape) */
@@ -246,29 +254,67 @@ export function computeJoint(picks: EdgePick[], o: JointOptions): JointResult {
     }
     info = `${n} Schlitz${n > 1 ? 'e' : ''} je Kante, ${fmt(sw)} mm breit, ${depths.map((d) => `${fmt(d)} mm`).join(' / ')} tief`;
   } else {
+    // Zapfen-Familie: einfacher Zapfen, Schnappzapfen mit Rasthaken, L-förmiger Haken
     const g = geoms[0];
     const n = Math.max(1, Math.round(o.tenonCount));
     const tw = o.tenonWidth + adj;
+    const hw = tw / 2;
     const centers = tenonCenters(g.len, n);
-    if (!(o.tenonWidth > 0) || tw * n >= g.len - 0.1) return fail('Zapfen passen nicht auf die Kante (Anzahl × Breite zu groß).');
+    /** Seitlicher Platzbedarf je Zapfen über die Zapfenbreite hinaus */
+    const side = o.kind === 'snap' ? 2 * o.snapLip : o.kind === 'hook' ? o.hookLength : 0;
+    if (!(o.tenonWidth > 0) || (tw + side) * n >= g.len - 0.1) return fail('Zapfen passen nicht auf die Kante (Anzahl × Breite zu groß).');
+    // Unterkante von Rast- bzw. Hakennase: knapp hinter der Gegenplatte
+    const shoulder = t + Math.max(0, o.clearance);
+    /** Hakenrichtung entlang der Kante */
+    const dir = o.hookFlip ? -1 : 1;
     const pts: Pt[] = [];
-    for (const c of centers) pts.push(at(g, c - tw / 2, 0), at(g, c - tw / 2, t), at(g, c + tw / 2, t), at(g, c + tw / 2, 0));
+    for (const c of centers) {
+      const P = (u: number, v: number) => pts.push(at(g, c + u, v));
+      if (o.kind === 'snap') {
+        const lip = o.snapLip,
+          len = o.snapLength;
+        if (!(lip > 0) || !(len > 0)) return fail('Rasthaken: Überstand und Länge müssen größer als 0 sein.');
+        // Mittelschlitz, damit die beiden Zungen beim Durchstecken einfedern können (mindestens 2 × Überstand breit)
+        const gap = 2 * lip + 0.3;
+        if (gap >= tw - 1) return fail('Schnappzapfen zu schmal für den Rasthaken-Überstand.');
+        const tip = shoulder + len;
+        P(-hw, 0); P(-hw, shoulder); P(-hw - lip, shoulder); P(-hw + lip * 0.5, tip);
+        P(-gap / 2, tip); P(-gap / 2, -o.snapRelief); P(gap / 2, -o.snapRelief); P(gap / 2, tip);
+        P(hw - lip * 0.5, tip); P(hw + lip, shoulder); P(hw, shoulder); P(hw, 0);
+      } else if (o.kind === 'hook') {
+        if (!(o.hookLength > 0)) return fail('Hakenlänge muss größer als 0 sein.');
+        const top = shoulder + t;
+        const hl = o.hookLength;
+        if (dir > 0) {
+          P(-hw, 0); P(-hw, top); P(hw + hl, top); P(hw + hl, shoulder); P(hw, shoulder); P(hw, 0);
+        } else {
+          P(-hw, 0); P(-hw, shoulder); P(-hw - hl, shoulder); P(-hw - hl, top); P(hw, top); P(hw, 0);
+        }
+      } else {
+        P(-hw, 0); P(-hw, t); P(hw, t); P(hw, 0);
+      }
+    }
     edits.push({ pick: picks[0], pts });
-    info = `${n} Zapfen à ${fmt(o.tenonWidth)} × ${fmt(t)} mm`;
+    const name = o.kind === 'snap' ? 'Schnappzapfen' : o.kind === 'hook' ? 'Hakenzapfen' : 'Zapfen';
+    info = `${n} ${name} à ${fmt(o.tenonWidth)} × ${fmt(t)} mm`;
     if (picks.length > 1) {
       const s = geoms[1];
       // Schlitzmitte: um slotOffset von der Linie versetzt, bei Kanten geschlossener Formen ins Material hinein
-      const side = s.closed ? -1 : 1;
+      const sideIn = s.closed ? -1 : 1;
       const sl = o.tenonWidth - adj,
         sw = t - adj;
       if (sl <= 0 || sw <= 0) return fail('Schlitze zu klein für Kerf und Spiel.');
       const mid = s.len / 2;
+      // Hakenzapfen: Schlitz um die Hakenlänge verlängert, auf der dem Haken abgewandten Seite (einstecken, dann schieben)
+      const extraLen = o.kind === 'hook' ? o.hookLength : 0;
       const slots: SubPath[] = centers.map((c) => {
         const u = mid + c - g.len / 2,
-          v = side * o.slotOffset;
+          v = sideIn * o.slotOffset;
+        const u0 = u - sl / 2 - (dir > 0 ? extraLen : 0),
+          u1 = u + sl / 2 + (dir < 0 ? extraLen : 0);
         return {
           closed: true,
-          nodes: [at(s, u - sl / 2, v - sw / 2), at(s, u + sl / 2, v - sw / 2), at(s, u + sl / 2, v + sw / 2), at(s, u - sl / 2, v + sw / 2)],
+          nodes: [at(s, u0, v - sw / 2), at(s, u1, v - sw / 2), at(s, u1, v + sw / 2), at(s, u0, v + sw / 2)],
         };
       });
       const target = picks[1].obj;
@@ -280,6 +326,7 @@ export function computeJoint(picks: EdgePick[], o: JointOptions): JointResult {
       info += `, ${n} Schlitz${n > 1 ? 'e' : ''}`;
       if (s.len < g.len - 0.01) info += `. Achtung: Schlitzlinie (${fmt(s.len)} mm) kürzer als die Zapfenkante (${fmt(g.len)} mm)`;
       if (s.closed && o.slotOffset < t / 2 + 0.01) info += '. Achtung: Schlitze reichen bis an die Kante';
+      if (o.kind === 'hook') info += `. Einstecken, dann ${fmt(o.hookLength)} mm in Hakenrichtung schieben`;
     }
   }
 

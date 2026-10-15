@@ -39,13 +39,16 @@ export function openJointDialog(ed: Editor) {
   if (L.kerf) notes.push('Der Layer hat schon einen Kerf-Versatz: Kerf hier auf 0 lassen, sonst wird doppelt ausgeglichen.');
 
   const info = h('div', { class: 'note' }, ' ');
-  const rows: Record<JointKind, HTMLElement[]> = { finger: [], tenon: [], lap: [] };
-  const row = (kind: JointKind, ...els: HTMLElement[]) => (rows[kind].push(...els), els);
+  const rows: Record<JointKind | 'tenons', HTMLElement[]> = { finger: [], tenon: [], lap: [], snap: [], hook: [], tenons: [] };
+  const row = (kind: JointKind | 'tenons', ...els: HTMLElement[]) => (rows[kind].push(...els), els);
+  /** Alle Arten mit Zapfen und Schlitzen */
+  const tenonKinds: JointKind[] = ['tenon', 'snap', 'hook'];
   let applied = false;
 
   const preview = () => {
     if (!dlg.open) return;
-    for (const k of ['finger', 'tenon', 'lap'] as JointKind[]) rows[k].forEach((el) => (el.hidden = st.kind !== k));
+    for (const k of ['finger', 'tenon', 'lap', 'snap', 'hook'] as JointKind[]) rows[k].forEach((el) => (el.hidden = st.kind !== k));
+    rows.tenons.forEach((el) => (el.hidden = !tenonKinds.includes(st.kind)));
     const r = computeJoint(picks, st);
     info.textContent = r.error ?? `${r.info}. Orange gestrichelt: Vorschau.`;
     info.classList.toggle('error', !!r.error);
@@ -55,7 +58,7 @@ export function openJointDialog(ed: Editor) {
   const second = picks.length > 1;
   const body = [
     h('label', { for: 'joint-kind' }, 'Art'),
-    select('joint-kind', st.kind, [['finger', 'Fingerzinken'], ['tenon', 'Schlitz und Zapfen'], ['lap', 'Überblattung (Kreuzverbindung)']], (v) => (st.kind = v)),
+    select('joint-kind', st.kind, [['finger', 'Fingerzinken'], ['tenon', 'Schlitz und Zapfen'], ['lap', 'Überblattung (Kreuzverbindung)'], ['snap', 'Schnappverbindung'], ['hook', 'Hakenverbindung']], (v) => (st.kind = v)),
     h('label', { for: 'joint-t' }, 'Materialdicke (mm)'),
     numField('joint-t', st.thickness, (v) => (st.thickness = v), 'Tiefe der Zinken und Zapfen, Breite der Schlitze'),
     ...row('finger',
@@ -64,13 +67,25 @@ export function openJointDialog(ed: Editor) {
       h('label', { for: 'joint-dir' }, 'Zinken'),
       select('joint-dir', st.direction, [['in', 'Einschneiden (Außenmaß)'], ['out', 'Herausstehen (Innenmaß)']], (v) => (st.direction = v)),
     ),
-    ...row('tenon',
+    ...row('tenons',
       h('label', { for: 'joint-n' }, 'Anzahl Zapfen'),
       numField('joint-n', st.tenonCount, (v) => (st.tenonCount = Math.max(1, Math.round(v)))),
       h('label', { for: 'joint-tw' }, 'Zapfenbreite (mm)'),
       numField('joint-tw', st.tenonWidth, (v) => (st.tenonWidth = v)),
       h('label', { for: 'joint-off' }, 'Schlitzmitte ab Linie (mm)'),
       numField('joint-off', st.slotOffset, (v) => (st.slotOffset = v), 'Bei einer Kante: Abstand nach innen. Bei einer einzelnen Hilfslinie: 0 = Schlitze mittig auf der Linie'),
+    ),
+    ...row('snap',
+      h('label', { for: 'joint-lip' }, 'Rasthaken-Überstand (mm)'),
+      numField('joint-lip', st.snapLip, (v) => (st.snapLip = v), 'Wie weit die Rasthaken seitlich überstehen; bei 3-mm-Sperrholz etwa 0,4 bis 0,8 mm'),
+      h('label', { for: 'joint-slen' }, 'Rasthaken-Länge (mm)'),
+      numField('joint-slen', st.snapLength, (v) => (st.snapLength = v), 'Länge der Einführschräge hinter der Gegenplatte'),
+      h('label', { for: 'joint-relief' }, 'Federschlitz in die Platte (mm)'),
+      numField('joint-relief', st.snapRelief, (v) => (st.snapRelief = Math.max(0, v)), 'Schlitz zwischen den beiden Zungen; je tiefer, desto leichter federn sie ein'),
+    ),
+    ...row('hook',
+      h('label', { for: 'joint-hl' }, 'Hakenlänge (mm)'),
+      numField('joint-hl', st.hookLength, (v) => (st.hookLength = v), 'Seitlicher Überstand des Hakens; um so viel wird nach dem Einstecken geschoben'),
     ),
     ...row('lap',
       h('label', { for: 'joint-ln' }, 'Schlitze je Kante'),
@@ -83,9 +98,10 @@ export function openJointDialog(ed: Editor) {
     h('label', { for: 'joint-clear' }, 'Spiel (mm)'),
     numField('joint-clear', st.clearance, (v) => (st.clearance = v), 'Positiv = lockerer, negativ = strammer (Press-Fit)'),
     ...row('finger', h('span', { class: 'checks' }, check(st.swap, (v) => (st.swap = v), 'Zinken und Lücken tauschen'))),
+    ...row('hook', h('span', { class: 'checks' }, check(st.hookFlip, (v) => (st.hookFlip = v), 'Haken in die andere Richtung'))),
   ];
   const howto = second
-    ? 'Kante 1 bekommt die Zinken, Zapfen bzw. Überblattungs-Schlitze, Kante 2 das Gegenstück. Für Schlitz und Zapfen wird eine einzelne gezeichnete Linie durch die Schlitze ersetzt.'
+    ? 'Kante 1 bekommt die Zinken, Zapfen bzw. Überblattungs-Schlitze, Kante 2 das Gegenstück. Bei Zapfen (auch Schnapp- und Hakenzapfen) wird eine einzelne gezeichnete Linie durch die Schlitze ersetzt.'
     : 'Nur eine Kante gewählt: Zinken, Zapfen bzw. Schlitze ohne Gegenstück.';
 
   const dlg = h(
