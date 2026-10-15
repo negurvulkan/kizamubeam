@@ -1,7 +1,10 @@
 // Biegeschnitte (Living Hinges): ein Schnittmuster füllt eine gewählte geschlossene Form, damit sich die Platte
 // an dieser Stelle biegen lässt.
-// Etappe 1: gerade Schnitte im Mauerwerk-Versatz und Wellen. Die Schnitte laufen in Zeilen parallel zur Biegeachse;
-// zwischen zwei Schnitten einer Zeile bleibt ein Steg stehen, jede zweite Zeile ist um eine halbe Teilung versetzt.
+// Gerade Schnitte im Mauerwerk-Versatz und Wellen laufen in Zeilen parallel zur Biegeachse; zwischen zwei Schnitten
+// einer Zeile bleibt ein Steg stehen, jede zweite Zeile ist um eine halbe Teilung versetzt.
+// Rauten, Waben und Dreiecke sind Gitter aus geraden Schnitten mit Stegen an jedem Knoten, das Flechtmuster wechselt
+// die Schnittrichtung schachbrettartig (biegsam in zwei Richtungen). Die Spirale ist ein einziger Schnitt von innen
+// nach außen, der die Platte wie eine Feder ausziehbar macht.
 // Gerechnet wird in Weltkoordinaten (mm). Jede Zeile wird einmal mit der (um den Rand verkleinerten) Form
 // geschnitten; das ergibt die Abschnitte, in denen geschnitten werden darf. Die Schnitte selbst werden danach exakt
 // erzeugt: gerade Linien bzw. Wellen als kubische Béziers (Hermite-Stücke je Achtelwelle), keine Polylinien.
@@ -9,7 +12,7 @@ import ClipperLib from 'clipper-lib';
 import { Node, Obj, Pt, SubPath } from './model';
 import { region, SCALE } from './ops';
 
-export type HingeKind = 'straight' | 'wave';
+export type HingeKind = 'straight' | 'wave' | 'diamond' | 'honeycomb' | 'triangle' | 'cross' | 'spiral';
 export type HingeOrient = 'auto' | 'vertical' | 'horizontal' | 'angle';
 
 export interface HingeOptions {
@@ -31,19 +34,29 @@ export interface HingeOptions {
   /** Wellen: Höhe (Amplitude, mm) und Wellenlänge (mm) */
   waveAmp: number;
   waveLength: number;
+  /** Rauten: spitzer Winkel der Rauten in Grad (an den Ecken in Schnittrichtung) */
+  diamondAngle: number;
   /** Gewählte Form behalten (sonst wird sie durch das Muster ersetzt) */
   keepOutline: boolean;
 }
 
 export const DEFAULT_HINGE: HingeOptions = {
   kind: 'straight', thickness: 3, cutLength: 20, bridge: 3, spacing: 1.5, margin: 3,
-  orient: 'auto', angle: 90, waveAmp: 1, waveLength: 8, keepOutline: false,
+  orient: 'auto', angle: 90, waveAmp: 1, waveLength: 8, diamondAngle: 60, keepOutline: false,
 };
 
 export const HINGE_KINDS: [HingeKind, string][] = [
   ['straight', 'Gerade Schnitte (Mauerwerk)'],
   ['wave', 'Wellen'],
+  ['diamond', 'Rauten (Diamant)'],
+  ['honeycomb', 'Waben'],
+  ['triangle', 'Dreiecke (3D)'],
+  ['cross', 'Kreuz / Flechtmuster (3D)'],
+  ['spiral', 'Spirale'],
 ];
+
+/** Gittermuster aus geraden Schnitten mit Stegen an den Knoten */
+const LATTICE: HingeKind[] = ['diamond', 'honeycomb', 'triangle', 'cross'];
 
 /** Startwerte für eine Materialdicke: Steg ≈ Dicke, Zeilenabstand ≈ halbe Dicke */
 export function suggestHinge(t: number): Partial<HingeOptions> {
@@ -118,9 +131,10 @@ function reverseNodes(nodes: Node[]): Node[] {
 export function computeHinge(objs: Obj[], o: HingeOptions): HingeResult {
   const fail = (error: string): HingeResult => ({ subs: [], info: '', error });
   if (!objs.length) return fail('Erst eine geschlossene Form auswählen, die das Muster füllen soll.');
-  if (!(o.cutLength > 0)) return fail('Die Schnittlänge muss größer als 0 sein.');
-  if (!(o.bridge >= 0.3)) return fail('Die Stegbreite muss mindestens 0,3 mm betragen.');
-  if (!(o.spacing >= 0.3)) return fail('Der Zeilenabstand muss mindestens 0,3 mm betragen.');
+  if (o.kind !== 'spiral' && !(o.cutLength > 0)) return fail('Die Schnittlänge muss größer als 0 sein.');
+  if (o.kind !== 'spiral' && !(o.bridge >= 0.3)) return fail('Die Stegbreite muss mindestens 0,3 mm betragen.');
+  if (o.kind === 'diamond' && !(o.diamondAngle >= 10 && o.diamondAngle <= 170)) return fail('Der Rautenwinkel muss zwischen 10° und 170° liegen.');
+  if ((o.kind !== 'diamond' && o.kind !== 'honeycomb' && o.kind !== 'triangle') && !(o.spacing >= 0.3)) return fail('Der Zeilenabstand muss mindestens 0,3 mm betragen.');
   if (o.kind === 'wave' && !(o.waveLength >= 1)) return fail('Die Wellenlänge muss mindestens 1 mm betragen.');
   if (o.kind === 'wave' && !(o.waveAmp >= 0)) return fail('Die Wellenhöhe darf nicht negativ sein.');
 
@@ -150,6 +164,8 @@ export function computeHinge(objs: Obj[], o: HingeOptions): HingeResult {
     vmin = Math.min(vmin, v); vmax = Math.max(vmax, v);
   }
   const uc = (umin + umax) / 2, vc = (vmin + vmax) / 2;
+  if (o.kind === 'spiral') return spiralHinge(area, o, { x: (x0 + x1) / 2 / SCALE, y: (y0 + y1) / 2 / SCALE });
+  if (LATTICE.includes(o.kind)) return latticeHinge(area, o, U, V, uc, vc, (umax - umin) / 2, (vmax - vmin) / 2);
   const wave = o.kind === 'wave' && o.waveAmp > 0;
   const A = wave ? o.waveAmp : 0;
   const k = (2 * Math.PI) / o.waveLength;
@@ -246,4 +262,169 @@ export function computeHinge(objs: Obj[], o: HingeOptions): HingeResult {
     return { subs, info: `${subs.length} Schnitte in ${rows} Zeilen, kleinster Abstand zwischen den Wellen ${de(eff, 2)} mm` };
   }
   return { subs, info: `${subs.length} Schnitte in ${rows} Zeilen, zusammen ${de(total / 1000, 2)} m Schnittlänge` };
+}
+
+/** Gerade Schnitte (u, v relativ zur Mitte) in die Fläche schneiden; zu kurze Reste entfallen */
+function clipSegments(area: Paths, segs: [number, number, number, number][], toWorld: (u: number, v: number) => Pt, minPiece: number) {
+  const ip = (p: Pt) => ({ X: Math.round(p.x * SCALE), Y: Math.round(p.y * SCALE) });
+  const c = new Clipper();
+  for (const [u0, v0, u1, v1] of segs) c.AddPath([ip(toWorld(u0, v0)), ip(toWorld(u1, v1))], PolyType.ptSubject, false);
+  c.AddPaths(area, PolyType.ptClip, true);
+  const tree = new PolyTree();
+  c.Execute(ClipType.ctIntersection, tree, PolyFillType.pftNonZero, PolyFillType.pftNonZero);
+  const out: { a: Pt; b: Pt }[] = [];
+  for (const p of Clipper.OpenPathsFromPolyTree(tree)) {
+    if (p.length < 2) continue;
+    const a = { x: p[0].X / SCALE, y: p[0].Y / SCALE },
+      b = { x: p[p.length - 1].X / SCALE, y: p[p.length - 1].Y / SCALE };
+    if (Math.hypot(b.x - a.x, b.y - a.y) >= minPiece - 1e-6) out.push({ a, b });
+  }
+  return out;
+}
+
+function latticeHinge(area: Paths, o: HingeOptions, U: Pt, V: Pt, uc: number, vc: number, hu: number, hv: number): HingeResult {
+  const L = o.cutLength,
+    g = o.bridge,
+    e = L + g;
+  /** Gerade Schnitte als [u0, v0, u1, v1] relativ zur Mitte */
+  const segs: [number, number, number, number][] = [];
+  /** Kante zwischen zwei Gitterknoten, an beiden Enden um den halben Steg gekürzt */
+  const edge = (ax: number, ay: number, bx: number, by: number) => {
+    const d = Math.hypot(bx - ax, by - ay);
+    if (d <= g) return;
+    const t = g / 2 / d;
+    segs.push([ax + (bx - ax) * t, ay + (by - ay) * t, bx - (bx - ax) * t, by - (by - ay) * t]);
+  };
+  // Grobe Schätzung vorab, damit riesige Muster gar nicht erst entstehen
+  const cellArea = o.kind === 'cross' ? (e * o.spacing) : e * e * 0.4;
+  const est = ((2 * hu + 2 * e) * (2 * hv + 2 * e)) / cellArea;
+  if (est > MAX_CUTS * 1.5) return { subs: [], info: '', error: `Zu viele Schnitte (etwa ${Math.round(est).toLocaleString('de-DE')}, höchstens ${MAX_CUTS.toLocaleString('de-DE')}): Schnittlänge oder Zeilenabstand vergrößern.` };
+
+  if (o.kind === 'diamond') {
+    const a = (o.diamondAngle * Math.PI) / 360;
+    const dx = e * Math.cos(a), dy = e * Math.sin(a);
+    const J = Math.ceil(hv / dy) + 1, I = Math.ceil(hu / (2 * dx)) + 1;
+    for (let j = -J; j <= J; j++)
+      for (let i = -I; i <= I; i++) {
+        const x = 2 * dx * i + (Math.abs(j) % 2 ? dx : 0), y = dy * j;
+        edge(x, y, x + dx, y + dy);
+        edge(x, y, x + dx, y - dy);
+      }
+  } else if (o.kind === 'triangle') {
+    const hh = (e * Math.sqrt(3)) / 2;
+    const J = Math.ceil(hv / hh) + 1, I = Math.ceil(hu / e) + 1;
+    for (let j = -J; j <= J; j++)
+      for (let i = -I; i <= I; i++) {
+        const x = e * i + (Math.abs(j) % 2 ? e / 2 : 0), y = hh * j;
+        edge(x, y, x + e, y);
+        edge(x, y, x + e / 2, y + hh);
+        edge(x, y, x - e / 2, y + hh);
+      }
+  } else if (o.kind === 'honeycomb') {
+    // Sechsecke mit waagerechter Ober- und Unterkante; je Wabe die drei oberen Kanten, die unteren gehören den Nachbarn
+    const s3 = Math.sqrt(3) * e;
+    const I = Math.ceil(hu / (1.5 * e)) + 1, J = Math.ceil(hv / s3) + 1;
+    const P = (cx: number, cy: number, k: number) => [cx + e * Math.cos((k * Math.PI) / 3), cy - e * Math.sin((k * Math.PI) / 3)];
+    for (let i = -I; i <= I; i++)
+      for (let j = -J; j <= J; j++) {
+        const cx = 1.5 * e * i, cy = s3 * j + (Math.abs(i) % 2 ? s3 / 2 : 0);
+        for (let k = 0; k < 3; k++) {
+          const [ax, ay] = P(cx, cy, k), [bx, by] = P(cx, cy, k + 1);
+          edge(ax, ay, bx, by);
+        }
+      }
+  } else {
+    // Flechtmuster: quadratische Felder, abwechselnd längs und quer geschnitten
+    const n = Math.floor((e / 2 - g / 2) / o.spacing + 1e-9);
+    const I = Math.ceil(hu / e) + 1, J = Math.ceil(hv / e) + 1;
+    for (let i = -I; i <= I; i++)
+      for (let j = -J; j <= J; j++) {
+        const cx = e * i, cy = e * j;
+        for (let t = -n; t <= n; t++) {
+          if ((i + j) % 2 === 0) segs.push([cx - L / 2, cy + t * o.spacing, cx + L / 2, cy + t * o.spacing]);
+          else segs.push([cx + t * o.spacing, cy - L / 2, cx + t * o.spacing, cy + L / 2]);
+        }
+      }
+  }
+  const toWorld = (u: number, v: number): Pt => {
+    const uu = uc + u, vv = vc + v;
+    return { x: uu * U.x + vv * V.x, y: uu * U.y + vv * V.y };
+  };
+  const minPiece = Math.max(0.5, Math.min(g, L / 2));
+  const cuts = clipSegments(area, segs, toWorld, minPiece);
+  if (!cuts.length) return { subs: [], info: '', error: 'Die Form ist zu klein für das Muster: Rand, Schnittlänge oder Stegbreite verkleinern.' };
+  if (cuts.length > MAX_CUTS) return { subs: [], info: '', error: `Zu viele Schnitte (höchstens ${MAX_CUTS.toLocaleString('de-DE')}): Schnittlänge oder Zeilenabstand vergrößern.` };
+  // Grob zeilenweise sortieren, damit der Laser nicht kreuz und quer springt
+  const key = (p: Pt) => p.x * V.x + p.y * V.y;
+  const row = Math.max(1, o.kind === 'cross' ? e : L / 2);
+  cuts.sort((x, y) => Math.floor(key(x.a) / row) - Math.floor(key(y.a) / row) || x.a.x * U.x + x.a.y * U.y - (y.a.x * U.x + y.a.y * U.y));
+  let total = 0;
+  const subs = cuts.map(({ a, b }): SubPath => {
+    total += Math.hypot(b.x - a.x, b.y - a.y);
+    return { closed: false, nodes: [{ ...a }, { ...b }] };
+  });
+  return { subs, info: `${subs.length} Schnitte, zusammen ${de(total / 1000, 2)} m Schnittlänge` };
+}
+
+/** Archimedische Spirale r = r0 + b·θ um die Mitte der Fläche, als Bézierkurve (Hermite-Stücke je Achteldrehung) */
+function spiralHinge(area: Paths, o: HingeOptions, c: Pt): HingeResult {
+  const b = o.spacing / (2 * Math.PI),
+    r0 = o.spacing;
+  let rmax = 0;
+  for (const p of area) for (const q of p) rmax = Math.max(rmax, Math.hypot(q.X / SCALE - c.x, q.Y / SCALE - c.y));
+  const tmax = (rmax - r0) / b + Math.PI / 4;
+  if (tmax <= 0) return { subs: [], info: '', error: 'Die Form ist zu klein für eine Spirale: Rand oder Zeilenabstand verkleinern.' };
+  if (tmax / (2 * Math.PI) > 5000) return { subs: [], info: '', error: 'Zu viele Windungen: Zeilenabstand vergrößern.' };
+  const r = (t: number) => r0 + b * t;
+  const P = (t: number): Pt => ({ x: c.x + r(t) * Math.cos(t), y: c.y + r(t) * Math.sin(t) });
+  const D = (t: number): Pt => ({ x: b * Math.cos(t) - r(t) * Math.sin(t), y: b * Math.sin(t) + r(t) * Math.cos(t) });
+  // Winkel eines Punkts: Richtung genau, Anzahl der Umdrehungen aus dem Radius
+  const angleOf = (q: ClipperLib.IntPoint) => {
+    const x = q.X / SCALE - c.x, y = q.Y / SCALE - c.y;
+    const phi = Math.atan2(y, x), coarse = (Math.hypot(x, y) - r0) / b;
+    return phi + 2 * Math.PI * Math.round((coarse - phi) / (2 * Math.PI));
+  };
+  // Spirale fein zerlegen und Windung für Windung mit der Fläche schneiden (eine lange Spirale auf einmal wäre für
+  // Clipper sehr langsam). Schrittweite so, dass die Sehnen höchstens 0,005 mm von der Kurve abweichen.
+  const all: [number, number][] = [];
+  for (let t0 = 0; t0 < tmax; t0 += 2 * Math.PI) {
+    const t1 = Math.min(tmax, t0 + 2 * Math.PI);
+    const line: Path = [];
+    for (let t = t0; ; t += Math.min(Math.PI / 16, Math.sqrt(0.04 / r(t)))) {
+      const p = P(Math.min(t, t1));
+      line.push({ X: Math.round(p.x * SCALE), Y: Math.round(p.y * SCALE) });
+      if (t >= t1) break;
+    }
+    all.push(...rowIntervals(area, line, angleOf));
+  }
+  // Stücke an den Windungsgrenzen wieder zusammenfügen
+  const iv: [number, number][] = [];
+  for (const [a, z] of all.sort((x, y) => x[0] - y[0])) {
+    const l = iv[iv.length - 1];
+    if (l && a <= l[1] + 1e-4) l[1] = Math.max(l[1], z);
+    else iv.push([Math.max(0, a), Math.min(tmax, z)]);
+  }
+  const subs: SubPath[] = [];
+  let total = 0;
+  for (const [a, z] of iv) {
+    const len = ((r(a) + r(z)) / 2) * (z - a);
+    if (len < 1) continue;
+    const q = Math.PI / 4;
+    const ts = [a];
+    for (let t = Math.ceil(a / q + 1e-9) * q; t < z - 1e-6; t += q) if (t > a + 1e-6) ts.push(t);
+    ts.push(z);
+    const nodes: Node[] = ts.map((t) => ({ ...P(t) }));
+    for (let i = 0; i + 1 < ts.length; i++) {
+      const d = (ts[i + 1] - ts[i]) / 3, d0 = D(ts[i]), d1 = D(ts[i + 1]);
+      const p0 = nodes[i], p1 = nodes[i + 1];
+      p0.cout = { x: p0.x + d * d0.x, y: p0.y + d * d0.y };
+      p1.cin = { x: p1.x - d * d1.x, y: p1.y - d * d1.y };
+      if (i > 0) p0.smooth = true;
+    }
+    subs.push({ closed: false, nodes });
+    total += len;
+  }
+  if (!subs.length) return { subs: [], info: '', error: 'Die Form ist zu klein für eine Spirale: Rand oder Zeilenabstand verkleinern.' };
+  const turns = iv.length ? (iv[iv.length - 1][1] - iv[0][0]) / (2 * Math.PI) : 0;
+  return { subs, info: `Spirale mit ${de(turns, 1)} Windungen${subs.length > 1 ? ` in ${subs.length} Stücken` : ''}, zusammen ${de(total / 1000, 2)} m Schnittlänge` };
 }

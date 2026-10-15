@@ -22,6 +22,17 @@ function saveState(st: HingeOptions) {
   }
 }
 
+const ALONG = 'Die Platte biegt sich um eine Achse parallel zu den Schnitten. Am leichtesten und ohne Splittern geht das, wenn die Schnitte parallel zur Holzmaserung laufen.';
+const KIND_NOTES: Record<HingeKind, string> = {
+  straight: ALONG,
+  wave: `${ALONG} Wellen verhindern ruckartiges Knicken und geben einen gleichmäßigen Radius.`,
+  diamond: 'Rauten sind steifer als gerade Schnitte und eignen sich auch für dickeres Holz (bis etwa 5 mm). An jeder Ecke bleibt ein Steg stehen.',
+  honeycomb: 'Waben sind steifer als gerade Schnitte und eignen sich auch für dickeres Holz (bis etwa 5 mm) und den Modellbau. An jeder Ecke bleibt ein Steg stehen.',
+  triangle: 'Dreiecke machen die Platte in mehrere Richtungen biegsam, z. B. für wellige oder gewölbte Formen. An jeder Ecke bleibt ein Steg stehen.',
+  cross: 'Felder abwechselnd längs und quer geschnitten (Feldgröße = Schnittlänge + Steg): biegsam in beide Richtungen, z. B. für gewölbte Formen.',
+  spiral: 'Ein durchgehender Schnitt von der Mitte der Form nach außen. Danach lässt sich die Platte wie eine Feder in die Höhe ziehen, z. B. für Lampenschirme. Am besten in einer runden Form.',
+};
+
 export function openHingeDialog(ed: Editor) {
   const targets = ed.hingeTargets();
   if (!targets.length) {
@@ -35,14 +46,22 @@ export function openHingeDialog(ed: Editor) {
   if (libThickness) st.thickness = libThickness;
 
   const info = h('div', { class: 'note' }, ' ');
-  const rows: Record<HingeKind | 'angle', HTMLElement[]> = { straight: [], wave: [], angle: [] };
-  const row = (k: HingeKind | 'angle', ...els: HTMLElement[]) => (rows[k].push(...els), els);
+  /** Felder, die nur bei bestimmten Mustern bzw. Einstellungen sichtbar sind */
+  const vis: [() => boolean, HTMLElement[]][] = [];
+  const when = (cond: () => boolean, ...els: HTMLElement[]) => (vis.push([cond, els]), els);
+  const is = (...kinds: HingeKind[]) => () => kinds.includes(st.kind);
+  const spacingLabel = h('label', { for: 'hinge-spacing' }, 'Zeilenabstand (mm)');
+  const kindNote = h('div', { class: 'note' }, ' ');
   let applied = false;
 
   const preview = () => {
     if (!dlg.open) return;
-    for (const k of HINGE_KINDS.map(([k]) => k)) rows[k].forEach((el) => (el.hidden = st.kind !== k));
-    rows.angle.forEach((el) => (el.hidden = st.orient !== 'angle'));
+    for (const [cond, els] of vis) {
+      const show = cond();
+      els.forEach((el) => (el.hidden = !show));
+    }
+    spacingLabel.textContent = st.kind === 'spiral' ? 'Ringabstand (mm)' : 'Zeilenabstand (mm)';
+    kindNote.textContent = [KIND_NOTES[st.kind], ...notes].join(' ');
     const r = computeHinge(targets, st);
     info.textContent = r.error ?? `${r.info}. Orange: Vorschau.`;
     info.classList.toggle('error', !!r.error);
@@ -72,13 +91,21 @@ export function openHingeDialog(ed: Editor) {
     select('hinge-kind', st.kind, HINGE_KINDS, (v) => (st.kind = v)),
     h('label', { for: 'hinge-thickness' }, 'Materialdicke (mm)'),
     h('span', { class: 'hinge-inline' }, num('thickness', 'Nur für „Werte vorschlagen“'), suggest),
-    h('label', { for: 'hinge-cutLength' }, 'Schnittlänge (mm)'),
-    num('cutLength', 'Länge eines einzelnen Schnitts'),
-    h('label', { for: 'hinge-bridge' }, 'Stegbreite (mm)'),
-    num('bridge', 'Material zwischen dem Ende eines Schnitts und dem Beginn des nächsten. Zu breit: das Holz bricht; zu schmal: es reißt'),
-    h('label', { for: 'hinge-spacing' }, 'Zeilenabstand (mm)'),
-    num('spacing', 'Abstand der Schnittlinien zueinander. Je enger, desto kleiner der Biegeradius'),
-    ...row('wave',
+    ...when(is('straight', 'wave', 'diamond', 'honeycomb', 'triangle', 'cross'),
+      h('label', { for: 'hinge-cutLength' }, 'Schnittlänge (mm)'),
+      num('cutLength', 'Länge eines einzelnen Schnitts; bei Rauten, Waben und Dreiecken die Kantenlänge ohne Steg'),
+      h('label', { for: 'hinge-bridge' }, 'Stegbreite (mm)'),
+      num('bridge', 'Material zwischen dem Ende eines Schnitts und dem Beginn des nächsten. Zu breit: das Holz bricht; zu schmal: es reißt'),
+    ),
+    ...when(is('straight', 'wave', 'cross', 'spiral'),
+      spacingLabel,
+      num('spacing', 'Abstand der Schnittlinien zueinander. Je enger, desto kleiner der Biegeradius'),
+    ),
+    ...when(is('diamond'),
+      h('label', { for: 'hinge-diamondAngle' }, 'Rautenwinkel (°)'),
+      num('diamondAngle', 'Spitzer Winkel der Rauten an den Ecken in Schnittrichtung; kleiner = flachere Rauten, biegsamer'),
+    ),
+    ...when(is('wave'),
       h('label', { for: 'hinge-waveAmp' }, 'Wellenhöhe (mm)'),
       num('waveAmp', 'Ausschlag der Welle zu jeder Seite', 0),
       h('label', { for: 'hinge-waveLength' }, 'Wellenlänge (mm)'),
@@ -86,17 +113,17 @@ export function openHingeDialog(ed: Editor) {
     ),
     h('label', { for: 'hinge-margin' }, 'Rand (mm)'),
     num('margin', 'Abstand der Schnitte zum Umriss der gewählten Form', 0),
-    h('label', { for: 'hinge-orient' }, 'Schnitte verlaufen'),
-    select('hinge-orient', st.orient, [['auto', 'Längs der längeren Seite'], ['vertical', 'Senkrecht'], ['horizontal', 'Waagerecht'], ['angle', 'Im Winkel …']], (v) => (st.orient = v)),
-    ...row('angle',
+    ...when(() => st.kind !== 'spiral',
+      h('label', { for: 'hinge-orient' }, 'Schnitte verlaufen'),
+      select('hinge-orient', st.orient, [['auto', 'Längs der längeren Seite'], ['vertical', 'Senkrecht'], ['horizontal', 'Waagerecht'], ['angle', 'Im Winkel …']], (v) => (st.orient = v)),
+    ),
+    ...when(() => st.kind !== 'spiral' && st.orient === 'angle',
       h('label', { for: 'hinge-angle' }, 'Winkel (°)'),
       num('angle', '0° = waagerecht, gegen den Uhrzeigersinn'),
     ),
     h('span', { class: 'checks' }, check(st.keepOutline, (v) => (st.keepOutline = v), 'Gewählte Form behalten (sonst ersetzt das Muster sie)')),
   ];
-  const notes = [
-    'Die Platte biegt sich um eine Achse parallel zu den Schnitten. Am leichtesten und ohne Splittern geht das, wenn die Schnitte parallel zur Holzmaserung laufen. Gut geeignet sind Pappel- und Birkensperrholz sowie MDF.',
-  ];
+  const notes = ['Gut geeignet sind Pappel- und Birkensperrholz sowie MDF.'];
   if (libThickness) notes.push(`Materialdicke aus der Material-Bibliothek des Layers (${String(libThickness).replace('.', ',')} mm).`);
 
   const dlg = h(
@@ -104,7 +131,7 @@ export function openHingeDialog(ed: Editor) {
     { class: 'offset-dialog array-dialog joint-dialog hinge-dialog' },
     h('h3', {}, 'Biegeschnitte'),
     h('div', { class: 'form' }, ...body),
-    h('div', { class: 'note' }, notes.join(' ')),
+    kindNote,
     info,
     h(
       'div',
