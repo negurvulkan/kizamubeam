@@ -4,15 +4,42 @@ import { $, h, numInput } from './dom';
 import { ICONS } from './icons';
 import { saveText } from './files';
 import {
-  anchorOf, buildJob, Device, estimate, formatDuration, frameGCode, Job, loadDevice, saveDevice, StartFrom, writeGCode,
+  anchorOf, buildJob, Device, estimate, Firmware, FIRMWARES, formatDuration, frameGCode, Job, loadDevices, newDevice, PRESETS,
+  saveDevices, StartFrom, writeGCode,
 } from './gcode';
 import { isTauri, machine, PortInfo } from './machine';
 
-export const device: Device = loadDevice();
+const store = loadDevices();
+/** Das gewählte Gerät (live gebunden: wechselt mit der Auswahl) */
+export let device: Device = store.devices.find((d) => d.id === store.current) ?? store.devices[0];
 const deviceListeners = new Set<() => void>();
 function deviceChanged() {
-  saveDevice(device);
+  saveDevices(store);
   deviceListeners.forEach((f) => f());
+}
+const fw = () => FIRMWARES[device.fw];
+
+/** Arbeitsfläche an das Bett des gewählten Geräts anpassen */
+function applyBed(ed: Editor) {
+  if (ed.doc.bed.w === device.bedW && ed.doc.bed.h === device.bedH) return;
+  ed.doc.bed.w = device.bedW;
+  ed.doc.bed.h = device.bedH;
+  ed.emit('doc');
+  ed.zoomPage();
+}
+
+function selectDevice(ed: Editor, id: string) {
+  const d = store.devices.find((x) => x.id === id);
+  if (!d || d === device) return;
+  if (machine.connected || machine.connecting) {
+    notify('Zum Wechseln des Geräts erst die Verbindung trennen.', true);
+    deviceChanged();
+    return;
+  }
+  device = d;
+  store.current = id;
+  applyBed(ed);
+  deviceChanged();
 }
 
 /** Kurze Meldung im Laser-Panel (und in der Konsole) */
@@ -63,7 +90,7 @@ function canRun(): boolean {
     return false;
   }
   if (machine.status.state.startsWith('Alarm')) {
-    notify('Die Maschine ist im Alarmzustand. Erst referenzieren (Home) oder entsperren ($X).', true);
+    notify(`Die Maschine ist im Alarmzustand. Erst referenzieren (Home)${fw().unlock ? ` oder entsperren (${fw().unlock})` : ''}.`, true);
     return false;
   }
   if (device.startFrom === 'current' && !machine.status.wpos) {
@@ -107,6 +134,7 @@ export function buildLaser(ed: Editor) {
   const panel = $('#laser-panel');
   const title = panel.querySelector('.panel-title') as HTMLElement;
   const body = $('#laser');
+  applyBed(ed);
   const tabs: [string, HTMLElement][] = [
     ['Laser', laserTab(ed)],
     ['Verschieben', moveTab(ed)],
@@ -178,7 +206,7 @@ function laserTab(ed: Editor): HTMLElement {
   const stopB = big('stop', 'Stopp', 'Job abbrechen', () => machine.stop());
   const frameB = big('frame', 'Rahmen', 'Rechteck um den Job abfahren', () => frameJob(ed, false));
   const contourB = big('contour', 'Kontur', 'Umriss des Jobs abfahren (Gummiband)', () => frameJob(ed, true));
-  const homeB = big('home', 'Home', 'Referenzfahrt ($H)', () => machine.send('$H'));
+  const homeB = big('home', 'Home', 'Referenzfahrt', () => machine.send(fw().home));
   const originB = big('origin', 'Ursprung', 'Zum Nullpunkt fahren', () => machine.send('G0 X0 Y0'));
   const previewB = big('preview', 'Vorschau', 'Vorschau mit Zeitschätzung (Alt+P)', () => openPreview(ed));
   const saveB = big('gcode', 'G-Code', 'G-Code speichern', () => saveGCode(ed));
@@ -202,7 +230,14 @@ function laserTab(ed: Editor): HTMLElement {
     c.checked = get();
     return h('label', { class: 'check', title }, c, label);
   };
+  const devSel = h('select', { class: 'port', title: 'Gerät', onchange: (e: Event) => selectDevice(ed, (e.target as HTMLSelectElement).value) }) as HTMLSelectElement;
+  const fillDevices = () => {
+    devSel.textContent = '';
+    for (const d of store.devices) devSel.append(h('option', { value: d.id }, `${d.name} (${FIRMWARES[d.fw].label})`));
+    devSel.value = device.id;
+  };
   root.append(
+    h('div', { class: 'conn-row' }, devSel, h('button', { class: 'btn', title: 'Geräte hinzufügen, bearbeiten, löschen', onclick: () => openDevicesDialog(ed) }, 'Geräte …')),
     h('div', { class: 'laser-status' }, h('span', {}, dot, stTxt), posTxt),
     h('div', { class: 'conn-row' }, portSel, refreshBtn, connBtn),
     h('div', { class: 'laser-grid' }, startB, pauseB, stopB, frameB, contourB, homeB, originB, previewB, saveB),
@@ -266,7 +301,8 @@ function laserTab(ed: Editor): HTMLElement {
     stTxt.textContent = t + (machine.connected ? ` · ${machine.where}` : '');
     dot.className = `dot ${cls}`;
     const p = machine.connected ? machine.status.wpos : null;
-    posTxt.textContent = p ? `X ${p[0].toFixed(2)}  Y ${p[1].toFixed(2)}` : device.name;
+    posTxt.textContent = p ? `X ${p[0].toFixed(2)}  Y ${p[1].toFixed(2)}` : '';
+    devSel.disabled = machine.connected || machine.connecting;
     const on = machine.connected,
       busy = machine.busy;
     connBtn.textContent = on ? 'Trennen' : machine.connecting ? 'Verbinde …' : 'Verbinden';
@@ -297,7 +333,8 @@ function laserTab(ed: Editor): HTMLElement {
     if (e.type === 'done') notify(e.message, !e.ok);
     if (e.type !== 'line') refresh();
   });
-  deviceListeners.add(() => (fillPorts(), refresh()));
+  deviceListeners.add(() => (fillDevices(), fillPorts(), refresh()));
+  fillDevices();
   // Fortschrittstext auch ohne neue Ereignisse aktualisieren (vergangene Zeit)
   setInterval(() => machine.progress && refresh(), 1000);
   refresh();
@@ -311,8 +348,7 @@ function moveTab(ed: Editor): HTMLElement {
   const st = { step: 10, speed: 3000 };
   const jog = (dx: number, dy: number) => {
     if (!machine.connected) return notify('Nicht verbunden.', true);
-    const parts = [dx ? `X${dx * st.step}` : '', dy ? `Y${dy * st.step}` : ''].filter(Boolean).join(' ');
-    machine.send(`$J=G91 G21 ${parts} F${st.speed}`);
+    for (const l of fw().jog(dx * st.step, dy * st.step, st.speed)) machine.send(l);
   };
   const pad = h('div', { class: 'jog' });
   const arrows: [number, number, string][] = [
@@ -341,6 +377,9 @@ function moveTab(ed: Editor): HTMLElement {
     const a = anchorOf(box, device.jobOrigin);
     machine.send(`G0 X${a.x.toFixed(3)} Y${a.y.toFixed(3)}`);
   };
+  const setO = h('button', { class: 'btn', title: 'Werkstück-Nullpunkt an die aktuelle Position legen', onclick: () => machine.send(fw().setOrigin) }, 'Ursprung hier setzen') as HTMLButtonElement;
+  const clearO = h('button', { class: 'btn', title: 'Werkstück-Nullpunkt auf den Maschinen-Nullpunkt zurücksetzen', onclick: () => fw().clearOrigin && machine.send(fw().clearOrigin!) }, 'Ursprung löschen') as HTMLButtonElement;
+  const unlock = h('button', { class: 'btn', title: 'Alarm aufheben', onclick: () => fw().unlock && machine.send(fw().unlock!) }, 'Entsperren') as HTMLButtonElement;
   root.append(
     pos,
     h('div', { class: 'move-row' }, pad,
@@ -350,10 +389,10 @@ function moveTab(ed: Editor): HTMLElement {
       ),
     ),
     h('div', { class: 'move-buttons' },
-      h('button', { class: 'btn', title: 'Werkstück-Nullpunkt an die aktuelle Position legen (G10 L20)', onclick: () => machine.send('G10 L20 P1 X0 Y0') }, 'Ursprung hier setzen'),
-      h('button', { class: 'btn', title: 'Werkstück-Nullpunkt auf den Maschinen-Nullpunkt zurücksetzen (G10 L2)', onclick: () => machine.send('G10 L2 P1 X0 Y0') }, 'Ursprung löschen'),
+      setO,
+      clearO,
       h('button', { class: 'btn', title: 'Laser zum Job-Ursprung der Auswahl fahren (absolute Koordinaten)', onclick: toSelection }, 'Laser zur Auswahl'),
-      h('button', { class: 'btn', title: 'Alarm aufheben ($X)', onclick: () => machine.send('$X') }, 'Entsperren'),
+      unlock,
     ),
   );
   const refresh = () => {
@@ -362,8 +401,11 @@ function moveTab(ed: Editor): HTMLElement {
       ? `Position X ${s.wpos[0].toFixed(2)}  Y ${s.wpos[1].toFixed(2)} mm` + (s.mpos && (Math.abs(s.mpos[0] - s.wpos[0]) > 1e-3 || Math.abs(s.mpos[1] - s.wpos[1]) > 1e-3) ? ` (Maschine ${s.mpos[0].toFixed(2)} / ${s.mpos[1].toFixed(2)})` : '')
       : 'Nicht verbunden';
     root.querySelectorAll('button').forEach((b) => ((b as HTMLButtonElement).disabled = !machine.connected || machine.busy));
+    if (!fw().clearOrigin) clearO.disabled = true;
+    if (!fw().unlock) unlock.disabled = true;
   };
   machine.on((e) => e.type !== 'line' && refresh());
+  deviceListeners.add(refresh);
   refresh();
   return root;
 }
@@ -383,7 +425,7 @@ function consoleTab(): HTMLElement {
       history.push(v);
       hi = history.length;
       input.value = '';
-      if (v === '?') machine.realtime(0x3f);
+      if (v === '?' && fw().realtime) machine.realtime(0x3f);
       else machine.send(v);
     } else if (e.key === 'ArrowUp' && hi > 0) {
       e.preventDefault();
@@ -395,17 +437,22 @@ function consoleTab(): HTMLElement {
     }
   });
   const quick = (label: string, cmd: string, title: string) => h('button', { class: 'btn', title, onclick: () => machine.send(cmd) }, label);
-  root.append(
-    log,
-    h('div', { class: 'console-input' }, input),
-    h('div', { class: 'console-quick' },
-      quick('$X', '$X', 'Entsperren'),
-      quick('$H', '$H', 'Referenzfahrt'),
-      quick('$I', '$I', 'Version und Gerät'),
-      quick('$$', '$$', 'Einstellungen anzeigen'),
-      h('button', { class: 'btn', title: 'Konsole leeren', onclick: () => (log.textContent = '') }, 'Leeren'),
-    ),
-  );
+  const quickRow = h('div', { class: 'console-quick' });
+  // Schnellknöpfe passend zur Firmware des gewählten Geräts
+  const fillQuick = () => {
+    quickRow.textContent = '';
+    const f = fw();
+    if (device.fw === 'marlin') quickRow.append(quick('M115', 'M115', 'Firmware-Version'), quick('M114', 'M114', 'Position'), quick('M503', 'M503', 'Einstellungen anzeigen'));
+    else {
+      if (f.unlock) quickRow.append(quick(f.unlock, f.unlock, 'Entsperren'));
+      quickRow.append(quick(f.home, f.home, 'Referenzfahrt'));
+      if (device.fw !== 'smoothie') quickRow.append(quick('$I', '$I', 'Version und Gerät'), quick('$$', '$$', 'Einstellungen anzeigen'));
+    }
+    quickRow.append(h('button', { class: 'btn', title: 'Konsole leeren', onclick: () => (log.textContent = '') }, 'Leeren'));
+  };
+  fillQuick();
+  deviceListeners.add(fillQuick);
+  root.append(log, h('div', { class: 'console-input' }, input), quickRow);
   machine.on((e) => {
     if (e.type !== 'line') return;
     const atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 4;
@@ -419,9 +466,11 @@ function consoleTab(): HTMLElement {
 
 // ---------- Geräteeinstellungen ----------
 
-export function openDeviceDialog(ed: Editor) {
-  const d = { ...device };
-  const bed = { ...ed.doc.bed };
+/** Einstellungen eines Geräts bearbeiten (ohne Angabe: das gewählte) */
+export function openDeviceDialog(ed: Editor, target: Device = device, onDone?: () => void) {
+  const d = { ...target };
+  const bed = { w: d.bedW, h: d.bedH };
+  const isCurrent = target === device;
   const rows: (HTMLElement | string)[] = [];
   const num = (label: string, get: () => number, set: (v: number) => void, title?: string) => {
     const el = numInput('', (v) => v > 0 && set(v), title);
@@ -440,9 +489,20 @@ export function openDeviceDialog(ed: Editor) {
   const head = (t: string) => rows.push(h('div', { class: 'sub' }, t));
   head('Gerät');
   text('Name', () => d.name, (v) => (d.name = v));
+  const sMaxRef: { el?: HTMLInputElement } = {};
+  const fwSel = h('select', {
+    onchange: (e: Event) => {
+      const old = FIRMWARES[d.fw];
+      d.fw = (e.target as HTMLSelectElement).value as Firmware;
+      // Leistungsskala mitziehen, wenn sie noch dem Standard der alten Firmware entsprach
+      if (d.sMax === old.sMax && sMaxRef.el) ((d.sMax = FIRMWARES[d.fw].sMax), (sMaxRef.el.value = String(d.sMax)));
+      readBtn.disabled = !canRead();
+    },
+  }, ...(Object.keys(FIRMWARES) as Firmware[]).map((k) => h('option', { value: k, selected: k === d.fw }, FIRMWARES[k].label))) as HTMLSelectElement;
+  rows.push(h('label', {}, 'Steuerung (Firmware)'), fwSel);
   const bw = num('Breite (mm)', () => bed.w, (v) => (bed.w = v), 'Arbeitsbereich X');
   const bh = num('Höhe (mm)', () => bed.h, (v) => (bed.h = v), 'Arbeitsbereich Y');
-  num('S-Wert für 100 %', () => d.sMax, (v) => (d.sMax = v), 'FluidNC: speed_map des Lasers, meist 1000');
+  sMaxRef.el = num('S-Wert für 100 %', () => d.sMax, (v) => (d.sMax = v), 'GRBL $30 bzw. FluidNC speed_map (meist 1000), Marlin meist 255, Smoothieware 1');
   head('Verbindung');
   const baud = h('select', { onchange: (e: Event) => (d.baud = Number((e.target as HTMLSelectElement).value)) },
     ...[57600, 115200, 230400, 250000, 460800, 921600].map((b) => h('option', { value: String(b), selected: b === d.baud }, String(b))),
@@ -450,7 +510,7 @@ export function openDeviceDialog(ed: Editor) {
   rows.push(h('label', {}, 'Baudrate'), baud);
   text('WLAN-Adresse', () => d.host, (v) => (d.host = v.trim()));
   num('Telnet-Port', () => d.tcpPort, (v) => (d.tcpPort = Math.round(v)));
-  bool('Beim Verbinden referenzieren', () => d.homeOnConnect, (v) => (d.homeOnConnect = v), 'Nach dem Verbinden $H senden');
+  bool('Beim Verbinden referenzieren', () => d.homeOnConnect, (v) => (d.homeOnConnect = v), 'Nach dem Verbinden eine Referenzfahrt starten');
   head('Bewegung (für die Zeitschätzung)');
   const rapid = num('Eilgang (mm/min)', () => d.rapid, (v) => (d.rapid = v));
   const accel = num('Beschleunigung (mm/s²)', () => d.accel, (v) => (d.accel = v));
@@ -460,10 +520,12 @@ export function openDeviceDialog(ed: Editor) {
   bool('Mit Laser (schwach)', () => d.frameLaser, (v) => (d.frameLaser = v), 'Rahmen mit niedriger Leistung sichtbar machen');
   num('Leistung (%)', () => d.framePower, (v) => (d.framePower = Math.min(100, v)));
   const readNote = h('div', { class: 'note' });
-  const readBtn = h('button', {
+  // Lesen nur vom verbundenen Gerät und nur bei FluidNC und GRBL-artigen Steuerungen
+  const canRead = () => isCurrent && machine.connected && !machine.busy && FIRMWARES[d.fw].read !== null;
+  const readBtn: HTMLButtonElement = h('button', {
     class: 'btn',
-    disabled: !machine.connected || machine.busy,
-    title: 'Arbeitsbereich, Eilgang und Beschleunigung aus der FluidNC-Konfiguration lesen',
+    disabled: !canRead(),
+    title: 'Arbeitsbereich, Eilgang, Beschleunigung und Leistungsskala aus der Steuerung lesen (FluidNC, GRBL, grblHAL)',
     onclick: () => {
       readNote.textContent = 'Lese Einstellungen …';
       const got: Record<string, number> = {};
@@ -472,13 +534,15 @@ export function openDeviceDialog(ed: Editor) {
         // FluidNC: $/axes/x/max_travel_mm=400.000 · GRBL: $130=400.000
         let m = /\/axes\/([xy])\/(max_travel_mm|max_rate_mm_per_min|acceleration_mm_per_sec2)\s*[=:]\s*([\d.]+)/i.exec(e.line);
         if (m) got[`${m[1].toLowerCase()}.${m[2]}`] = Number(m[3]);
-        m = /^\$(11[01]|12[01]|13[01])=([\d.]+)/.exec(e.line);
+        m = /^\$(30|11[01]|12[01]|13[01])=([\d.]+)/.exec(e.line);
         if (m) {
-          const key: Record<string, string> = { '110': 'x.max_rate_mm_per_min', '111': 'y.max_rate_mm_per_min', '120': 'x.acceleration_mm_per_sec2', '121': 'y.acceleration_mm_per_sec2', '130': 'x.max_travel_mm', '131': 'y.max_travel_mm' };
+          const key: Record<string, string> = { '30': 'smax', '110': 'x.max_rate_mm_per_min', '111': 'y.max_rate_mm_per_min', '120': 'x.acceleration_mm_per_sec2', '121': 'y.acceleration_mm_per_sec2', '130': 'x.max_travel_mm', '131': 'y.max_travel_mm' };
           got[key[m[1]]] = Number(m[2]);
         }
       });
-      for (const ax of ['x', 'y']) for (const k of ['max_travel_mm', 'max_rate_mm_per_min', 'acceleration_mm_per_sec2']) machine.send(`$/axes/${ax}/${k}`);
+      if (FIRMWARES[d.fw].read === 'fluidnc') {
+        for (const ax of ['x', 'y']) for (const k of ['max_travel_mm', 'max_rate_mm_per_min', 'acceleration_mm_per_sec2']) machine.send(`$/axes/${ax}/${k}`);
+      } else machine.send('$$');
       setTimeout(() => {
         off();
         const found: string[] = [];
@@ -493,12 +557,13 @@ export function openDeviceDialog(ed: Editor) {
         if (isFinite(r)) ((d.rapid = r), (rapid.value = String(r)), found.push(`Eilgang ${r} mm/min`));
         const a = Math.min(got['x.acceleration_mm_per_sec2'] || Infinity, got['y.acceleration_mm_per_sec2'] || Infinity);
         if (isFinite(a)) ((d.accel = a), (accel.value = String(a)), found.push(`Beschleunigung ${a} mm/s²`));
+        if (got.smax && sMaxRef.el) ((d.sMax = got.smax), (sMaxRef.el.value = String(got.smax)), found.push(`S-Wert für 100 % ${got.smax}`));
         readNote.textContent = found.length ? `Gelesen: ${found.join(', ')}. Mit „Übernehmen“ speichern.` : 'Keine Werte erhalten. Details stehen in der Konsole.';
       }, 2500);
     },
   }, 'Von der Maschine lesen');
   const dlg = h('dialog', { class: 'device-dialog' },
-    h('h3', {}, 'Geräteeinstellungen'),
+    h('h3', {}, `Geräteeinstellungen: ${target.name}`),
     h('div', { class: 'form' }, ...rows),
     h('div', { class: 'conn-row' }, readBtn),
     readNote,
@@ -509,19 +574,77 @@ export function openDeviceDialog(ed: Editor) {
         onclick: () => {
           // Felder, die noch den Fokus haben, zuerst übernehmen
           (document.activeElement as HTMLElement | null)?.blur();
-          Object.assign(device, d);
+          Object.assign(target, d, { bedW: bed.w, bedH: bed.h });
+          if (isCurrent) applyBed(ed);
           deviceChanged();
-          if (bed.w !== ed.doc.bed.w || bed.h !== ed.doc.bed.h) {
-            ed.doc.bed.w = bed.w;
-            ed.doc.bed.h = bed.h;
-            ed.emit('doc');
-            ed.zoomPage();
-          }
           dlg.close();
+          onDone?.();
         },
       }, 'Übernehmen'),
     ),
   );
+  dlg.addEventListener('close', () => dlg.remove());
+  dlg.addEventListener('keydown', (e) => e.stopPropagation());
+  document.body.append(dlg);
+  dlg.showModal();
+}
+
+// ---------- Geräteliste ----------
+
+/** Geräte verwalten: aus Vorlagen anlegen, bearbeiten, kopieren, löschen, auswählen */
+export function openDevicesDialog(ed: Editor) {
+  const list = h('table', { class: 'devices' });
+  const fill = () => {
+    list.textContent = '';
+    list.append(h('tr', {}, h('th', {}), h('th', {}, 'Name'), h('th', {}, 'Steuerung'), h('th', {}, 'Bereich (mm)'), h('th', {})));
+    for (const d of store.devices) {
+      const radio = h('input', {
+        type: 'radio', name: 'cur-device', checked: d === device, title: 'Dieses Gerät verwenden',
+        disabled: machine.connected || machine.connecting,
+        onchange: () => (selectDevice(ed, d.id), fill()),
+      });
+      const btn = (label: string, title: string, f: () => void, disabled = false) => h('button', { class: 'btn', title, disabled, onclick: f }, label);
+      list.append(h('tr', { class: d === device ? 'active' : '' },
+        h('td', {}, radio),
+        h('td', {}, d.name),
+        h('td', {}, FIRMWARES[d.fw].label),
+        h('td', {}, `${d.bedW} × ${d.bedH}`),
+        h('td', {}, h('div', { class: 'actions' },
+          btn('Bearbeiten', 'Einstellungen dieses Geräts', () => openDeviceDialog(ed, d, fill)),
+          btn('Kopieren', 'Als neues Gerät kopieren', () => {
+            store.devices.push({ ...d, id: newDevice(d).id, name: `${d.name} (Kopie)` });
+            deviceChanged();
+            fill();
+          }),
+          btn('Löschen', store.devices.length < 2 ? 'Das letzte Gerät kann nicht gelöscht werden' : 'Gerät löschen', () => {
+            if (!confirm(`Gerät „${d.name}“ löschen?`)) return;
+            store.devices = store.devices.filter((x) => x !== d);
+            if (d === device) selectDevice(ed, store.devices[0].id);
+            deviceChanged();
+            fill();
+          }, store.devices.length < 2 || (d === device && (machine.connected || machine.connecting))),
+        )),
+      ));
+    }
+  };
+  const presetSel = h('select', {},
+    ...PRESETS.map((p, i) => h('option', { value: String(i) }, `${p.name} · ${FIRMWARES[p.fw].label}`)),
+  ) as HTMLSelectElement;
+  const add = () => {
+    const d = newDevice(PRESETS[Number(presetSel.value)]);
+    store.devices.push(d);
+    deviceChanged();
+    fill();
+    openDeviceDialog(ed, d, fill);
+  };
+  const dlg = h('dialog', { class: 'devices-dialog' },
+    h('h3', {}, 'Geräte'),
+    list,
+    h('div', { class: 'conn-row' }, h('label', {}, 'Neues Gerät aus Vorlage'), presetSel, h('button', { class: 'btn primary', onclick: add }, 'Hinzufügen')),
+    h('div', { class: 'note' }, 'Die Maße der Vorlagen stammen aus den Herstellerangaben. Bitte vor dem ersten Job prüfen, am einfachsten mit „Von der Maschine lesen“ in den Geräteeinstellungen (FluidNC, GRBL, grblHAL).'),
+    h('div', { class: 'dialog-buttons' }, h('button', { class: 'btn', onclick: () => dlg.close() }, 'Schließen')),
+  );
+  fill();
   dlg.addEventListener('close', () => dlg.remove());
   dlg.addEventListener('keydown', (e) => e.stopPropagation());
   document.body.append(dlg);

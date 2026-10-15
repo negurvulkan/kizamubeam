@@ -181,6 +181,8 @@ pub fn run() {
             machine::machine_send,
             machine::machine_realtime,
             machine::machine_job,
+            machine::machine_pause,
+            machine::machine_resume,
             machine::machine_stop
         ])
         .run(tauri::generate_context!())

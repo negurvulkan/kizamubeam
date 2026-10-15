@@ -6,7 +6,7 @@ import { exportSvg, importFile, installDropAndPaste, openProject, saveProcessedB
 import { assetImage, displayCanvas, outputGrid } from './images';
 import { systemFonts } from './fonts';
 import { $, evalExpr, f2, h, iconBtn, numInput, sep, setVal } from './dom';
-import { buildLaser, frameJob, openDeviceDialog, openPreview, saveGCode, startJob } from './laser';
+import { buildLaser, frameJob, openDeviceDialog, openDevicesDialog, openPreview, saveGCode, startJob } from './laser';
 
 const FONT_CANDIDATES = [
   'Arial', 'Helvetica', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Segoe UI', 'Calibri', 'Times New Roman', 'Georgia',
@@ -165,6 +165,7 @@ function buildMenu(ed: Editor) {
       ['Rahmen', '', () => frameJob(ed, false)],
       ['Kontur-Rahmen', '', () => frameJob(ed, true)],
       'sep',
+      ['Geräte …', '', () => openDevicesDialog(ed)],
       ['Geräteeinstellungen …', '', () => openDeviceDialog(ed)],
     ]],
     ['Ansicht', [

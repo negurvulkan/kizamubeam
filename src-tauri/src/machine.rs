@@ -1,7 +1,7 @@
-//! Maschinenanbindung für die Oberfläche: Verbindung über USB-Seriell oder Telnet (FluidNC, Port 23),
+//! Maschinenanbindung für die Oberfläche: Verbindung über USB-Seriell oder Telnet (z. B. FluidNC, Port 23),
 //! Ereignisse an das Fenster, Befehle aus dem Fenster an den Übertragungs-Thread (stream.rs).
 
-use crate::stream::{Cmd, Events, Streamer};
+use crate::stream::{Cmd, Events, Protocol, Streamer};
 use serde::Serialize;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -91,6 +91,9 @@ pub async fn machine_connect(
     baud: u32,
     host: String,
     tcp_port: u16,
+    sync: bool,
+    realtime: bool,
+    poll: Option<String>,
 ) -> Result<(), String> {
     if let Some(tx) = state.tx.lock().unwrap().take() {
         let _ = tx.send(Cmd::Close);
@@ -108,7 +111,7 @@ pub async fn machine_connect(
                 .timeout(Duration::from_millis(10))
                 .open()
                 .map_err(|e| format!("{}: {e}", port.trim()))?;
-            std::thread::spawn(move || Streamer::new(p, events, busy, false).run(rx));
+            std::thread::spawn(move || Streamer::new(p, events, busy, Protocol { telnet: false, sync, realtime, poll }).run(rx));
         }
         "tcp" => {
             let addr = (host.trim(), tcp_port)
@@ -120,7 +123,7 @@ pub async fn machine_connect(
             s.set_read_timeout(Some(Duration::from_millis(10))).map_err(|e| e.to_string())?;
             s.set_write_timeout(Some(Duration::from_secs(5))).map_err(|e| e.to_string())?;
             let _ = s.set_nodelay(true);
-            std::thread::spawn(move || Streamer::new(s, events, busy, true).run(rx));
+            std::thread::spawn(move || Streamer::new(s, events, busy, Protocol { telnet: true, sync, realtime, poll }).run(rx));
         }
         _ => return Err(format!("Unbekannte Verbindungsart „{kind}“")),
     }
@@ -155,6 +158,16 @@ pub async fn machine_job(state: State<'_, Machine>, lines: Vec<String>) -> Resul
         return Err("Es läuft bereits ein Job.".into());
     }
     state.send(Cmd::Job(lines))
+}
+
+#[tauri::command]
+pub async fn machine_pause(state: State<'_, Machine>) -> Result<(), String> {
+    state.send(Cmd::Pause)
+}
+
+#[tauri::command]
+pub async fn machine_resume(state: State<'_, Machine>) -> Result<(), String> {
+    state.send(Cmd::Resume)
 }
 
 #[tauri::command]
