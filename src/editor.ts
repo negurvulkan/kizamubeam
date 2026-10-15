@@ -1119,6 +1119,8 @@ export class Editor {
 
   /** Vorschau für den Offset-Dialog (ohne das Dokument zu ändern) */
   offsetPreview: SubPath[] | null = null;
+  /** Position des Laserkopfs (Werkstückkoordinaten, y nach oben), solange verbunden */
+  laserPos: Pt | null = null;
   async previewOffset(opt: OffsetOptions | null) {
     this.offsetPreview = opt && this.sel.length ? offsetOp(await this.withTextOutlines(this.sel), opt) : null;
     this.redraw();
@@ -1973,6 +1975,21 @@ export class Editor {
       ctx.lineWidth = 1.5 * px;
       ctx.stroke(subsToPath2D(this.offsetPreview));
       ctx.setLineDash([]);
+    }
+
+    // Laserkopf (Werkstückkoordinaten der Maschine, y nach oben)
+    if (this.laserPos) {
+      const lx = this.laserPos.x,
+        ly = bed.h - this.laserPos.y;
+      ctx.strokeStyle = '#e02020';
+      ctx.lineWidth = 1.5 * px;
+      ctx.beginPath();
+      ctx.arc(lx, ly, 5 * px, 0, Math.PI * 2);
+      ctx.moveTo(lx - 9 * px, ly);
+      ctx.lineTo(lx + 9 * px, ly);
+      ctx.moveTo(lx, ly - 9 * px);
+      ctx.lineTo(lx, ly + 9 * px);
+      ctx.stroke();
     }
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);

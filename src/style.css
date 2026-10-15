@@ -603,6 +603,9 @@ dialog {
 .form .checks {
   grid-column: 1 / -1;
 }
+.laser-tab .form {
+  grid-template-columns: 1fr 150px;
+}
 .checks {
   display: flex;
   gap: 12px;
@@ -673,4 +676,252 @@ label.check {
   .adjust-body {
     grid-template-columns: 1fr;
   }
+}
+
+/* Laser-Panel: Reiter Laser, Verschieben, Konsole */
+.panel-title.tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 4px;
+}
+.panel-title.tabs button {
+  font: inherit;
+  font-weight: 600;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  padding: 4px 8px 3px;
+}
+.panel-title.tabs button.cur {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.laser-status {
+  gap: 8px;
+}
+.laser-status > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.laser-status .pos {
+  white-space: nowrap;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.dot.ok {
+  background: #2fb35a;
+}
+.dot.busy {
+  background: #e8a020;
+}
+.dot.error {
+  background: #e03030;
+}
+.conn-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin: 6px 0;
+}
+.conn-row .port {
+  flex: 1;
+  min-width: 0;
+}
+.conn-row .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.conn-row .btn svg,
+.ib.small svg {
+  width: 14px;
+  height: 14px;
+}
+.progress {
+  height: 6px;
+  margin-top: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.progress .fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+}
+.progress-text {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 2px;
+}
+.origin-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 14px);
+  gap: 3px;
+}
+.origin-grid button {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+}
+.origin-grid button.cur {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.origin-grid.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+.checks {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+}
+label.check {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.laser-msg.error {
+  color: #d03030;
+}
+.move-pos {
+  color: var(--muted);
+  margin-bottom: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.move-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.jog {
+  display: grid;
+  grid-template-columns: repeat(3, 30px);
+  gap: 3px;
+}
+.jog .btn {
+  height: 30px;
+  padding: 0;
+  font-size: 15px;
+}
+.move-form {
+  grid-template-columns: auto 80px;
+  margin-top: 0;
+}
+.move-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-top: 8px;
+}
+.console-log {
+  height: 170px;
+  overflow: auto;
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 4px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.console-log .out {
+  color: var(--accent);
+}
+.console-log .info {
+  color: var(--muted);
+}
+.console-log .error {
+  color: #d03030;
+}
+.console-input input {
+  width: 100%;
+  margin-top: 4px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.console-quick {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+/* Geräteeinstellungen */
+.device-dialog .form {
+  grid-template-columns: 190px 160px;
+}
+
+/* Vorschau */
+.preview-dialog {
+  width: min(1200px, 92vw);
+  height: min(860px, 88vh);
+  padding: 0;
+  overflow: hidden;
+}
+.preview-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.preview-main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.preview-canvas {
+  flex: 1;
+  min-width: 0;
+  cursor: grab;
+}
+.preview-side {
+  width: 260px;
+  padding: 12px 14px;
+  border-left: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: auto;
+}
+.preview-side .dialog-buttons {
+  margin-top: auto;
+}
+.preview-stats {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 10px;
+  margin: 0 0 6px;
+}
+.preview-stats dt {
+  color: var(--muted);
+}
+.preview-stats dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.preview-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+}
+.preview-bar input[type='range'] {
+  flex: 1;
+}
+.preview-bar .btn svg {
+  width: 14px;
+  height: 14px;
+}
+.preview-time {
+  font-variant-numeric: tabular-nums;
+  min-width: 150px;
+  text-align: center;
 }

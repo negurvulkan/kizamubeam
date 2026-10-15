@@ -5,134 +5,8 @@ import { DITHER_MODES, DitherMode, ImageAdjust, ImageLayer, ImageShape, Layer, l
 import { exportSvg, importFile, installDropAndPaste, openProject, saveProcessedBitmap, saveProject } from './files';
 import { assetImage, displayCanvas, outputGrid } from './images';
 import { systemFonts } from './fonts';
-
-const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
-
-function h<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  props: Record<string, unknown> = {},
-  ...children: (Node | string | null | undefined)[]
-): HTMLElementTagNameMap[K] {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(props)) {
-    if (v === undefined || v === null || v === false) continue;
-    if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), v as EventListener);
-    else if (k === 'html') el.innerHTML = String(v);
-    else if (k === 'class') el.className = String(v);
-    else if (k in el && typeof v !== 'string') (el as unknown as Record<string, unknown>)[k] = v;
-    else el.setAttribute(k, v === true ? '' : String(v));
-  }
-  for (const c of children) if (c !== null && c !== undefined) el.append(c);
-  return el;
-}
-
-const iconBtn = (icon: string, title: string, onclick: () => void, id?: string) =>
-  h('button', { class: 'ib', title, html: ICONS[icon], onclick, id });
-
-const sep = () => h('div', { class: 'sep' });
-
-/** Zahlenfeld-Auswertung mit Einheiten und Grundrechenarten: „5in“, „100/3“, „2*(3+4)cm“. */
-export function evalExpr(src: string): number | null {
-  const s = src.replace(/,/g, '.').trim().toLowerCase();
-  let i = 0;
-  const peek = () => s[i];
-  const ws = () => {
-    while (s[i] === ' ') i++;
-  };
-  const unit = (v: number) => {
-    ws();
-    const m = /^(mm|cm|in|"|m)/.exec(s.slice(i));
-    if (!m) return v;
-    i += m[0].length;
-    return v * ({ mm: 1, cm: 10, in: 25.4, '"': 25.4, m: 1000 } as Record<string, number>)[m[0]];
-  };
-  const atom = (): number => {
-    ws();
-    if (peek() === '(') {
-      i++;
-      const v = sum();
-      ws();
-      if (peek() !== ')') throw 0;
-      i++;
-      return unit(v);
-    }
-    if (peek() === '-') {
-      i++;
-      return -atom();
-    }
-    const m = /^\d*\.?\d+(e[-+]?\d+)?/.exec(s.slice(i));
-    if (!m) throw 0;
-    i += m[0].length;
-    return unit(parseFloat(m[0]));
-  };
-  const prod = (): number => {
-    let v = atom();
-    for (;;) {
-      ws();
-      if (peek() === '*') (i++, (v *= atom()));
-      else if (peek() === '/') (i++, (v /= atom()));
-      else return v;
-    }
-  };
-  const sum = (): number => {
-    let v = prod();
-    for (;;) {
-      ws();
-      if (peek() === '+') (i++, (v += prod()));
-      else if (peek() === '-') (i++, (v -= prod()));
-      else return v;
-    }
-  };
-  try {
-    const v = sum();
-    ws();
-    return i === s.length && isFinite(v) ? v : null;
-  } catch {
-    return null;
-  }
-}
-
-const f2 = (v: number) => (Math.round(v * 1000) / 1000).toFixed(Math.abs(v) >= 1000 ? 1 : 2);
-
-/** Eingabefeld, das bei Enter/Verlassen einen Ausdruck auswertet. */
-function numInput(cls: string, onCommit: (v: number) => void, title?: string) {
-  const el = h('input', { type: 'text', class: cls, title }) as HTMLInputElement;
-  let before = '';
-  el.addEventListener('focus', () => {
-    before = el.value;
-    el.select();
-  });
-  const commit = () => {
-    if (el.value === before) return;
-    const v = evalExpr(el.value);
-    if (v === null) el.value = before;
-    else {
-      before = el.value;
-      onCommit(v);
-    }
-  };
-  el.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      commit();
-      el.blur();
-    } else if (e.key === 'Escape') {
-      el.value = before;
-      el.blur();
-    } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-      e.preventDefault();
-      const v = evalExpr(el.value) ?? 0;
-      const step = e.shiftKey ? 10 : e.altKey ? 0.1 : 1;
-      el.value = f2(v + (e.key === 'ArrowUp' ? step : -step));
-      commit();
-    }
-  });
-  el.addEventListener('blur', commit);
-  return el;
-}
-
-const setVal = (el: HTMLInputElement, v: string) => {
-  if (document.activeElement !== el) el.value = v;
-};
+import { $, evalExpr, f2, h, iconBtn, numInput, sep, setVal } from './dom';
+import { buildLaser, frameJob, openDeviceDialog, openPreview, saveGCode, startJob } from './laser';
 
 const FONT_CANDIDATES = [
   'Arial', 'Helvetica', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Segoe UI', 'Calibri', 'Times New Roman', 'Georgia',
@@ -283,6 +157,16 @@ function buildMenu(ed: Editor) {
       ['Horizontal verteilen', '', () => ed.distribute(true)],
       ['Vertikal verteilen', '', () => ed.distribute(false)],
     ]],
+    ['Laser', [
+      ['Vorschau …', 'Alt+P', () => openPreview(ed)],
+      ['G-Code speichern …', '', () => saveGCode(ed)],
+      'sep',
+      ['Start', '', () => startJob(ed)],
+      ['Rahmen', '', () => frameJob(ed, false)],
+      ['Kontur-Rahmen', '', () => frameJob(ed, true)],
+      'sep',
+      ['Geräteeinstellungen …', '', () => openDeviceDialog(ed)],
+    ]],
     ['Ansicht', [
       ['Ganze Seite', 'Ctrl+0', () => ed.zoomPage()],
       ['Auf Auswahl zoomen', '', () => ed.zoomSelection()],
@@ -358,6 +242,7 @@ function showHelp() {
     ['Alt+W', 'Drahtgitter / Gefüllt'],
     ['Ctrl+I', 'Importieren (Bilder, SVG, DXF); Dateien auch auf die Arbeitsfläche ziehen oder mit Ctrl+V einfügen'],
     ['Alt+T', 'Bild nachzeichnen'],
+    ['Alt+P', 'Vorschau mit Zeitschätzung'],
     ['Palette', 'Farbe anklicken = Auswahl diesem Layer zuordnen'],
   ];
   const dlg = h(
@@ -403,6 +288,9 @@ function buildToolbar(ed: Editor) {
   add(null, 'zoomout', 'Verkleinern (-)', () => ed.zoomAt(0.8));
   add(null, 'zoompage', 'Ganze Seite (Ctrl+0)', () => ed.zoomPage());
   add(needSel, 'zoomsel', 'Auf Auswahl zoomen', () => ed.zoomSelection());
+  bar.append(sep());
+  add(null, 'preview', 'Vorschau (Alt+P)', () => openPreview(ed));
+  add(null, 'settings', 'Geräteeinstellungen', () => openDeviceDialog(ed));
   bar.append(sep());
   add(needMulti, 'group', 'Gruppieren (Ctrl+G)', () => ed.group());
   add(needSel, 'ungroup', 'Gruppierung aufheben (Ctrl+U)', () => ed.ungroup());
@@ -1138,39 +1026,6 @@ function openTraceDialog(ed: Editor) {
   document.body.append(dlg);
   dlg.showModal();
   preview();
-}
-
-// ---------- Laser-Panel ----------
-
-function buildLaser(ed: Editor) {
-  const root = $('#laser');
-  const btn = (icon: string, label: string) =>
-    h('button', { class: 'btn', disabled: true, title: 'Kommt mit der Maschinenanbindung' }, h('span', { html: ICONS[icon] }), label);
-  const bw = numInput('', (v) => v > 0 && ((ed.doc.bed.w = v), ed.emit('doc'), ed.zoomPage()), 'Breite des Arbeitsbereichs');
-  const bh = numInput('', (v) => v > 0 && ((ed.doc.bed.h = v), ed.emit('doc'), ed.zoomPage()), 'Höhe des Arbeitsbereichs');
-  bw.style.width = bh.style.width = '46px';
-  root.append(
-    h('div', { class: 'laser-status' }, h('span', {}, h('span', { class: 'dot' }), 'Nicht verbunden'), h('span', { style: 'color:var(--muted)' }, 'Swiitol E6 Pro · FluidNC')),
-    h(
-      'div',
-      { class: 'laser-grid' },
-      btn('play', 'Start'), btn('pause', 'Pause'), btn('stop', 'Stopp'),
-      btn('frame', 'Rahmen'), btn('home', 'Home'), btn('origin', 'Ursprung'),
-    ),
-    h(
-      'div',
-      { class: 'form' },
-      h('label', {}, 'Arbeitsbereich (mm)'), h('span', { class: 'field' }, bw, '×', bh),
-      h('label', {}, 'Starten ab'), h('select', { disabled: true }, h('option', {}, 'Absolute Koordinaten')),
-    ),
-    h('div', { class: 'note' }, 'Senden, Rahmen und G-Code folgen im Schritt „Maschinenausgabe“.'),
-  );
-  const refresh = () => {
-    setVal(bw, String(ed.doc.bed.w));
-    setVal(bh, String(ed.doc.bed.h));
-  };
-  ed.on((w) => w === 'doc' && refresh());
-  refresh();
 }
 
 // ---------- Palette ----------

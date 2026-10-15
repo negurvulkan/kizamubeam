@@ -1,0 +1,163 @@
+//! Maschinenanbindung für die Oberfläche: Verbindung über USB-Seriell oder Telnet (FluidNC, Port 23),
+//! Ereignisse an das Fenster, Befehle aus dem Fenster an den Übertragungs-Thread (stream.rs).
+
+use crate::stream::{Cmd, Events, Streamer};
+use serde::Serialize;
+use std::net::{TcpStream, ToSocketAddrs};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{channel, Sender};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, State};
+
+#[derive(Default)]
+pub struct Machine {
+    tx: Mutex<Option<Sender<Cmd>>>,
+    busy: Arc<AtomicBool>,
+}
+
+impl Machine {
+    fn send(&self, c: Cmd) -> Result<(), String> {
+        let tx = self.tx.lock().unwrap();
+        let tx = tx.as_ref().ok_or("Nicht verbunden")?;
+        tx.send(c).map_err(|_| "Verbindung getrennt".to_string())
+    }
+}
+
+struct WindowEvents(AppHandle);
+
+#[derive(Serialize, Clone)]
+struct Progress {
+    sent: usize,
+    acked: usize,
+    total: usize,
+    errors: usize,
+}
+
+#[derive(Serialize, Clone)]
+struct Done {
+    ok: bool,
+    message: String,
+}
+
+impl Events for WindowEvents {
+    fn line(&self, line: &str) {
+        let _ = self.0.emit("machine-line", line);
+    }
+    fn progress(&self, sent: usize, acked: usize, total: usize, errors: usize) {
+        let _ = self.0.emit("machine-progress", Progress { sent, acked, total, errors });
+    }
+    fn done(&self, ok: bool, message: &str) {
+        let _ = self.0.emit("machine-done", Done { ok, message: message.into() });
+    }
+    fn closed(&self, reason: Option<String>) {
+        let _ = self.0.emit("machine-closed", reason.unwrap_or_default());
+    }
+}
+
+#[derive(Serialize)]
+pub struct PortInfo {
+    name: String,
+    description: String,
+}
+
+/// Serielle Schnittstellen des Rechners
+#[tauri::command]
+pub async fn machine_ports() -> Vec<PortInfo> {
+    let mut out: Vec<PortInfo> = serialport::available_ports()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| {
+            let description = match p.port_type {
+                serialport::SerialPortType::UsbPort(u) => {
+                    [u.manufacturer, u.product].into_iter().flatten().collect::<Vec<_>>().join(" ")
+                }
+                serialport::SerialPortType::BluetoothPort => "Bluetooth".into(),
+                _ => String::new(),
+            };
+            PortInfo { name: p.port_name, description }
+        })
+        .collect();
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
+
+#[tauri::command]
+pub async fn machine_connect(
+    app: AppHandle,
+    state: State<'_, Machine>,
+    kind: String,
+    port: String,
+    baud: u32,
+    host: String,
+    tcp_port: u16,
+) -> Result<(), String> {
+    if let Some(tx) = state.tx.lock().unwrap().take() {
+        let _ = tx.send(Cmd::Close);
+    }
+    let (tx, rx) = channel();
+    let busy = state.busy.clone();
+    busy.store(false, Ordering::SeqCst);
+    let events = WindowEvents(app);
+    match kind.as_str() {
+        "serial" => {
+            if port.trim().is_empty() {
+                return Err("Keine Schnittstelle gewählt".into());
+            }
+            let p = serialport::new(port.trim(), baud)
+                .timeout(Duration::from_millis(10))
+                .open()
+                .map_err(|e| format!("{}: {e}", port.trim()))?;
+            std::thread::spawn(move || Streamer::new(p, events, busy, false).run(rx));
+        }
+        "tcp" => {
+            let addr = (host.trim(), tcp_port)
+                .to_socket_addrs()
+                .map_err(|e| format!("{}: {e}", host.trim()))?
+                .next()
+                .ok_or_else(|| format!("{}: Adresse nicht gefunden", host.trim()))?;
+            let s = TcpStream::connect_timeout(&addr, Duration::from_secs(5)).map_err(|e| format!("{addr}: {e}"))?;
+            s.set_read_timeout(Some(Duration::from_millis(10))).map_err(|e| e.to_string())?;
+            s.set_write_timeout(Some(Duration::from_secs(5))).map_err(|e| e.to_string())?;
+            let _ = s.set_nodelay(true);
+            std::thread::spawn(move || Streamer::new(s, events, busy, true).run(rx));
+        }
+        _ => return Err(format!("Unbekannte Verbindungsart „{kind}“")),
+    }
+    *state.tx.lock().unwrap() = Some(tx);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn machine_disconnect(state: State<'_, Machine>) -> Result<(), String> {
+    if let Some(tx) = state.tx.lock().unwrap().take() {
+        let _ = tx.send(Cmd::Close);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn machine_send(state: State<'_, Machine>, line: String) -> Result<(), String> {
+    if state.busy.load(Ordering::SeqCst) {
+        return Err("Während ein Job läuft, sind keine Befehle möglich.".into());
+    }
+    state.send(Cmd::Line(line))
+}
+
+#[tauri::command]
+pub async fn machine_realtime(state: State<'_, Machine>, byte: u8) -> Result<(), String> {
+    state.send(Cmd::Realtime(byte))
+}
+
+#[tauri::command]
+pub async fn machine_job(state: State<'_, Machine>, lines: Vec<String>) -> Result<(), String> {
+    if state.busy.load(Ordering::SeqCst) {
+        return Err("Es läuft bereits ein Job.".into());
+    }
+    state.send(Cmd::Job(lines))
+}
+
+#[tauri::command]
+pub async fn machine_stop(state: State<'_, Machine>) -> Result<(), String> {
+    state.send(Cmd::Stop)
+}

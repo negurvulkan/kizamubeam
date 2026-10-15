@@ -7,7 +7,7 @@ import { importDxf, importSvg } from './importers';
 
 const isTauri = () => '__TAURI_INTERNALS__' in window;
 
-async function saveText(name: string, filterName: string, ext: string, mime: string, contents: string) {
+export async function saveText(name: string, filterName: string, ext: string, mime: string, contents: string) {
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core');
     await invoke('save_text_file', { defaultName: name, filterName, extensions: [ext], contents });
