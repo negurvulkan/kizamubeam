@@ -3,6 +3,7 @@
 // Gespeichert wird im Browser-Speicher der App; Austausch über .lwm-Dateien (JSON). LightBurn-
 // Bibliotheken (.clb) lassen sich einlesen, soweit ihre Felder hier eine Entsprechung haben.
 import { CutSettings, cutSettings, defaultCutSettings, defaultImageLayer, defaultTabs, DitherMode, ImageLayer, Layer, LayerMode } from './model';
+import { dec, t } from './i18n';
 
 export interface MaterialEntry {
   id: string;
@@ -28,11 +29,11 @@ function sanitize(e: Partial<MaterialEntry>): MaterialEntry | null {
   const mode: LayerMode = e.settings.mode === 'fill' ? 'fill' : 'line';
   const settings = { ...defaultCutSettings(mode), ...e.settings, mode };
   settings.tabs = { ...defaultTabs(), ...e.settings.tabs };
-  const t = Number(e.thickness);
+  const th = Number(e.thickness);
   return {
     id: typeof e.id === 'string' && e.id ? e.id : newEntryId(),
-    material: String(e.material ?? '').trim() || 'Ohne Namen',
-    thickness: e.thickness === null || e.thickness === undefined || !isFinite(t) || t <= 0 ? null : t,
+    material: String(e.material ?? '').trim() || t('Ohne Namen'),
+    thickness: e.thickness === null || e.thickness === undefined || !isFinite(th) || th <= 0 ? null : th,
     title: String(e.title ?? '').trim(),
     desc: String(e.desc ?? ''),
     settings,
@@ -112,12 +113,12 @@ export const library = new Library();
 
 const entryKey = (e: MaterialEntry) => `${e.material.toLowerCase()}|${e.thickness ?? ''}|${e.title.toLowerCase()}`;
 
-const fmt = (v: number) => String(Math.round(v * 100) / 100).replace('.', ',');
-export const thicknessLabel = (t: number | null) => (t === null ? 'ohne Dicke' : `${fmt(t)} mm`);
+const fmt = (v: number) => dec(String(Math.round(v * 100) / 100));
+export const thicknessLabel = (th: number | null) => (th === null ? t('ohne Dicke') : `${fmt(th)} mm`);
 export const entryLabel = (e: MaterialEntry) =>
   [e.material, e.thickness === null ? '' : `${fmt(e.thickness)} mm`, e.title].filter(Boolean).join(' ');
 export const settingsSummary = (s: CutSettings) =>
-  `${s.mode === 'fill' ? 'Füllen' : 'Linie'}, ${fmt(s.speed)} mm/min, ${fmt(s.power)} %${s.passes > 1 ? `, ${s.passes}×` : ''}`;
+  `${s.mode === 'fill' ? t('Füllen') : t('Linie')}, ${fmt(s.speed)} mm/min, ${fmt(s.power)} %${s.passes > 1 ? `, ${s.passes}×` : ''}`;
 
 /** Neuer Eintrag aus den Einstellungen eines Layers */
 export function entryFromLayer(L: Layer, withImg: boolean): Pick<MaterialEntry, 'settings' | 'img'> {
@@ -141,11 +142,11 @@ export function differsFrom(L: Layer, e: MaterialEntry): boolean {
 
 /** Inhalt einer .lwm- oder .clb-Datei lesen */
 export function parseLibrary(text: string): MaterialEntry[] {
-  const t = text.trimStart();
-  if (t.startsWith('<')) return parseClb(t);
-  const data = JSON.parse(t);
+  const src = text.trimStart();
+  if (src.startsWith('<')) return parseClb(src);
+  const data = JSON.parse(src);
   const list = Array.isArray(data) ? data : data?.entries;
-  if (!Array.isArray(list)) throw new Error('Keine Laserwerk-Materialbibliothek');
+  if (!Array.isArray(list)) throw new Error(t('Keine Laserwerk-Materialbibliothek'));
   return list.map(sanitize).filter(Boolean) as MaterialEntry[];
 }
 
@@ -155,7 +156,7 @@ export function parseLibrary(text: string): MaterialEntry[] {
  */
 function parseClb(xml: string): MaterialEntry[] {
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
-  if (doc.querySelector('parsererror')) throw new Error('Die XML-Datei ist fehlerhaft');
+  if (doc.querySelector('parsererror')) throw new Error(t('Die XML-Datei ist fehlerhaft'));
   const out: MaterialEntry[] = [];
   for (const mat of Array.from(doc.getElementsByTagName('Material'))) {
     const material = mat.getAttribute('name') ?? '';
@@ -222,6 +223,6 @@ function parseClb(xml: string): MaterialEntry[] {
       out.push(e);
     }
   }
-  if (!out.length) throw new Error('Keine Einträge gefunden');
+  if (!out.length) throw new Error(t('Keine Einträge gefunden'));
   return out;
 }

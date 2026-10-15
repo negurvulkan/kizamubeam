@@ -31,6 +31,7 @@ npm run tauri build    # Installationspaket
 - Keilzapfen und T-Slot mit Mutter im selben Werkzeug: Keilzapfen stehen durch die Gegenplatte und haben ein Keilloch; die passenden Keile werden gleich mit angelegt. Beim T-Slot sitzt zwischen je zwei Zapfen ein Schraubenschlitz mit Mutternfenster, die Gegenplatte bekommt die Bohrung (Schraube, Mutter und Schraubenlänge einstellbar).
 - Farbe ist der Layer: Klick auf eine Palettenfarbe ordnet die Auswahl zu. Layer-Tabelle mit Modus (Linie/Füllen), Speed, Leistung, Air Assist, Ausgabe, Sichtbarkeit und Schnellbearbeitung.
 - Layer-Einstellungen (Doppelklick auf einen Layer, wie der Cut Settings Editor in LightBurn): Kerf-Versatz, Haltestege (Anzahl oder Abstand, innere Formen auslassen), Scanwinkel, Kreuzschraffur, Bidirektional, Überfahrweg, Air Assist (M8 oder M7, aus mit M9; einstellbar in den Geräteeinstellungen). Die Einstellungen liegen als `CutSettings` im Layer (`src/model.ts`).
+- Oberfläche auf Deutsch und Englisch (Ansicht → Sprache). Standard folgt der Systemsprache (andere Systemsprachen bekommen Englisch), die Wahl bleibt gespeichert; englische Begriffe wie in LightBurn.
 - Helles und dunkles Design (Ansicht → Design oder Knopf ganz rechts in der Symbolleiste), Standard folgt dem System. Im dunklen Design werden sehr dunkle Layerfarben auf der Arbeitsfläche aufgehellt.
 - Import (Ctrl+I, Ziehen aus dem Dateimanager oder Ctrl+V aus anderen Programmen): Bilder (PNG, JPG, BMP, GIF, WebP), SVG und DXF.
   - Bilder bekommen ihre Größe aus der Auflösung der Datei (ohne Angabe 254 DPI, zu große werden aufs Bett verkleinert).
@@ -58,6 +59,15 @@ npm run tauri build    # Installationspaket
 
 Verbindung per WebSocket, Lasern ab einem Punkt der Vorschau („Start Here“), Kopfkamera und mehrere Kameras, Tabs/Brücken, Kerf-Ausgleich, eigene Start-/End-Skripte, Text auf Pfad, Schweißen von Buchstaben. Bei Bildern fehlen noch Zuschneiden/Maske, TIFF, die Verfahren Newsprint und Sketch sowie Bild-Presets.
 
+## Übersetzungen
+
+Texte stehen im Code auf Deutsch in `t('…')` (Platzhalter in geschweiften Klammern, `t('{n} Bilder', { n })`; Einzahl/Mehrzahl mit `tn('{n} Bild', '{n} Bilder', n)`). Die deutsche Fassung ist zugleich der Schlüssel in den Sprachdateien `src/locales/<sprache>.json`. Fehlt eine Übersetzung, erscheint der deutsche Text. Hat derselbe deutsche Text zwei Bedeutungen, bekommt er einen Kontext nach `|`, z. B. `t('Verbindung|Gerät')`.
+
+- `npm run i18n:check` listet fehlende, unbenutzte und falsch platzierte Einträge (bricht bei Fehlendem mit Fehler ab).
+- `npm run i18n:check -- --write` trägt neue Texte mit leerem Wert ein und entfernt unbenutzte; danach nur noch die leeren Werte übersetzen.
+- Neue Sprache: `src/locales/fr.json` anlegen (z. B. Kopie von `en.json` mit leeren Werten), in `src/i18n.ts` bei `LANGUAGES` und `DICTS` eintragen.
+- Meldungen aus dem Rust-Teil sind deutsch und werden in `src/i18n.ts` (`tBackend`) übersetzt.
+
 ## Aufbau
 
 | Datei | Inhalt |
@@ -80,6 +90,7 @@ Verbindung per WebSocket, Lasern ab einem Punkt der Vorschau („Start Here“),
 | `src/machine.ts` | Verbindung zur Maschine aus Sicht der Oberfläche: Zustand, Statusauswertung, Klartext für Alarme, Befehle an Rust |
 | `src/laser.ts` | Laser-Panel (Laser, Verschieben, Konsole), Geräteeinstellungen, Vorschau |
 | `src/dom.ts` | DOM-Helfer und Zahlenfelder mit Formeln |
+| `src/i18n.ts`, `src/locales/` | Mehrsprachigkeit: `t()`, Sprachwahl, englische Sprachdatei |
 | `src/files.ts` | Öffnen/Speichern/Importieren (Tauri-Dialoge oder Browser), Ziehen und Einfügen, SVG-Export, bearbeitetes Bild speichern |
 | `src-tauri/` | Rust-Hülle: native Dateidialoge, Dateien lesen/schreiben, Liste und Dateien der Systemschriften (fontdb) |
 | `src-tauri/src/stream.rs` | G-Code-Übertragung mit Zeichenzählung, Statusabfrage, Halt/Reset (mit Tests: `cargo test`) |

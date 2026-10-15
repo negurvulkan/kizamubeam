@@ -17,6 +17,7 @@ import {
   textOutline, worldPath,
 } from './geom';
 import { AlignGuide, alignBox, alignPoint, buildSnapSet, findSnap, SNAP_LABELS, SnapHit, SnapSet } from './snap';
+import { dec, t, tn } from './i18n';
 
 export type Tool = 'select' | 'node' | 'line' | 'rect' | 'ellipse' | 'polygon' | 'text' | 'joint';
 
@@ -256,13 +257,16 @@ export class Editor {
   }
   private scheduleSave() {
     clearTimeout(this.saveTimer);
-    this.saveTimer = window.setTimeout(() => {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.doc));
-      } catch {
-        /* Speicher nicht verfügbar */
-      }
-    }, 500);
+    this.saveTimer = window.setTimeout(() => this.saveNow(), 500);
+  }
+  /** Zwischenstand sofort sichern, z. B. vor dem Neuladen der Oberfläche */
+  saveNow() {
+    clearTimeout(this.saveTimer);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.doc));
+    } catch {
+      /* Speicher nicht verfügbar */
+    }
   }
   private restore() {
     try {
@@ -293,7 +297,7 @@ export class Editor {
   }
   openDoc(json: string) {
     const d = JSON.parse(json) as Doc;
-    if (!d || !Array.isArray(d.objs)) throw new Error('Keine gültige Projektdatei');
+    if (!d || !Array.isArray(d.objs)) throw new Error(t('Keine gültige Projektdatei'));
     if (d.assets) for (const [id, url] of Object.entries(d.assets)) registerAsset(id, url);
     delete d.assets;
     restoreAssets(this.assetIds(d.objs));
@@ -808,8 +812,8 @@ export class Editor {
         }
         const o = this.hitTest(wp);
         this.setSel(o ? [o] : []);
-        if (o && o.shape.kind === 'text') this.hint = 'Text hat keine Knoten. Erst in einen Pfad umwandeln (folgt mit der Schrift-Engine).';
-        else if (o && o.shape.kind === 'group') this.hint = 'Gruppen erst auflösen (Ctrl+U), dann Knoten bearbeiten.';
+        if (o && o.shape.kind === 'text') this.hint = t('Text hat keine Knoten. Erst in einen Pfad umwandeln (folgt mit der Schrift-Engine).');
+        else if (o && o.shape.kind === 'group') this.hint = t('Gruppen erst auflösen (Ctrl+U), dann Knoten bearbeiten.');
         else this.hint = TOOL_HINTS.node;
         this.emit('tool');
         return;
@@ -908,7 +912,7 @@ export class Editor {
         const D = about(rotate(a), d.center.x, d.center.y);
         this.sel.forEach((o, i) => (o.m = mul(D, d.orig[i])));
         d.angle = (-a * 180) / Math.PI;
-        this.hint = `Drehung ${d.angle.toFixed(1)}° · Shift: 15°-Schritte, Ctrl: 5°-Schritte, Esc: abbrechen`;
+        this.hint = t('Drehung {angle}° · Shift: 15°-Schritte, Ctrl: 5°-Schritte, Esc: abbrechen', { angle: d.angle.toFixed(1) });
         this.emit('doc');
         return;
       }
@@ -932,7 +936,7 @@ export class Editor {
         }
         d.obj.m = d.axis === 'y' ? translate(0, v) : translate(v, 0);
         const mv = this.toMachine({ x: v, y: v });
-        this.hint = `Hilfslinie ${d.axis === 'y' ? 'y' : 'x'} = ${(d.axis === 'y' ? mv.y : mv.x).toFixed(2)} mm · zurück ins Lineal ziehen verwirft sie`;
+        this.hint = t('Hilfslinie {axis} = {pos} mm · zurück ins Lineal ziehen verwirft sie', { axis: d.axis === 'y' ? 'y' : 'x', pos: (d.axis === 'y' ? mv.y : mv.x).toFixed(2) });
         this.emit('doc');
         return;
       }
@@ -1299,7 +1303,7 @@ export class Editor {
   applyJoint(opt: JointOptions): boolean {
     const r = computeJoint(this.validJointPicks(), opt);
     if (r.error) {
-      this.hint = `Verbindung: ${r.error}`;
+      this.hint = t('Verbindung: {error}', { error: r.error });
       this.emit('tool');
       return false;
     }
@@ -1314,7 +1318,7 @@ export class Editor {
       this.doc.objs.push({ id: newId(), m: IDENT, layer: first?.layer ?? this.currentLayer, shape: { kind: 'path', subs: r.added } });
     }
     this.jointPicks = [];
-    this.hint = `Verbindung angelegt: ${r.info}.`;
+    this.hint = t('Verbindung angelegt: {info}.', { info: r.info });
     this.emit('doc');
     this.emit('sel');
     return true;
@@ -1337,7 +1341,7 @@ export class Editor {
     const inputs = this.hingeTargets();
     const r = computeHinge(inputs, opt);
     if (r.error) {
-      this.hint = `Biegeschnitte: ${r.error}`;
+      this.hint = t('Biegeschnitte: {error}', { error: r.error });
       this.emit('tool');
       return false;
     }
@@ -1348,7 +1352,7 @@ export class Editor {
     if (!opt.keepOutline) this.doc.objs = this.doc.objs.filter((o) => !inputs.includes(o));
     this.doc.objs.splice(Math.min(idx, this.doc.objs.length), 0, res);
     this.setSel([res]);
-    this.hint = `Biegeschnitte angelegt: ${r.info}.`;
+    this.hint = t('Biegeschnitte angelegt: {info}.', { info: r.info });
     this.emit('doc');
     return true;
   }
@@ -1431,8 +1435,8 @@ export class Editor {
       } else this.convertObjToPath(leaf);
     }
     this.hint = fallbacks.size
-      ? `Schrift ${[...fallbacks].join(', ')} nicht gefunden, Roboto verwendet.`
-      : 'In Pfad umgewandelt.';
+      ? t('Schrift {fonts} nicht gefunden, Roboto verwendet.', { fonts: [...fallbacks].join(', ') })
+      : t('In Pfad umgewandelt.');
     this.emit('doc');
     this.emit('sel');
   }
@@ -1485,14 +1489,14 @@ export class Editor {
     // Bilder nehmen nicht teil (sie haben keine Kontur)
     const inputs = orderForBoolean(this.sel.filter((o) => o.shape.kind !== 'image'), this.doc.objs, base);
     if (inputs.length < 2) {
-      this.hint = 'Für Boolesche Operationen mindestens zwei Formen auswählen.';
+      this.hint = t('Für Boolesche Operationen mindestens zwei Formen auswählen.');
       this.emit('tool');
       return;
     }
     const subs = booleanOp(op, await this.withTextOutlines(inputs));
     const keep = this.boolKeep;
     if (!subs.length && keep) {
-      this.hint = 'Ergebnis ist leer (keine gemeinsame Fläche).';
+      this.hint = t('Ergebnis ist leer (keine gemeinsame Fläche).');
       this.emit('tool');
       return;
     }
@@ -1502,14 +1506,14 @@ export class Editor {
     let idx = keep ? Math.max(...z) + 1 : Math.min(...z);
     if (!keep) this.doc.objs = this.doc.objs.filter((o) => !inputs.includes(o));
     if (!subs.length) {
-      this.hint = 'Ergebnis ist leer (keine gemeinsame Fläche).';
+      this.hint = t('Ergebnis ist leer (keine gemeinsame Fläche).');
       this.setSel([]);
     } else {
       const res: Obj = { id: newId(), m: IDENT, layer: inputs[0].layer, shape: { kind: 'path', subs } };
       idx = Math.min(idx, this.doc.objs.length);
       this.doc.objs.splice(idx, 0, res);
       this.setSel([res]);
-      this.hint = keep ? 'Originale behalten, Ergebnis liegt davor.' : '';
+      this.hint = keep ? t('Originale behalten, Ergebnis liegt davor.') : '';
     }
     this.emit('doc');
   }
@@ -1522,7 +1526,7 @@ export class Editor {
     this.snapshot();
     if (!keepOriginal) this.doc.objs = this.doc.objs.filter((o) => !inputs.includes(o));
     if (!subs.length) {
-      this.hint = 'Offset ergibt keine Kontur (Abstand zu groß für Innen-Offset?).';
+      this.hint = t('Offset ergibt keine Kontur (Abstand zu groß für Innen-Offset?).');
       this.setSel(keepOriginal ? inputs : []);
     } else {
       const res: Obj = { id: newId(), m: IDENT, layer: inputs[0].layer, shape: { kind: 'path', subs } };
@@ -1548,7 +1552,7 @@ export class Editor {
   applyArray(mats: Mat[], asGroup: boolean, what: string) {
     if (!this.sel.length || mats.length < 2) return;
     if (mats.length * this.sel.length > MAX_COPIES) {
-      this.hint = `${what}: zu viele Kopien (höchstens ${MAX_COPIES}).`;
+      this.hint = t('{what}: zu viele Kopien (höchstens {MAX_COPIES}).', { what, MAX_COPIES });
       this.emit('tool');
       return;
     }
@@ -1573,7 +1577,7 @@ export class Editor {
       this.doc.objs.push(...copies);
       this.setSel(all);
     }
-    this.hint = `${what}: ${mats.length - 1} Kopie${mats.length > 2 ? 'n' : ''} angelegt.`;
+    this.hint = tn('{what}: {n} Kopie angelegt.', '{what}: {n} Kopien angelegt.', mats.length - 1, { what });
     this.emit('doc');
   }
   /** Position des Laserkopfs (Werkstückkoordinaten, y nach oben), solange verbunden */
@@ -1661,7 +1665,7 @@ export class Editor {
     const handle = !this.selectedNodes(o).length && h && h.which !== 'p' ? h : null;
     const targets = handle ? [] : this.nodesToEdit(o);
     if (!handle && !targets.length) {
-      this.hint = 'Erst Knoten auswählen (Klick, Shift+Klick oder Rahmen).';
+      this.hint = t('Erst Knoten auswählen (Klick, Shift+Klick oder Rahmen).');
       this.emit('tool');
       return;
     }
@@ -1727,8 +1731,8 @@ export class Editor {
     const segs = this.segmentsToEdit(o).filter((sg) => sg.curve !== curve);
     if (!segs.length) {
       this.hint = this.segmentsToEdit(o).length
-        ? curve ? 'Segment ist schon eine Kurve.' : 'Segment ist schon eine Gerade.'
-        : 'Zwei benachbarte Knoten auswählen oder auf eine Kante zeigen.';
+        ? curve ? t('Segment ist schon eine Kurve.') : t('Segment ist schon eine Gerade.')
+        : t('Zwei benachbarte Knoten auswählen oder auf eine Kante zeigen.');
       this.emit('tool');
       return;
     }
@@ -1749,7 +1753,9 @@ export class Editor {
       sg.a.smooth = false;
       sg.b.smooth = false;
     }
-    this.hint = `${segs.length} Segment${segs.length > 1 ? 'e' : ''} in ${curve ? 'Kurve' : 'Gerade'} umgewandelt.`;
+    this.hint = curve
+      ? tn('{n} Segment in Kurve umgewandelt.', '{n} Segmente in Kurven umgewandelt.', segs.length)
+      : tn('{n} Segment in Gerade umgewandelt.', '{n} Segmente in Geraden umgewandelt.', segs.length);
     this.touch(o.shape);
     this.emit('doc');
     this.emit('tool');
@@ -1761,7 +1767,7 @@ export class Editor {
     if (!o) return;
     const targets = this.nodesToEdit(o);
     if (!targets.length) {
-      this.hint = 'Erst Knoten auswählen (Klick, Shift+Klick oder Rahmen).';
+      this.hint = t('Erst Knoten auswählen (Klick, Shift+Klick oder Rahmen).');
       this.emit('tool');
       return;
     }
@@ -2118,7 +2124,7 @@ export class Editor {
     const shape: ImageShape = { kind: 'image', asset: a.id, w, h, pxW: a.w, pxH: a.h, name, adjust: { ...DEFAULT_ADJUST } };
     const o: Obj = { id: newId(), m: translate((bed.w - w) / 2, (bed.h - h) / 2), layer: this.currentLayer, shape };
     this.imgLayer(this.currentLayer);
-    this.placeNew([o], `Bild importiert: ${a.w} × ${a.h} Pixel, ${w.toFixed(1)} × ${h.toFixed(1)} mm${f < 1 ? ' (auf das Bett verkleinert)' : ''}.`);
+    this.placeNew([o], t(f < 1 ? 'Bild importiert: {pxW} × {pxH} Pixel, {w} × {h} mm (auf das Bett verkleinert).' : 'Bild importiert: {pxW} × {pxH} Pixel, {w} × {h} mm.', { pxW: a.w, pxH: a.h, w: dec(w.toFixed(1)), h: dec(h.toFixed(1)) }));
   }
 
   /** Rasterbild an fester Stelle einfügen (Weltkoordinaten), z. B. das entzerrte Kamerabild */
@@ -2144,16 +2150,16 @@ export class Editor {
         const shape: ImageShape = { kind: 'image', asset: a.id, w: 1, h: 1, pxW: a.w, pxH: a.h, adjust: { ...DEFAULT_ADJUST } };
         objs.push({ id: newId(), m: mul(flip, it.m), layer: it.layer, shape });
       } catch {
-        res.notes.push('Ein eingebettetes Bild ließ sich nicht lesen.');
+        res.notes.push(t('Ein eingebettetes Bild ließ sich nicht lesen.'));
       }
     }
     if (!objs.length) {
-      this.hint = `${name}: keine verwertbaren Formen gefunden. ${res.notes.join(' ')}`;
+      this.hint = t('{name}: keine verwertbaren Formen gefunden. {notes}', { name, notes: res.notes.join(' ') });
       this.emit('tool');
       return;
     }
     const layers = new Set(objs.map((o) => o.layer));
-    this.placeNew(objs, `${name}: ${objs.length} Objekt${objs.length > 1 ? 'e' : ''} auf ${layers.size} Layer${layers.size > 1 ? 'n' : ''}. ${res.notes.join(' ')}`.trim());
+    this.placeNew(objs, `${tn('{name}: {n} Objekt', '{name}: {n} Objekte', objs.length, { name })} ${tn('auf {n} Layer.', 'auf {n} Layern.', layers.size)} ${res.notes.join(' ')}`.trim());
   }
 
   /** Konturen eines Bildes in Weltkoordinaten (für Vorschau und Übernahme) */
@@ -2185,7 +2191,7 @@ export class Editor {
     if (deleteImage) this.doc.objs = this.doc.objs.filter((x) => x !== o);
     this.doc.objs.push(res);
     this.setSel([res]);
-    this.hint = `${subs.length} Kontur${subs.length > 1 ? 'en' : ''} nachgezeichnet.`;
+    this.hint = tn('{n} Kontur nachgezeichnet.', '{n} Konturen nachgezeichnet.', subs.length);
     this.emit('doc');
   }
 
@@ -2921,15 +2927,15 @@ function normBox(a: Pt, b: Pt): Box {
 }
 
 export const TOOL_HINTS: Record<Tool, string> = {
-  select: 'Drehen: knapp außerhalb einer Ecke ziehen oder Auswahl nochmals anklicken. Rahmen nach rechts: umschließend, nach links: kreuzend.',
-  node: 'Klick/Rahmen wählt Knoten, Shift ergänzt. Entf löschen, L Gerade, C Kurve, E Ecke, S glatt, I einfügen (oder Doppelklick auf Kante).',
-  line: 'Klicken für Ecken, Ziehen für Kurven. Startpunkt anklicken schließt, Doppelklick/Enter/Rechtsklick beendet.',
-  rect: 'Ziehen zum Zeichnen. Shift: Quadrat, Ctrl: von der Mitte.',
-  ellipse: 'Ziehen zum Zeichnen. Shift: Kreis, Ctrl: von der Mitte.',
-  polygon: 'Von der Mitte aus ziehen. Shift: nicht drehen.',
-  text: 'Klicken, um Text zu setzen, oder vorhandenen Text anklicken.',
-  joint: 'Verbindung: erste gerade Kante anklicken (Zinken, Zapfen oder Schlitze). Esc hebt die Wahl auf.',
+  select: t('Drehen: knapp außerhalb einer Ecke ziehen oder Auswahl nochmals anklicken. Rahmen nach rechts: umschließend, nach links: kreuzend.'),
+  node: t('Klick/Rahmen wählt Knoten, Shift ergänzt. Entf löschen, L Gerade, C Kurve, E Ecke, S glatt, I einfügen (oder Doppelklick auf Kante).'),
+  line: t('Klicken für Ecken, Ziehen für Kurven. Startpunkt anklicken schließt, Doppelklick/Enter/Rechtsklick beendet.'),
+  rect: t('Ziehen zum Zeichnen. Shift: Quadrat, Ctrl: von der Mitte.'),
+  ellipse: t('Ziehen zum Zeichnen. Shift: Kreis, Ctrl: von der Mitte.'),
+  polygon: t('Von der Mitte aus ziehen. Shift: nicht drehen.'),
+  text: t('Klicken, um Text zu setzen, oder vorhandenen Text anklicken.'),
+  joint: t('Verbindung: erste gerade Kante anklicken (Zinken, Zapfen oder Schlitze). Esc hebt die Wahl auf.'),
 };
 
 const JOINT_HINT_SECOND =
-  'Zweite Kante anklicken (Gegenstück bzw. Linie für die Schlitze) oder Enter für nur eine Kante. Erneuter Klick hebt die Wahl auf.';
+  t('Zweite Kante anklicken (Gegenstück bzw. Linie für die Schlitze) oder Enter für nur eine Kante. Erneuter Klick hebt die Wahl auf.');

@@ -1,6 +1,7 @@
 // Rasterbilder: Asset-Speicher (Bilddaten außerhalb von Undo und Dokument-JSON),
 // Bildverarbeitung (Helligkeit, Kontrast, Gamma, Schärfen, Negativ, Dithering) und Zwischenspeicher der Ergebnisse.
 import { DitherMode, ImageAdjust, ImageLayer, ImageShape, Mat } from './model';
+import { t } from './i18n';
 
 // ---------- Asset-Speicher ----------
 
@@ -65,7 +66,7 @@ function decode(src: string): Promise<HTMLImageElement> {
   return new Promise((res, rej) => {
     const img = new Image();
     img.onload = () => res(img);
-    img.onerror = () => rej(new Error('Bild konnte nicht gelesen werden (Format nicht unterstützt?)'));
+    img.onerror = () => rej(new Error(t('Bild konnte nicht gelesen werden (Format nicht unterstützt?)')));
     img.src = src;
   });
 }

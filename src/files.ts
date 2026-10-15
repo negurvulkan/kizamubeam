@@ -4,6 +4,7 @@ import { leaves, PALETTE } from './model';
 import { subsToD, shapeSubs, textLayout, textOutline } from './geom';
 import { assetUrl, processedPng, readDpi } from './images';
 import { importDxf, importSvg } from './importers';
+import { t } from './i18n';
 
 const isTauri = () => '__TAURI_INTERNALS__' in window;
 
@@ -41,7 +42,7 @@ export async function openText(filterName: string, extensions: string[]): Promis
 }
 
 export async function saveProject(ed: Editor) {
-  await saveText('projekt.lwk', 'Laserwerk-Projekt', 'lwk', 'application/json', ed.serialize());
+  await saveText('projekt.lwk', t('Laserwerk-Projekt'), 'lwk', 'application/json', ed.serialize());
 }
 
 export async function openProject(ed: Editor) {
@@ -49,12 +50,12 @@ export async function openProject(ed: Editor) {
     try {
       ed.openDoc(text);
     } catch (e) {
-      alert(`Datei konnte nicht geöffnet werden: ${(e as Error).message}`);
+      alert(t('Datei konnte nicht geöffnet werden: {message}', { message: (e as Error).message }));
     }
   };
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core');
-    const res = await invoke<[string, string] | null>('open_text_file', { filterName: 'Laserwerk-Projekt', extensions: ['lwk', 'json'] });
+    const res = await invoke<[string, string] | null>('open_text_file', { filterName: t('Laserwerk-Projekt'), extensions: ['lwk', 'json'] });
     if (res) apply(res[1]);
     return;
   }
@@ -148,10 +149,10 @@ export async function importBytes(ed: Editor, name: string, bytes: Uint8Array) {
       return;
     }
     const mime = MIME[ext] ?? sniffImage(bytes);
-    if (!mime) throw new Error('Dateiformat wird nicht unterstützt (SVG, DXF, PNG, JPG, BMP, GIF, WebP).');
+    if (!mime) throw new Error(t('Dateiformat wird nicht unterstützt (SVG, DXF, PNG, JPG, BMP, GIF, WebP).'));
     await ed.importImage(await bytesToDataUrl(bytes, mime), readDpi(bytes), name);
   } catch (e) {
-    alert(`${name} konnte nicht importiert werden: ${(e as Error).message}`);
+    alert(t('{name} konnte nicht importiert werden: {message}', { name, message: (e as Error).message }));
   }
 }
 
@@ -170,9 +171,9 @@ export async function importFile(ed: Editor) {
     const { invoke } = await import('@tauri-apps/api/core');
     const path = await invoke<string | null>('pick_file', {
       filters: [
-        ['Alle unterstützten Dateien', IMPORT_EXT],
-        ['Bilder', IMAGE_EXT],
-        ['Vektoren (SVG, DXF)', ['svg', 'dxf']],
+        [t('Alle unterstützten Dateien'), IMPORT_EXT],
+        [t('Bilder'), IMAGE_EXT],
+        [t('Vektoren (SVG, DXF)'), ['svg', 'dxf']],
       ],
     });
     if (!path) return;
@@ -207,12 +208,12 @@ export function installDropAndPaste(ed: Editor, stage: HTMLElement) {
   ed.externalPaste = async (data) => {
     const file = [...data.files].find((f) => f.type.startsWith('image/'));
     if (file) {
-      await importBytes(ed, file.name || 'Zwischenablage.png', new Uint8Array(await file.arrayBuffer()));
+      await importBytes(ed, file.name || t('Zwischenablage.png'), new Uint8Array(await file.arrayBuffer()));
       return true;
     }
     const text = data.getData('image/svg+xml') || data.getData('text/plain');
     if (/^\s*(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*(<!DOCTYPE[^>]*>\s*)?<svg[\s>]/i.test(text)) {
-      await importBytes(ed, 'Zwischenablage.svg', new TextEncoder().encode(text));
+      await importBytes(ed, t('Zwischenablage.svg'), new TextEncoder().encode(text));
       return true;
     }
     return false;
@@ -238,5 +239,5 @@ export async function saveProcessedBitmap(ed: Editor) {
   const o = ed.selImages()[0];
   if (!o || o.shape.kind !== 'image') return;
   const url = processedPng(o.shape, o.m, ed.imgLayer(o.layer));
-  if (url) await saveDataUrl('bild-bearbeitet.png', 'PNG', 'png', url);
+  if (url) await saveDataUrl(t('bild-bearbeitet.png'), 'PNG', 'png', url);
 }

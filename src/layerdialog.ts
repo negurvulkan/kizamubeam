@@ -3,6 +3,7 @@
 import type { Editor } from './editor';
 import { h, numInput } from './dom';
 import { CutSettings, cutSettings, defaultCutSettings, LayerMode, layerLabel, PALETTE } from './model';
+import { t } from './i18n';
 
 export function openLayerDialog(ed: Editor, i: number) {
   const L = ed.layer(i);
@@ -31,20 +32,20 @@ export function openLayerDialog(ed: Editor, i: number) {
         render();
       },
     },
-      h('option', { value: 'line', selected: c.mode === 'line' }, 'Linie'),
-      h('option', { value: 'fill', selected: c.mode === 'fill' }, 'Füllen'),
+      h('option', { value: 'line', selected: c.mode === 'line' }, t('Linie')),
+      h('option', { value: 'fill', selected: c.mode === 'fill' }, t('Füllen')),
     );
     general.replaceChildren(
-      ...row('Name', h('input', { type: 'text', value: name, oninput: (e: Event) => (name = (e.target as HTMLInputElement).value) })),
-      ...row('Modus', modeSel),
-      ...row('Geschwindigkeit (mm/min)', num(() => c.speed, (v) => (c.speed = v), 1, 100000)),
-      ...row('Max. Leistung (%)', num(() => c.power, (v) => (c.power = v), 0, 100)),
-      ...row('Min. Leistung (%)', num(() => c.minPower, (v) => (c.minPower = v), 0, 100)),
-      ...row('Durchgänge', num(() => c.passes, (v) => (c.passes = v), 1, 100, true)),
-      ...row('Kerf-Versatz (mm)', num(() => c.kerf, (v) => (c.kerf = v), -5, 5, false, 'Positiv: Außenkonturen wandern nach außen, Löcher nach innen. Etwa die halbe Schnittbreite eintragen, damit Teile maßhaltig werden.')),
+      ...row(t('Name'), h('input', { type: 'text', value: name, oninput: (e: Event) => (name = (e.target as HTMLInputElement).value) })),
+      ...row(t('Modus'), modeSel),
+      ...row(t('Geschwindigkeit (mm/min)'), num(() => c.speed, (v) => (c.speed = v), 1, 100000)),
+      ...row(t('Max. Leistung (%)'), num(() => c.power, (v) => (c.power = v), 0, 100)),
+      ...row(t('Min. Leistung (%)'), num(() => c.minPower, (v) => (c.minPower = v), 0, 100)),
+      ...row(t('Durchgänge'), num(() => c.passes, (v) => (c.passes = v), 1, 100, true)),
+      ...row(t('Kerf-Versatz (mm)'), num(() => c.kerf, (v) => (c.kerf = v), -5, 5, false, t('Positiv: Außenkonturen wandern nach außen, Löcher nach innen. Etwa die halbe Schnittbreite eintragen, damit Teile maßhaltig werden.'))),
       h('span', { class: 'checks' },
-        check('Air Assist', () => c.air, (v) => (c.air = v), 'Luftunterstützung während dieses Layers einschalten (M8/M7, aus mit M9). Gilt auch für Bilder auf diesem Layer.'),
-        check('Ausgabe', () => output, (v) => (output = v), 'Layer beim Lasern ausgeben'),
+        check(t('Air Assist'), () => c.air, (v) => (c.air = v), t('Luftunterstützung während dieses Layers einschalten (M8/M7, aus mit M9). Gilt auch für Bilder auf diesem Layer.')),
+        check(t('Ausgabe'), () => output, (v) => (output = v), t('Layer beim Lasern ausgeben')),
       ),
     );
     modeBox.replaceChildren(c.mode === 'line' ? lineSection() : fillSection());
@@ -55,40 +56,40 @@ export function openLayerDialog(ed: Editor, i: number) {
     const box = h('div', { class: 'form' });
     const fill = () => {
       box.replaceChildren(
-        h('span', { class: 'checks' }, check('Haltestege (Tabs) setzen', () => T.enabled, (v) => (T.enabled = v), 'An diesen Stellen bleibt der Laser aus, damit ausgeschnittene Teile nicht herausfallen', fill)),
+        h('span', { class: 'checks' }, check(t('Haltestege (Tabs) setzen'), () => T.enabled, (v) => (T.enabled = v), t('An diesen Stellen bleibt der Laser aus, damit ausgeschnittene Teile nicht herausfallen'), fill)),
         ...(T.enabled
           ? [
-              ...row('Steglänge (mm)', num(() => T.size, (v) => (T.size = v), 0.05, 50)),
-              h('label', {}, 'Verteilung'),
+              ...row(t('Steglänge (mm)'), num(() => T.size, (v) => (T.size = v), 0.05, 50)),
+              h('label', {}, t('Verteilung')),
               h('span', { class: 'radios' },
-                h('label', {}, h('input', { type: 'radio', name: `tabs-${i}`, checked: T.useCount, onchange: () => ((T.useCount = true), fill()) }), 'Anzahl'),
-                h('label', {}, h('input', { type: 'radio', name: `tabs-${i}`, checked: !T.useCount, onchange: () => ((T.useCount = false), fill()) }), 'Abstand'),
+                h('label', {}, h('input', { type: 'radio', name: `tabs-${i}`, checked: T.useCount, onchange: () => ((T.useCount = true), fill()) }), t('Anzahl')),
+                h('label', {}, h('input', { type: 'radio', name: `tabs-${i}`, checked: !T.useCount, onchange: () => ((T.useCount = false), fill()) }), t('Abstand')),
               ),
               ...(T.useCount
-                ? row('Stege je Form', num(() => T.count, (v) => (T.count = v), 1, 100, true))
-                : row('Abstand (mm)', num(() => T.spacing, (v) => (T.spacing = v), 1, 10000))),
-              h('span', { class: 'checks' }, check('Innere Formen auslassen', () => T.skipInner, (v) => (T.skipInner = v), 'Löcher und Formen innerhalb anderer Formen fallen heraus und brauchen keine Stege')),
+                ? row(t('Stege je Form'), num(() => T.count, (v) => (T.count = v), 1, 100, true))
+                : row(t('Abstand (mm)'), num(() => T.spacing, (v) => (T.spacing = v), 1, 10000))),
+              h('span', { class: 'checks' }, check(t('Innere Formen auslassen'), () => T.skipInner, (v) => (T.skipInner = v), t('Löcher und Formen innerhalb anderer Formen fallen heraus und brauchen keine Stege'))),
             ]
           : []),
       );
     };
     fill();
-    return h('div', {}, h('div', { class: 'form-title' }, 'Linie'), box);
+    return h('div', {}, h('div', { class: 'form-title' }, t('Linie')), box);
   };
 
   const fillSection = () => {
-    const interval = num(() => c.interval, (v) => ((c.interval = v), (lpi.value = String(Math.round(25.4 / v)))), 0.01, 5, false, 'Abstand der Füllzeilen in mm');
-    const lpi = num(() => Math.round(25.4 / c.interval), (v) => ((c.interval = Math.round((25.4 / v) * 10000) / 10000), (interval.value = String(c.interval))), 5, 2540, false, 'Zeilen pro Zoll');
+    const interval = num(() => c.interval, (v) => ((c.interval = v), (lpi.value = String(Math.round(25.4 / v)))), 0.01, 5, false, t('Abstand der Füllzeilen in mm'));
+    const lpi = num(() => Math.round(25.4 / c.interval), (v) => ((c.interval = Math.round((25.4 / v) * 10000) / 10000), (interval.value = String(c.interval))), 5, 2540, false, t('Zeilen pro Zoll'));
     return h('div', {},
-      h('div', { class: 'form-title' }, 'Füllen'),
+      h('div', { class: 'form-title' }, t('Füllen')),
       h('div', { class: 'form' },
-        ...row('Zeilenabstand (mm)', interval),
-        ...row('Zeilen pro Zoll', lpi),
-        ...row('Scanwinkel (°)', num(() => c.angle, (v) => (c.angle = v), -180, 180, false, '0° = waagerechte Zeilen, 90° = senkrechte')),
-        ...row('Überfahrweg (%)', num(() => c.overscan, (v) => (c.overscan = v), 0, 50, false, 'Anlauf- und Auslaufweg in % der Geschwindigkeit, damit der Rand gleichmäßig wird')),
+        ...row(t('Zeilenabstand (mm)'), interval),
+        ...row(t('Zeilen pro Zoll'), lpi),
+        ...row(t('Scanwinkel (°)'), num(() => c.angle, (v) => (c.angle = v), -180, 180, false, t('0° = waagerechte Zeilen, 90° = senkrechte'))),
+        ...row(t('Überfahrweg (%)'), num(() => c.overscan, (v) => (c.overscan = v), 0, 50, false, t('Anlauf- und Auslaufweg in % der Geschwindigkeit, damit der Rand gleichmäßig wird'))),
         h('span', { class: 'checks' },
-          check('Bidirektional', () => c.bidirectional, (v) => (c.bidirectional = v), 'In beide Richtungen lasern (schneller)'),
-          check('Kreuzschraffur', () => c.crossHatch, (v) => (c.crossHatch = v), 'Zweiter Durchgang um 90° gedreht'),
+          check(t('Bidirektional'), () => c.bidirectional, (v) => (c.bidirectional = v), t('In beide Richtungen lasern (schneller)')),
+          check(t('Kreuzschraffur'), () => c.crossHatch, (v) => (c.crossHatch = v), t('Zweiter Durchgang um 90° gedreht')),
         ),
       ),
     );
@@ -98,7 +99,7 @@ export function openLayerDialog(ed: Editor, i: number) {
   const dlg = h(
     'dialog',
     { class: 'layer-dialog' },
-    h('h3', {}, h('span', { class: 'swatch', style: `background:${PALETTE[i]}` }, layerLabel(i)), ' Layer-Einstellungen'),
+    h('h3', {}, h('span', { class: 'swatch', style: `background:${PALETTE[i]}` }, layerLabel(i)), ' ', t('Layer-Einstellungen')),
     general,
     modeBox,
     h(
@@ -106,21 +107,21 @@ export function openLayerDialog(ed: Editor, i: number) {
       { class: 'dialog-buttons' },
       h('button', {
         class: 'btn',
-        title: 'Standardwerte für den gewählten Modus',
+        title: t('Standardwerte für den gewählten Modus'),
         onclick: () => {
           Object.assign(c, defaultCutSettings(c.mode));
           render();
         },
-      }, 'Standardwerte'),
+      }, t('Standardwerte')),
       h('span', { style: 'flex:1' }),
-      h('button', { class: 'btn', onclick: () => dlg.close() }, 'Abbrechen'),
+      h('button', { class: 'btn', onclick: () => dlg.close() }, t('Abbrechen')),
       h('button', {
         class: 'btn primary',
         onclick: () => {
           applied = true;
           dlg.close();
         },
-      }, 'Übernehmen'),
+      }, t('Übernehmen')),
     ),
   );
   render();

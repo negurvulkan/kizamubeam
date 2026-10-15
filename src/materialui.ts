@@ -8,6 +8,7 @@ import {
   differsFrom, entryFromLayer, entryLabel, layerPatch, library, MaterialEntry, parseLibrary, settingsSummary, thicknessLabel,
 } from './materials';
 import { openMaterialTestDialog } from './materialtest';
+import { dec, t } from './i18n';
 
 type EntryDraft = Omit<MaterialEntry, 'id'>;
 
@@ -16,41 +17,43 @@ export function openEntryDialog(init: EntryDraft, onSave: (e: EntryDraft) => voi
   const e = structuredClone(init);
   let withImg = !!e.img;
   const listId = `mat-list-${Math.random().toString(36).slice(2, 7)}`;
-  const material = h('input', { type: 'text', value: e.material, list: listId, placeholder: 'z. B. Sperrholz Pappel' }) as HTMLInputElement;
-  const thick = h('input', { type: 'text', value: e.thickness === null ? '' : String(e.thickness).replace('.', ','), placeholder: 'leer = ohne Dicke' }) as HTMLInputElement;
-  const title = h('input', { type: 'text', value: e.title, placeholder: 'z. B. Schneiden, Gravieren' }) as HTMLInputElement;
-  const desc = h('textarea', { rows: 3, placeholder: 'Notizen, z. B. Fokus, Abdeckband, Gerät' }) as HTMLTextAreaElement;
+  const material = h('input', { type: 'text', value: e.material, list: listId, placeholder: t('z. B. Sperrholz Pappel') }) as HTMLInputElement;
+  const thick = h('input', { type: 'text', value: e.thickness === null ? '' : dec(String(e.thickness)), placeholder: t('leer = ohne Dicke') }) as HTMLInputElement;
+  const title = h('input', { type: 'text', value: e.title, placeholder: t('z. B. Schneiden, Gravieren') }) as HTMLInputElement;
+  const desc = h('textarea', { rows: 3, placeholder: t('Notizen, z. B. Fokus, Abdeckband, Gerät') }) as HTMLTextAreaElement;
   desc.value = e.desc;
   const err = h('div', { class: 'warn' });
   const dlg = h('dialog', { class: 'material-dialog' },
-    h('h3', {}, opt.heading ?? 'Material-Eintrag'),
+    h('h3', {}, opt.heading ?? t('Material-Eintrag')),
     h('datalist', { id: listId }, ...library.materials().map((m) => h('option', { value: m }))),
     h('div', { class: 'form' },
-      h('label', {}, 'Material'), material,
-      h('label', {}, 'Dicke (mm)'), thick,
-      h('label', {}, 'Titel'), title,
-      h('label', {}, 'Beschreibung'), desc,
+      h('label', {}, t('Material')), material,
+      h('label', {}, t('Dicke (mm)')), thick,
+      h('label', {}, t('Titel')), title,
+      h('label', {}, t('Beschreibung')), desc,
       opt.imgChoice
-        ? h('span', { class: 'checks' }, h('label', { class: 'check', title: 'Auch Geschwindigkeit, Leistung, Dithering usw. für Bilder speichern' },
-            h('input', { type: 'checkbox', checked: withImg, onchange: (ev: Event) => (withImg = (ev.target as HTMLInputElement).checked) }), 'Bild-Einstellungen mitspeichern'))
+        ? h('span', { class: 'checks' }, h('label', { class: 'check', title: t('Auch Geschwindigkeit, Leistung, Dithering usw. für Bilder speichern') },
+            h('input', { type: 'checkbox', checked: withImg, onchange: (ev: Event) => (withImg = (ev.target as HTMLInputElement).checked) }), t('Bild-Einstellungen mitspeichern')))
         : null,
     ),
-    h('div', { class: 'note' }, `Einstellungen: ${settingsSummary(e.settings)}${e.img ? `; Bilder: ${e.img.speed} mm/min, ${e.img.power} %` : ''}.`),
+    h('div', { class: 'note' }, e.img
+      ? t('Einstellungen: {settings}; Bilder: {speed} mm/min, {power} %.', { settings: settingsSummary(e.settings), speed: e.img.speed, power: e.img.power })
+      : t('Einstellungen: {settings}.', { settings: settingsSummary(e.settings) })),
     err,
     h('div', { class: 'dialog-buttons' },
-      h('button', { class: 'btn', onclick: () => dlg.close() }, 'Abbrechen'),
+      h('button', { class: 'btn', onclick: () => dlg.close() }, t('Abbrechen')),
       h('button', {
         class: 'btn primary',
         onclick: () => {
           const m = material.value.trim();
-          const t = thick.value.trim().replace(',', '.');
-          const tv = t === '' ? null : Number(t);
-          if (!m) return void err.replaceChildren('Bitte ein Material angeben.');
-          if (tv !== null && !(tv > 0 && isFinite(tv))) return void err.replaceChildren('Die Dicke muss eine positive Zahl sein oder leer bleiben.');
+          const raw = thick.value.trim().replace(',', '.');
+          const tv = raw === '' ? null : Number(raw);
+          if (!m) return void err.replaceChildren(t('Bitte ein Material angeben.'));
+          if (tv !== null && !(tv > 0 && isFinite(tv))) return void err.replaceChildren(t('Die Dicke muss eine positive Zahl sein oder leer bleiben.'));
           onSave({ ...e, material: m, thickness: tv, title: title.value.trim(), desc: desc.value, img: withImg ? e.img : undefined });
           dlg.close();
         },
-      }, 'Speichern'),
+      }, t('Speichern')),
     ),
   );
   dlg.addEventListener('close', () => dlg.remove());
@@ -70,7 +73,7 @@ export function materialTab(ed: Editor): HTMLElement {
   const assign = (e: MaterialEntry) => {
     const i = target();
     ed.updateLayer(i, layerPatch(e));
-    ed.hint = `Layer ${layerLabel(i)} nutzt jetzt „${entryLabel(e)}“.`;
+    ed.hint = t('Layer {layer} nutzt jetzt „{entry}“.', { layer: layerLabel(i), entry: entryLabel(e) });
     ed.emit('tool');
   };
   const createFromLayer = () => {
@@ -79,35 +82,37 @@ export function materialTab(ed: Editor): HTMLElement {
     const imgs = hasImages(i);
     const cur = library.get(L.material);
     openEntryDialog(
-      { material: cur?.material ?? '', thickness: cur?.thickness ?? null, title: cur ? cur.title : L.mode === 'fill' ? 'Gravieren' : 'Schneiden', desc: '', ...entryFromLayer(L, imgs) },
+      { material: cur?.material ?? '', thickness: cur?.thickness ?? null, title: cur ? cur.title : L.mode === 'fill' ? t('Gravieren') : t('Schneiden'), desc: '', ...entryFromLayer(L, imgs) },
       (d) => {
         const n = library.add(d);
         selected = n.id;
         // Der Layer gehört jetzt zu diesem Eintrag
         ed.updateLayer(i, { material: n.id });
       },
-      { heading: `Neuer Eintrag aus Layer ${layerLabel(i)}`, imgChoice: imgs },
+      { heading: t('Neuer Eintrag aus Layer {layer}', { layer: layerLabel(i) }), imgChoice: imgs },
     );
   };
   const updateFromLayer = (e: MaterialEntry) => {
     const i = target();
     const L = ed.layer(i);
-    if (!confirm(`„${entryLabel(e)}“ mit den Einstellungen von Layer ${layerLabel(i)} überschreiben?\n\n${settingsSummary(L)}`)) return;
+    if (!confirm(t('„{entry}“ mit den Einstellungen von Layer {layer} überschreiben?\n\n{settings}', { entry: entryLabel(e), layer: layerLabel(i), settings: settingsSummary(L) }))) return;
     library.update(e.id, entryFromLayer(L, !!e.img || hasImages(i)));
     if (L.material !== e.id) ed.updateLayer(i, { material: e.id });
   };
   const doImport = async () => {
-    const f = await openText('Materialbibliothek', ['lwm', 'clb', 'json']);
+    const f = await openText(t('Materialbibliothek'), ['lwm', 'clb', 'json']);
     if (!f) return;
     try {
       const list = parseLibrary(f[1]);
       const r = library.merge(list);
-      alert(`${f[0]}: ${r.added} Einträge hinzugefügt${r.replaced ? `, ${r.replaced} ersetzt` : ''}.`);
+      alert(r.replaced
+        ? t('{file}: {added} Einträge hinzugefügt, {replaced} ersetzt.', { file: f[0], added: r.added, replaced: r.replaced })
+        : t('{file}: {added} Einträge hinzugefügt.', { file: f[0], added: r.added }));
     } catch (e) {
-      alert(`${f[0]} konnte nicht gelesen werden: ${(e as Error).message}`);
+      alert(t('{file} konnte nicht gelesen werden: {message}', { file: f[0], message: (e as Error).message }));
     }
   };
-  const doExport = () => saveText('materialien.lwm', 'Laserwerk-Materialbibliothek', 'lwm', 'application/json', library.serialize());
+  const doExport = () => saveText('materialien.lwm', t('Laserwerk-Materialbibliothek'), 'lwm', 'application/json', library.serialize());
 
   const render = () => {
     const i = target();
@@ -118,11 +123,11 @@ export function materialTab(ed: Editor): HTMLElement {
     const status = h('div', { class: 'mat-status' },
       h('span', { class: 'swatch', style: `background:${PALETTE[i]}` }, layerLabel(i)),
       cur
-        ? h('span', {}, entryLabel(cur), differsFrom(L, cur) ? h('span', { class: 'muted', title: 'Die Layer-Einstellungen weichen vom Eintrag ab' }, ' (geändert)') : null)
-        : h('span', { class: 'muted' }, 'eigene Einstellungen'),
+        ? h('span', {}, entryLabel(cur), differsFrom(L, cur) ? h('span', { class: 'muted', title: t('Die Layer-Einstellungen weichen vom Eintrag ab') }, t(' (geändert)')) : null)
+        : h('span', { class: 'muted' }, t('eigene Einstellungen')),
     );
     const search = h('input', {
-      type: 'search', class: 'mat-search', placeholder: 'Suchen …', value: filter,
+      type: 'search', class: 'mat-search', placeholder: t('Suchen …'), value: filter,
       oninput: (ev: Event) => ((filter = (ev.target as HTMLInputElement).value), renderList()),
     });
     const list = h('div', { class: 'mat-list' });
@@ -131,11 +136,11 @@ export function materialTab(ed: Editor): HTMLElement {
       const entries = library.entries.filter((e) => !q || `${entryLabel(e)} ${e.desc}`.toLowerCase().includes(q));
       list.replaceChildren();
       if (!library.entries.length) {
-        list.append(h('div', { class: 'empty' }, 'Noch keine Materialien. Stelle einen Layer ein (zum Beispiel nach einem Materialtest) und speichere ihn mit „Neu aus Layer“. Vorhandene Bibliotheken (.lwm, LightBurn .clb) lassen sich importieren.'));
+        list.append(h('div', { class: 'empty' }, t('Noch keine Materialien. Stelle einen Layer ein (zum Beispiel nach einem Materialtest) und speichere ihn mit „Neu aus Layer“. Vorhandene Bibliotheken (.lwm, LightBurn .clb) lassen sich importieren.')));
         return;
       }
       if (!entries.length) {
-        list.append(h('div', { class: 'empty' }, 'Nichts gefunden.'));
+        list.append(h('div', { class: 'empty' }, t('Nichts gefunden.')));
         return;
       }
       const byMat = new Map<string, MaterialEntry[]>();
@@ -149,9 +154,9 @@ export function materialTab(ed: Editor): HTMLElement {
           lastT = e.thickness;
           const row = h('div', {
             class: `mat-entry${e.id === selected ? ' sel' : ''}${e.id === L.material ? ' cur' : ''}`,
-            title: `${e.desc ? e.desc + '\n' : ''}Doppelklick: auf Layer ${layerLabel(i)} übernehmen`,
+            title: `${e.desc ? e.desc + '\n' : ''}${t('Doppelklick: auf Layer {layer} übernehmen', { layer: layerLabel(i) })}`,
           },
-            h('span', {}, e.title || '(ohne Titel)', e.img ? h('span', { class: 'muted' }, ' + Bild') : null),
+            h('span', {}, e.title || t('(ohne Titel)'), e.img ? h('span', { class: 'muted' }, ' + ', t('Bild')) : null),
             h('span', { class: 'muted' }, settingsSummary(e.settings)),
           );
           row.addEventListener('click', () => ((selected = e.id), render()));
@@ -168,21 +173,21 @@ export function materialTab(ed: Editor): HTMLElement {
       search,
       list,
       h('div', { class: 'mat-buttons' },
-        btn('Übernehmen', `Einstellungen des gewählten Eintrags auf Layer ${layerLabel(i)} übertragen (Doppelklick)`, () => sel && assign(sel), !!sel),
-        btn('Aus Layer aktualisieren', `Eintrag mit den Einstellungen von Layer ${layerLabel(i)} überschreiben`, () => sel && updateFromLayer(sel), !!sel),
-        btn('Bearbeiten …', 'Material, Dicke, Titel und Beschreibung ändern', () => sel && openEntryDialog(sel, (d) => library.update(sel.id, d)), !!sel),
-        btn('Duplizieren', 'Kopie des Eintrags anlegen', () => {
+        btn(t('Übernehmen'), t('Einstellungen des gewählten Eintrags auf Layer {layer} übertragen (Doppelklick)', { layer: layerLabel(i) }), () => sel && assign(sel), !!sel),
+        btn(t('Aus Layer aktualisieren'), t('Eintrag mit den Einstellungen von Layer {layer} überschreiben', { layer: layerLabel(i) }), () => sel && updateFromLayer(sel), !!sel),
+        btn(t('Bearbeiten …'), t('Material, Dicke, Titel und Beschreibung ändern'), () => sel && openEntryDialog(sel, (d) => library.update(sel.id, d)), !!sel),
+        btn(t('Duplizieren'), t('Kopie des Eintrags anlegen'), () => {
           if (!sel) return;
           const { id: _id, ...rest } = sel;
-          selected = library.add({ ...rest, title: `${rest.title} (Kopie)`.trim() }).id;
+          selected = library.add({ ...rest, title: rest.title ? t('{name} (Kopie)', { name: rest.title }) : t('(Kopie)') }).id;
         }, !!sel),
-        btn('Löschen', 'Eintrag aus der Bibliothek entfernen', () => sel && confirm(`„${entryLabel(sel)}“ löschen?`) && library.remove(sel.id), !!sel),
+        btn(t('Löschen'), t('Eintrag aus der Bibliothek entfernen'), () => sel && confirm(t('„{entry}“ löschen?', { entry: entryLabel(sel) })) && library.remove(sel.id), !!sel),
       ),
       h('div', { class: 'mat-buttons' },
-        btn('Neu aus Layer …', `Einstellungen von Layer ${layerLabel(i)} als neuen Eintrag speichern`, createFromLayer),
-        btn('Importieren …', 'Einträge aus einer .lwm- oder LightBurn-.clb-Datei hinzufügen', doImport),
-        btn('Exportieren …', 'Ganze Bibliothek als .lwm-Datei speichern', doExport, library.entries.length > 0),
-        btn('Materialtest …', 'Testraster mit gestufter Geschwindigkeit und Leistung lasern', () => openMaterialTestDialog(ed)),
+        btn(t('Neu aus Layer …'), t('Einstellungen von Layer {layer} als neuen Eintrag speichern', { layer: layerLabel(i) }), createFromLayer),
+        btn(t('Importieren …'), t('Einträge aus einer .lwm- oder LightBurn-.clb-Datei hinzufügen'), doImport),
+        btn(t('Exportieren …'), t('Ganze Bibliothek als .lwm-Datei speichern'), doExport, library.entries.length > 0),
+        btn(t('Materialtest …'), t('Testraster mit gestufter Geschwindigkeit und Leistung lasern'), () => openMaterialTestDialog(ed)),
       ),
     );
   };

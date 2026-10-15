@@ -8,6 +8,7 @@
 import { Mat, Obj, Pt, SubPath } from './model';
 import { bezierPt, segments, shapeSubs } from './geom';
 import { transformSubs } from './importers';
+import { dec, t, tn } from './i18n';
 
 export type JointKind = 'finger' | 'tenon' | 'lap' | 'snap' | 'hook' | 'wedge' | 'tslot';
 
@@ -198,7 +199,7 @@ export const lapCenters = (len: number, n: number) => Array.from({ length: n }, 
 /** Mitten von n gleichmäßig verteilten Zapfen auf einer Kante der Länge len */
 export const tenonCenters = (len: number, n: number) => Array.from({ length: n }, (_, i) => (len * (2 * i + 1)) / (2 * n));
 
-const fmt = (v: number) => String(Math.round(v * 100) / 100).replace('.', ',');
+const fmt = (v: number) => dec(String(Math.round(v * 100) / 100));
 
 /**
  * Verbindung berechnen. Fingerzinken: eine oder zwei Kanten (die zweite bekommt das Gegenstück).
@@ -207,10 +208,10 @@ const fmt = (v: number) => String(Math.round(v * 100) / 100).replace('.', ',');
 export function computeJoint(picks: EdgePick[], o: JointOptions): JointResult {
   const changes = new Map<Obj, { m: Mat; subs: SubPath[] }>();
   const fail = (error: string): JointResult => ({ changes: new Map(), added: [], info: '', error });
-  if (!picks.length) return fail('Keine Kante gewählt.');
-  if (picks.length > 1 && sameEdge(picks[0], picks[1])) return fail('Zweimal dieselbe Kante gewählt.');
-  const t = o.thickness;
-  if (!(t > 0)) return fail('Materialdicke muss größer als 0 sein.');
+  if (!picks.length) return fail(t('Keine Kante gewählt.'));
+  if (picks.length > 1 && sameEdge(picks[0], picks[1])) return fail(t('Zweimal dieselbe Kante gewählt.'));
+  const th = o.thickness;
+  if (!(th > 0)) return fail(t('Materialdicke muss größer als 0 sein.'));
   const adj = o.kerf - o.clearance;
 
   const subsOf = (p: EdgePick) => {
@@ -230,26 +231,26 @@ export function computeJoint(picks: EdgePick[], o: JointOptions): JointResult {
     const pattern = Math.min(...geoms.map((g) => g.len));
     const n = fingerCount(pattern, o.fingerWidth);
     const w = pattern / n;
-    if (w - Math.abs(adj) <= 0.05) return fail('Zinken zu schmal für Kerf und Spiel.');
-    const [vMat, vGap] = o.direction === 'in' ? [0, -t] : [t, 0];
+    if (w - Math.abs(adj) <= 0.05) return fail(t('Zinken zu schmal für Kerf und Spiel.'));
+    const [vMat, vGap] = o.direction === 'in' ? [0, -th] : [th, 0];
     geoms.forEach((g, i) => {
       const phase = ((i + (o.swap ? 1 : 0)) % 2) as 0 | 1;
       edits.push({ pick: picks[i], pts: fingerProfile(g.len, pattern, n, phase, vMat, vGap, adj).map((q) => at(g, q.x, q.y)) });
     });
-    info = `${n} Felder à ${fmt(w)} mm`;
+    info = t('{n} Felder à {width} mm', { n, width: fmt(w) });
     if (geoms.length > 1 && Math.abs(geoms[0].len - geoms[1].len) > 0.01)
-      info += `. Kanten unterschiedlich lang (${fmt(geoms[0].len)} / ${fmt(geoms[1].len)} mm): Muster liegt mittig auf ${fmt(pattern)} mm`;
+      info += t('. Kanten unterschiedlich lang ({len} / {len2} mm): Muster liegt mittig auf {pattern} mm', { len: fmt(geoms[0].len), len2: fmt(geoms[1].len), pattern: fmt(pattern) });
   } else if (o.kind === 'lap') {
     const n = Math.max(1, Math.round(o.lapCount));
-    const sw = t - adj;
-    if (sw <= 0) return fail('Schlitze zu schmal für Kerf und Spiel.');
+    const sw = th - adj;
+    if (sw <= 0) return fail(t('Schlitze zu schmal für Kerf und Spiel.'));
     const frac = Math.max(1, Math.min(99, o.lapDepth)) / 100;
     const depths: number[] = [];
     for (let i = 0; i < geoms.length; i++) {
       const g = geoms[i];
-      if (!g.closed) return fail('Überblattung braucht Kanten geschlossener Formen.');
+      if (!g.closed) return fail(t('Überblattung braucht Kanten geschlossener Formen.'));
       const centers = lapCenters(g.len, n);
-      if (g.len / (n + 1) <= sw) return fail('Zu viele Schlitze für die Kantenlänge.');
+      if (g.len / (n + 1) <= sw) return fail(t('Zu viele Schlitze für die Kantenlänge.'));
       const inward = { x: -g.out.x, y: -g.out.y };
       const subs = changes.get(picks[i].obj)!.subs;
       const pts: Pt[] = [];
@@ -257,7 +258,7 @@ export function computeJoint(picks: EdgePick[], o: JointOptions): JointResult {
       for (const c of centers) {
         // Plattenbreite an dieser Stelle: von der Kante bis zur gegenüberliegenden Kontur
         const width = rayDistance(subs, at(g, c, -1e-4), inward);
-        if (!isFinite(width)) return fail('Gegenüberliegende Kante nicht gefunden.');
+        if (!isFinite(width)) return fail(t('Gegenüberliegende Kante nicht gefunden.'));
         const d = width * (i === 0 ? frac : 1 - frac);
         minDepth = Math.min(minDepth, d);
         pts.push(at(g, c - sw / 2, 0), at(g, c - sw / 2, -d), at(g, c + sw / 2, -d), at(g, c + sw / 2, 0));
@@ -265,7 +266,7 @@ export function computeJoint(picks: EdgePick[], o: JointOptions): JointResult {
       depths.push(minDepth);
       edits.push({ pick: picks[i], pts });
     }
-    info = `${n} Schlitz${n > 1 ? 'e' : ''} je Kante, ${fmt(sw)} mm breit, ${depths.map((d) => `${fmt(d)} mm`).join(' / ')} tief`;
+    info = tn('{n} Schlitz je Kante, {width} mm breit, {depth} tief', '{n} Schlitze je Kante, {width} mm breit, {depth} tief', n, { width: fmt(sw), depth: depths.map((d) => `${fmt(d)} mm`).join(' / ') });
   } else {
     // Zapfen-Familie: einfacher Zapfen, Schnappzapfen mit Rasthaken, L-förmiger Haken, Keilzapfen, Zapfen mit T-Slots dazwischen
     const g = geoms[0];
@@ -275,29 +276,29 @@ export function computeJoint(picks: EdgePick[], o: JointOptions): JointResult {
     const centers = tenonCenters(g.len, n);
     /** Seitlicher Platzbedarf je Zapfen über die Zapfenbreite hinaus */
     const side = o.kind === 'snap' ? 2 * o.snapLip : o.kind === 'hook' ? o.hookLength : 0;
-    if (!(o.tenonWidth > 0) || (tw + side) * n >= g.len - 0.1) return fail('Zapfen passen nicht auf die Kante (Anzahl × Breite zu groß).');
+    if (!(o.tenonWidth > 0) || (tw + side) * n >= g.len - 0.1) return fail(t('Zapfen passen nicht auf die Kante (Anzahl × Breite zu groß).'));
     // Unterkante von Rast- bzw. Hakennase: knapp hinter der Gegenplatte
-    const shoulder = t + Math.max(0, o.clearance);
+    const shoulder = th + Math.max(0, o.clearance);
     /** Hakenrichtung entlang der Kante */
     const dir = o.hookFlip ? -1 : 1;
     // Keilzapfen: Loch für den Keil im überstehenden Teil des Zapfens
-    const wHole = { u: t - adj, v0: t - o.wedgePull, v1: t - o.wedgePull + o.wedgeWidth };
-    const wedgeTop = wHole.v1 + Math.max(3, t);
+    const wHole = { u: th - adj, v0: th - o.wedgePull, v1: th - o.wedgePull + o.wedgeWidth };
+    const wedgeTop = wHole.v1 + Math.max(3, th);
     if (o.kind === 'wedge') {
-      if (!(o.wedgeWidth > 0)) return fail('Keilbreite muss größer als 0 sein.');
-      if (wHole.u + 4 > tw) return fail('Zapfen zu schmal für das Keilloch (mindestens Materialdicke + 4 mm).');
+      if (!(o.wedgeWidth > 0)) return fail(t('Keilbreite muss größer als 0 sein.'));
+      if (wHole.u + 4 > tw) return fail(t('Zapfen zu schmal für das Keilloch (mindestens Materialdicke + 4 mm).'));
     }
     // T-Slot: Schraubenschlitz mit Mutternfenster zwischen je zwei Zapfen
     const ts = {
       d: o.boltDia - adj, s: o.nutWidth - adj, m: o.nutHeight - adj,
-      depth: o.boltLength - t + 1, top: Math.max(2, o.boltLength - t - o.nutHeight - 2),
+      depth: o.boltLength - th + 1, top: Math.max(2, o.boltLength - th - o.nutHeight - 2),
     };
     const mids = o.kind === 'tslot' ? centers.slice(1).map((c, i) => (centers[i] + c) / 2) : [];
     if (o.kind === 'tslot') {
-      if (n < 2) return fail('T-Slot braucht mindestens 2 Zapfen; die Schrauben sitzen zwischen den Zapfen.');
-      if (!(ts.d > 0) || ts.s <= ts.d || !(ts.m > 0)) return fail('Schraube und Mutter: Schlüsselweite muss größer als der Schraubendurchmesser sein.');
-      if (o.boltLength <= t + 1) return fail('Schraube zu kurz für die Materialdicke.');
-      if (centers[1] - centers[0] - tw < ts.s + 2) return fail('Kein Platz für die Mutter zwischen den Zapfen (weniger oder schmalere Zapfen).');
+      if (n < 2) return fail(t('T-Slot braucht mindestens 2 Zapfen; die Schrauben sitzen zwischen den Zapfen.'));
+      if (!(ts.d > 0) || ts.s <= ts.d || !(ts.m > 0)) return fail(t('Schraube und Mutter: Schlüsselweite muss größer als der Schraubendurchmesser sein.'));
+      if (o.boltLength <= th + 1) return fail(t('Schraube zu kurz für die Materialdicke.'));
+      if (centers[1] - centers[0] - tw < ts.s + 2) return fail(t('Kein Platz für die Mutter zwischen den Zapfen (weniger oder schmalere Zapfen).'));
     }
     const pts: Pt[] = [];
     for (const [i, c] of centers.entries()) {
@@ -305,17 +306,17 @@ export function computeJoint(picks: EdgePick[], o: JointOptions): JointResult {
       if (o.kind === 'snap') {
         const lip = o.snapLip,
           len = o.snapLength;
-        if (!(lip > 0) || !(len > 0)) return fail('Rasthaken: Überstand und Länge müssen größer als 0 sein.');
+        if (!(lip > 0) || !(len > 0)) return fail(t('Rasthaken: Überstand und Länge müssen größer als 0 sein.'));
         // Mittelschlitz, damit die beiden Zungen beim Durchstecken einfedern können (mindestens 2 × Überstand breit)
         const gap = 2 * lip + 0.3;
-        if (gap >= tw - 1) return fail('Schnappzapfen zu schmal für den Rasthaken-Überstand.');
+        if (gap >= tw - 1) return fail(t('Schnappzapfen zu schmal für den Rasthaken-Überstand.'));
         const tip = shoulder + len;
         P(-hw, 0); P(-hw, shoulder); P(-hw - lip, shoulder); P(-hw + lip * 0.5, tip);
         P(-gap / 2, tip); P(-gap / 2, -o.snapRelief); P(gap / 2, -o.snapRelief); P(gap / 2, tip);
         P(hw - lip * 0.5, tip); P(hw + lip, shoulder); P(hw, shoulder); P(hw, 0);
       } else if (o.kind === 'hook') {
-        if (!(o.hookLength > 0)) return fail('Hakenlänge muss größer als 0 sein.');
-        const top = shoulder + t;
+        if (!(o.hookLength > 0)) return fail(t('Hakenlänge muss größer als 0 sein.'));
+        const top = shoulder + th;
         const hl = o.hookLength;
         if (dir > 0) {
           P(-hw, 0); P(-hw, top); P(hw + hl, top); P(hw + hl, shoulder); P(hw, shoulder); P(hw, 0);
@@ -325,7 +326,7 @@ export function computeJoint(picks: EdgePick[], o: JointOptions): JointResult {
       } else if (o.kind === 'wedge') {
         P(-hw, 0); P(-hw, wedgeTop); P(hw, wedgeTop); P(hw, 0);
       } else {
-        P(-hw, 0); P(-hw, t); P(hw, t); P(hw, 0);
+        P(-hw, 0); P(-hw, th); P(hw, th); P(hw, 0);
       }
       if (i < mids.length) {
         const m = mids[i];
@@ -347,7 +348,7 @@ export function computeJoint(picks: EdgePick[], o: JointOptions): JointResult {
         nodes: [at(g, c - wHole.u / 2, wHole.v0), at(g, c + wHole.u / 2, wHole.v0), at(g, c + wHole.u / 2, wHole.v1), at(g, c - wHole.u / 2, wHole.v1)],
       }));
       extra.set(picks[0].obj, [...(extra.get(picks[0].obj) ?? []), ...holes]);
-      const len = tw + 2 * Math.max(8, 2 * t);
+      const len = tw + 2 * Math.max(8, 2 * th);
       const w0 = o.wedgeWidth - 1.5 + o.kerf,
         w1 = o.wedgeWidth + 1.5 + o.kerf;
       centers.forEach((_, i) => {
@@ -357,18 +358,20 @@ export function computeJoint(picks: EdgePick[], o: JointOptions): JointResult {
         added.push({ closed: true, nodes: [at(g, u0, v), at(g, u1, v), at(g, u1, v + w1), at(g, u0, v + w0)] });
       });
     }
-    const name = { snap: 'Schnappzapfen', hook: 'Hakenzapfen', wedge: 'Keilzapfen' }[o.kind as string] ?? 'Zapfen';
-    info = `${n} ${name} à ${fmt(o.tenonWidth)} × ${fmt(t)} mm`;
-    if (o.kind === 'wedge') info += ` mit ${n} Keil${n > 1 ? 'en' : ''}`;
+    const name = { snap: t('Schnappzapfen'), hook: t('Hakenzapfen'), wedge: t('Keilzapfen') }[o.kind as string] ?? t('Zapfen');
+    info = t('{n} {name} à {width} × {thickness} mm', { n, name, width: fmt(o.tenonWidth), thickness: fmt(th) });
+    if (o.kind === 'wedge') info += tn(' mit {n} Keil', ' mit {n} Keilen', n);
     if (o.kind === 'tslot')
-      info += `, ${mids.length} T-Slot${mids.length > 1 ? 's' : ''} für Schraube Ø ${fmt(o.boltDia)} × ${fmt(o.boltLength)} mm, Mutter ${fmt(o.nutWidth)} × ${fmt(o.nutHeight)} mm`;
+      info += tn(', {n} T-Slot für Schraube Ø {dia} × {length} mm, Mutter {nutWidth} × {nutHeight} mm', ', {n} T-Slots für Schraube Ø {dia} × {length} mm, Mutter {nutWidth} × {nutHeight} mm', mids.length, {
+        dia: fmt(o.boltDia), length: fmt(o.boltLength), nutWidth: fmt(o.nutWidth), nutHeight: fmt(o.nutHeight),
+      });
     if (picks.length > 1) {
       const s = geoms[1];
       // Schlitzmitte: um slotOffset von der Linie versetzt, bei Kanten geschlossener Formen ins Material hinein
       const sideIn = s.closed ? -1 : 1;
       const sl = o.tenonWidth - adj,
-        sw = t - adj;
-      if (sl <= 0 || sw <= 0) return fail('Schlitze zu klein für Kerf und Spiel.');
+        sw = th - adj;
+      if (sl <= 0 || sw <= 0) return fail(t('Schlitze zu klein für Kerf und Spiel.'));
       const mid = s.len / 2;
       // Hakenzapfen: Schlitz um die Hakenlänge verlängert, auf der dem Haken abgewandten Seite (einstecken, dann schieben)
       const extraLen = o.kind === 'hook' ? o.hookLength : 0;
@@ -403,11 +406,11 @@ export function computeJoint(picks: EdgePick[], o: JointOptions): JointResult {
         });
       }
       extra.set(target, [...(extra.get(target) ?? []), ...slots]);
-      info += `, ${n} Schlitz${n > 1 ? 'e' : ''}`;
-      if (s.len < g.len - 0.01) info += `. Achtung: Schlitzlinie (${fmt(s.len)} mm) kürzer als die Zapfenkante (${fmt(g.len)} mm)`;
-      if (s.closed && o.slotOffset < t / 2 + 0.01) info += '. Achtung: Schlitze reichen bis an die Kante';
-      if (mids.length) info += `, ${mids.length} Bohrung${mids.length > 1 ? 'en' : ''}`;
-      if (o.kind === 'hook') info += `. Einstecken, dann ${fmt(o.hookLength)} mm in Hakenrichtung schieben`;
+      info += tn(', {n} Schlitz', ', {n} Schlitze', n);
+      if (s.len < g.len - 0.01) info += t('. Achtung: Schlitzlinie ({len} mm) kürzer als die Zapfenkante ({len2} mm)', { len: fmt(s.len), len2: fmt(g.len) });
+      if (s.closed && o.slotOffset < th / 2 + 0.01) info += t('. Achtung: Schlitze reichen bis an die Kante');
+      if (mids.length) info += tn(', {n} Bohrung', ', {n} Bohrungen', mids.length);
+      if (o.kind === 'hook') info += t('. Einstecken, dann {hookLength} mm in Hakenrichtung schieben', { hookLength: fmt(o.hookLength) });
     }
   }
 
