@@ -36,6 +36,8 @@ npm run tauri build    # Installationspaket
 - Bild nachzeichnen (Alt+T): Schwellwert, kleine Flecken ignorieren, Glättung, Live-Vorschau. Ergebnis sind Bézierpfade mit erhaltenen Ecken.
 - Bearbeitetes Bild speichern (das geditherte Bild als PNG, so wie es gelasert würde).
 - Maschinenausgabe für FluidNC/GRBL (Laser-Panel rechts unten mit den Reitern Laser, Verschieben, Konsole):
+  - Mehrere Geräte speichern und auswählen (Laser-Reiter oben, Laser → Geräte …). Neue Geräte aus Vorlagen gängiger Laser (Swiitol, Ortur, Atomstack, Sculpfun, xTool, Creality Falcon, Two Trees) oder allgemein je Steuerung. Das Bett der Arbeitsfläche folgt dem gewählten Gerät.
+  - Steuerungen: FluidNC, GRBL 1.1, grblHAL (Zeichenzählung, Echtzeitstatus, M4), Marlin (Zeile für Zeile, Position per M114, Inline-Laser `M3 I`, Pause durch Zurückhalten, Stopp mit M410) und Smoothieware (Zeile für Zeile, S 0 … 1). Home, Joggen, Ursprung und Konsolenknöpfe passen sich an.
   - Verbinden über USB-Seriell oder WLAN (Telnet, Port 23). Status, Position und Laserkopf auf der Arbeitsfläche, Alarme im Klartext.
   - Start, Pause/Weiter, Stopp (Halt und Reset, Position bleibt erhalten), Rahmen als Rechteck oder Kontur (wahlweise mit schwachem Laser), Home, Zum Nullpunkt.
   - Starten ab: Absolute Koordinaten, Benutzer-Ursprung oder Aktuelle Position, jeweils mit 9-Punkt-Job-Ursprung. „Nur Auswahl“ lasert nur die ausgewählten Objekte.
@@ -43,7 +45,7 @@ npm run tauri build    # Installationspaket
   - Übertragung mit Zeichenzählung (Empfangspuffer 127 Bytes) im Rust-Kern, Fortschritt mit vergangener und geschätzter Restzeit.
   - Vorschau (Alt+P) mit Zeitschätzung wie im Bahnplaner von FluidNC (Beschleunigung, Ecken), Abspielen und Zeitschieber, Leerwege, Schattierung nach Leistung, Zoomen und Verschieben.
   - G-Code speichern, Verschieben-Reiter (Jog in Schritten, Ursprung setzen/löschen, Laser zur Auswahl, Entsperren), Konsole mit Verlauf.
-  - Geräteeinstellungen: Arbeitsbereich, S-Wert für 100 %, Baudrate, WLAN-Adresse, Eilgang und Beschleunigung, Rahmen. „Von der Maschine lesen“ holt Arbeitsbereich, Eilgang und Beschleunigung aus der FluidNC-Konfiguration.
+  - Geräteeinstellungen: Arbeitsbereich, S-Wert für 100 %, Baudrate, WLAN-Adresse, Eilgang und Beschleunigung, Rahmen. „Von der Maschine lesen“ holt Arbeitsbereich, Eilgang, Beschleunigung (FluidNC-Konfiguration bzw. GRBL `$$`) und bei GRBL auch die Leistungsskala `$30`.
 - Projekt speichern und öffnen (`.lwk`, JSON, Bilder eingebettet), SVG-Export (mit Bildern), automatisches Zwischenspeichern (Bilddaten in IndexedDB).
 
 ## Noch nicht enthalten

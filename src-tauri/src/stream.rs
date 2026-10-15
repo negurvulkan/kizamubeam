@@ -1,5 +1,6 @@
-//! G-Code-Übertragung an GRBL/FluidNC mit Zeichenzählung: Es werden so viele Zeilen gesendet,
-//! wie in den Empfangspuffer der Steuerung passen; jedes `ok`/`error` gibt Platz frei.
+//! G-Code-Übertragung an die Steuerung. GRBL, grblHAL und FluidNC: Zeichenzählung, es werden so viele
+//! Zeilen gesendet, wie in den Empfangspuffer passen; jedes `ok`/`error` gibt Platz frei.
+//! Marlin und Smoothieware: Zeile für Zeile (erst nach `ok` die nächste).
 //! Unabhängig von Tauri, damit es sich mit einer nachgebildeten Verbindung testen lässt.
 
 use std::collections::VecDeque;
@@ -13,6 +14,35 @@ use std::time::{Duration, Instant};
 pub const RX_BUFFER: usize = 127;
 const POLL: Duration = Duration::from_millis(200);
 const PROGRESS: Duration = Duration::from_millis(200);
+/// Abfrage per Befehlszeile (Marlin: M114) seltener, sie belegt die Leitung
+const POLL_LINE: Duration = Duration::from_millis(1000);
+
+/// Wie mit der Steuerung gesprochen wird
+#[derive(Clone, Debug)]
+pub struct Protocol {
+    /// Telnet: IAC-Steuersequenzen ausfiltern
+    pub telnet: bool,
+    /// Nur eine Zeile unterwegs (Marlin, Smoothieware) statt Zeichenzählung
+    pub sync: bool,
+    /// Echtzeitbefehle ? ! ~ 0x18 (GRBL-Familie, Smoothieware)
+    pub realtime: bool,
+    /// Ohne Echtzeitstatus: Befehlszeile zur Positionsabfrage im Leerlauf (Marlin: M114)
+    pub poll: Option<String>,
+}
+
+impl Protocol {
+    #[cfg(test)]
+    pub fn grbl(telnet: bool) -> Self {
+        Protocol { telnet, sync: false, realtime: true, poll: None }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Kind {
+    User,
+    Job,
+    Poll,
+}
 
 pub enum Cmd {
     /// Einzelne Zeile (Konsole, Bewegen, Home …)
@@ -20,6 +50,8 @@ pub enum Cmd {
     /// Echtzeitbefehl, wird sofort und ohne Puffer gesendet (? ! ~ 0x18 0x85)
     Realtime(u8),
     Job(Vec<String>),
+    Pause,
+    Resume,
     Stop,
     Close,
 }
@@ -46,16 +78,17 @@ pub struct Streamer<P: Read + Write, E: Events> {
     events: E,
     busy: Arc<AtomicBool>,
     rx: Vec<u8>,
-    /// Gesendete, noch unbestätigte Zeilen: (Länge inkl. Zeilenende, gehört zum Job)
-    inflight: VecDeque<(usize, bool)>,
+    /// Gesendete, noch unbestätigte Zeilen: (Länge inkl. Zeilenende, Art)
+    inflight: VecDeque<(usize, Kind)>,
     inflight_bytes: usize,
     queue: VecDeque<String>,
     job: Option<Job>,
     last_poll: Instant,
     last_progress: Instant,
     progress_dirty: bool,
-    /// Telnet: IAC-Steuersequenzen ausfiltern
-    telnet: bool,
+    proto: Protocol,
+    /// Angehalten durch Laserwerk (Steuerungen ohne Echtzeitbefehle)
+    paused: bool,
     iac: u8,
 }
 
@@ -65,7 +98,7 @@ fn is_comment(l: &str) -> bool {
 }
 
 impl<P: Read + Write, E: Events> Streamer<P, E> {
-    pub fn new(port: P, events: E, busy: Arc<AtomicBool>, telnet: bool) -> Self {
+    pub fn new(port: P, events: E, busy: Arc<AtomicBool>, proto: Protocol) -> Self {
         let now = Instant::now();
         Streamer {
             port,
@@ -76,16 +109,18 @@ impl<P: Read + Write, E: Events> Streamer<P, E> {
             inflight_bytes: 0,
             queue: VecDeque::new(),
             job: None,
-            last_poll: now - POLL,
+            last_poll: now.checked_sub(POLL_LINE).unwrap_or(now),
             last_progress: now,
             progress_dirty: false,
-            telnet,
+            proto,
+            paused: false,
             iac: 0,
         }
     }
 
     /// Hauptschleife: läuft, bis Close kommt oder die Verbindung abreißt.
     pub fn run(mut self, cmds: Receiver<Cmd>) {
+        self.synthetic("Idle");
         let reason = loop {
             match self.commands(&cmds) {
                 Ok(true) => break None,
@@ -114,6 +149,13 @@ impl<P: Read + Write, E: Events> Streamer<P, E> {
         }
     }
 
+    /// Steuerungen ohne Statusbericht: Zustand selbst melden, im Format eines GRBL-Statusberichts
+    fn synthetic(&self, state: &str) {
+        if !self.proto.realtime {
+            self.events.line(&format!("<{state}>"));
+        }
+    }
+
     pub fn handle(&mut self, c: Cmd) -> Result<(), String> {
         match c {
             Cmd::Line(l) => {
@@ -127,14 +169,39 @@ impl<P: Read + Write, E: Events> Streamer<P, E> {
                     let total = lines.len();
                     self.job = Some(Job { lines, next: 0, acked: 0, errors: 0, finishing: false, started: Instant::now() });
                     self.busy.store(true, Ordering::SeqCst);
+                    self.paused = false;
                     self.events.progress(0, 0, total, 0);
+                    self.synthetic("Run");
+                }
+            }
+            Cmd::Pause => {
+                if self.proto.realtime {
+                    self.write(b"!")?;
+                } else if self.job.is_some() {
+                    // Keine weiteren Zeilen senden; die Steuerung arbeitet nur ihren Puffer ab
+                    self.paused = true;
+                    self.synthetic("Hold");
+                }
+            }
+            Cmd::Resume => {
+                if self.proto.realtime {
+                    self.write(b"~")?;
+                } else if self.paused {
+                    self.paused = false;
+                    self.synthetic(if self.job.is_some() { "Run" } else { "Idle" });
                 }
             }
             Cmd::Stop => {
-                // Erst anhalten, dann zurücksetzen: so bleibt die Position erhalten und es gibt keinen Alarm.
-                self.write(b"!")?;
-                std::thread::sleep(Duration::from_millis(300));
-                self.write(&[0x18])?;
+                if self.proto.realtime {
+                    // Erst anhalten, dann zurücksetzen: so bleibt die Position erhalten und es gibt keinen Alarm.
+                    self.write(b"!")?;
+                    std::thread::sleep(Duration::from_millis(300));
+                    self.write(&[0x18])?;
+                } else {
+                    // Marlin: Schnellstopp (M410) und Laser aus; die Antworten darauf werden nicht gezählt
+                    self.write(b"M410\nM5\n")?;
+                }
+                self.paused = false;
                 self.queue.clear();
                 self.inflight.clear();
                 self.inflight_bytes = 0;
@@ -142,6 +209,7 @@ impl<P: Read + Write, E: Events> Streamer<P, E> {
                     self.busy.store(false, Ordering::SeqCst);
                     self.events.done(false, "Abgebrochen");
                 }
+                self.synthetic("Idle");
             }
             Cmd::Close => {}
         }
@@ -158,7 +226,7 @@ impl<P: Read + Write, E: Events> Streamer<P, E> {
         let mut buf = [0u8; 2048];
         match self.port.read(&mut buf) {
             Ok(0) => {
-                if self.telnet {
+                if self.proto.telnet {
                     return Err("Die Gegenstelle hat die Verbindung beendet.".into());
                 }
                 std::thread::sleep(Duration::from_millis(5));
@@ -168,9 +236,17 @@ impl<P: Read + Write, E: Events> Streamer<P, E> {
             Err(e) => return Err(format!("Lesen fehlgeschlagen: {e}")),
         }
         self.fill()?;
-        if self.last_poll.elapsed() >= POLL {
-            self.last_poll = Instant::now();
-            self.write(b"?")?;
+        if self.proto.realtime {
+            if self.last_poll.elapsed() >= POLL {
+                self.last_poll = Instant::now();
+                self.write(b"?")?;
+            }
+        } else if let Some(poll) = self.proto.poll.clone() {
+            let idle = self.job.is_none() && self.queue.is_empty() && self.inflight.is_empty();
+            if idle && self.last_poll.elapsed() >= POLL_LINE {
+                self.last_poll = Instant::now();
+                self.send_line(&poll, Kind::Poll)?;
+            }
         }
         if self.progress_dirty && self.last_progress.elapsed() >= PROGRESS {
             self.send_progress();
@@ -188,7 +264,7 @@ impl<P: Read + Write, E: Events> Streamer<P, E> {
 
     pub fn on_bytes(&mut self, data: &[u8]) {
         for &b in data {
-            if self.telnet {
+            if self.proto.telnet {
                 // IAC (255) + Befehl + Option überspringen
                 if self.iac > 0 {
                     self.iac -= 1;
@@ -211,31 +287,44 @@ impl<P: Read + Write, E: Events> Streamer<P, E> {
         }
     }
 
-    fn pop_inflight(&mut self) -> bool {
-        match self.inflight.pop_front() {
-            Some((len, job)) => {
-                self.inflight_bytes -= len;
-                job
-            }
-            None => false,
-        }
+    fn pop_inflight(&mut self) -> Option<Kind> {
+        let (len, kind) = self.inflight.pop_front()?;
+        self.inflight_bytes -= len;
+        Some(kind)
+    }
+
+    fn finish_job(&mut self) {
+        let Some(j) = self.job.take() else { return };
+        self.busy.store(false, Ordering::SeqCst);
+        self.events.progress(j.next, j.acked, j.lines.len(), j.errors);
+        let secs = j.started.elapsed().as_secs();
+        let msg = if j.errors > 0 {
+            format!("Fertig nach {}:{:02} min, {} Fehler", secs / 60, secs % 60, j.errors)
+        } else {
+            format!("Fertig nach {}:{:02} min", secs / 60, secs % 60)
+        };
+        self.events.done(j.errors == 0, &msg);
+        self.synthetic("Idle");
     }
 
     fn on_line(&mut self, line: &str) {
         let lower = line.to_ascii_lowercase();
-        if lower == "ok" {
-            if self.pop_inflight() {
-                if let Some(j) = &mut self.job {
-                    j.acked += 1;
-                    self.progress_dirty = true;
+        // Marlin hängt manchmal Text an („ok T:…“ oder „ok P15 B3“)
+        if lower == "ok" || lower.starts_with("ok ") {
+            match self.pop_inflight() {
+                Some(Kind::Job) => {
+                    if let Some(j) = &mut self.job {
+                        j.acked += 1;
+                        self.progress_dirty = true;
+                    }
                 }
-            } else {
-                self.events.line(line);
+                Some(Kind::Poll) => {}
+                _ => self.events.line(line),
             }
             return;
         }
         if lower.starts_with("error") {
-            if self.pop_inflight() {
+            if self.pop_inflight() == Some(Kind::Job) {
                 if let Some(j) = &mut self.job {
                     j.acked += 1;
                     j.errors += 1;
@@ -249,21 +338,13 @@ impl<P: Read + Write, E: Events> Streamer<P, E> {
             self.events.line(line);
             let idle = line.starts_with("<Idle");
             if idle && self.job.as_ref().is_some_and(|j| j.finishing) {
-                let j = self.job.take().unwrap();
-                self.busy.store(false, Ordering::SeqCst);
-                self.events.progress(j.next, j.acked, j.lines.len(), j.errors);
-                let secs = j.started.elapsed().as_secs();
-                let msg = if j.errors > 0 {
-                    format!("Fertig nach {}:{:02} min, {} Fehler", secs / 60, secs % 60, j.errors)
-                } else {
-                    format!("Fertig nach {}:{:02} min", secs / 60, secs % 60)
-                };
-                self.events.done(j.errors == 0, &msg);
+                self.finish_job();
             }
             return;
         }
         self.events.line(line);
-        let reset = line.starts_with("Grbl ");
+        // Begrüßung nach einem Neustart: GRBL/FluidNC „Grbl …“, Marlin „start“, Smoothieware „Smoothie“
+        let reset = line.starts_with("Grbl ") || lower == "start" || line.starts_with("Smoothie");
         if lower.starts_with("alarm") || reset {
             // Alarm oder Neustart der Steuerung: Puffer ist verworfen, Job abbrechen
             self.inflight.clear();
@@ -273,19 +354,21 @@ impl<P: Read + Write, E: Events> Streamer<P, E> {
                 self.busy.store(false, Ordering::SeqCst);
                 self.events.done(false, if reset { "Die Steuerung wurde neu gestartet" } else { "Alarm, Job abgebrochen" });
             }
+            self.paused = false;
+            self.synthetic("Idle");
         }
     }
 
     fn fits(&self, len: usize) -> bool {
-        self.inflight.is_empty() || self.inflight_bytes + len <= RX_BUFFER
+        self.inflight.is_empty() || (!self.proto.sync && self.inflight_bytes + len <= RX_BUFFER)
     }
 
-    fn send_line(&mut self, l: &str, job: bool) -> Result<(), String> {
+    fn send_line(&mut self, l: &str, kind: Kind) -> Result<(), String> {
         let mut data = l.trim().as_bytes().to_vec();
         data.push(b'\n');
         let len = data.len();
         self.write(&data)?;
-        self.inflight.push_back((len, job));
+        self.inflight.push_back((len, kind));
         self.inflight_bytes += len;
         Ok(())
     }
@@ -297,16 +380,22 @@ impl<P: Read + Write, E: Events> Streamer<P, E> {
                     break;
                 }
                 let l = self.queue.pop_front().unwrap();
-                self.send_line(&l, false)?;
+                self.send_line(&l, Kind::User)?;
             }
             return Ok(());
         }
-        loop {
+        while !self.paused {
+            let realtime = self.proto.realtime;
+            let job_inflight = self.inflight.iter().any(|x| x.1 == Kind::Job);
             let Some(j) = &mut self.job else { break };
             if j.next >= j.lines.len() {
-                if !j.finishing && !self.inflight.iter().any(|x| x.1) {
+                if !j.finishing && !job_inflight {
                     j.finishing = true;
                     self.progress_dirty = true;
+                    // Ohne Statusbericht gilt der Job mit dem letzten „ok“ als fertig (Marlin: M400 am Ende wartet auf Stillstand)
+                    if !realtime {
+                        self.finish_job();
+                    }
                 }
                 break;
             }
@@ -317,13 +406,15 @@ impl<P: Read + Write, E: Events> Streamer<P, E> {
                 continue;
             }
             let len = line.trim().len() + 1;
-            if !(self.inflight.is_empty() || self.inflight_bytes + len <= RX_BUFFER) {
+            let line = line.clone();
+            if !self.fits(len) {
                 break;
             }
-            let line = line.clone();
-            j.next += 1;
+            if let Some(j) = &mut self.job {
+                j.next += 1;
+            }
             self.progress_dirty = true;
-            self.send_line(&line, true)?;
+            self.send_line(&line, Kind::Job)?;
         }
         Ok(())
     }
@@ -388,7 +479,7 @@ mod tests {
     fn respects_buffer_and_finishes_on_idle() {
         let fake = Fake::default();
         let log = Log::default();
-        let mut s = Streamer::new(fake.clone(), log.clone(), Arc::new(AtomicBool::new(false)), false);
+        let mut s = Streamer::new(fake.clone(), log.clone(), Arc::new(AtomicBool::new(false)), Protocol::grbl(false));
         let lines: Vec<String> = (0..40).map(|i| format!("G1 X{i}.123 Y{i}.456 S500 F3000")).collect();
         let len = lines[0].len() + 1;
         s.handle(Cmd::Job(lines.clone())).unwrap();
@@ -422,7 +513,7 @@ mod tests {
         let fake = Fake::default();
         let log = Log::default();
         let busy = Arc::new(AtomicBool::new(false));
-        let mut s = Streamer::new(fake.clone(), log.clone(), busy.clone(), false);
+        let mut s = Streamer::new(fake.clone(), log.clone(), busy.clone(), Protocol::grbl(false));
         s.handle(Cmd::Job(vec!["; Kopf".into(), "G21".into(), "".into(), "G0 X1".into()])).unwrap();
         assert!(busy.load(Ordering::SeqCst));
         s.pump().unwrap();
@@ -439,7 +530,7 @@ mod tests {
     fn console_lines_and_telnet_filter() {
         let fake = Fake::default();
         let log = Log::default();
-        let mut s = Streamer::new(fake.clone(), log.clone(), Arc::new(AtomicBool::new(false)), true);
+        let mut s = Streamer::new(fake.clone(), log.clone(), Arc::new(AtomicBool::new(false)), Protocol::grbl(true));
         s.handle(Cmd::Line("$I".into())).unwrap();
         s.pump().unwrap();
         assert_eq!(sent_lines(&fake), vec!["$I"]);
@@ -499,7 +590,7 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         let lines: Vec<String> = (0..500).map(|i| format!("G1 X{}.5 Y{} S{} F3000", i % 37, i % 11, i % 1000)).chain(["M5".into(), "M2".into()]).collect();
         tx.send(Cmd::Job(lines.clone())).unwrap();
-        let st = Streamer::new(s, log.clone(), busy.clone(), true);
+        let st = Streamer::new(s, log.clone(), busy.clone(), Protocol::grbl(true));
         let client = std::thread::spawn(move || st.run(rx));
         let t0 = Instant::now();
         while !log.0.lock().unwrap().iter().any(|x| x.starts_with("done")) {
@@ -514,9 +605,46 @@ mod tests {
     }
 
     #[test]
+    fn marlin_sends_line_by_line_and_pauses_on_host() {
+        let fake = Fake::default();
+        let log = Log::default();
+        let proto = Protocol { telnet: false, sync: true, realtime: false, poll: Some("M114".into()) };
+        let mut s = Streamer::new(fake.clone(), log.clone(), Arc::new(AtomicBool::new(false)), proto);
+        // Im Leerlauf fragt Marlin die Position mit M114 ab; dessen ok wird nicht gemeldet
+        s.pump().unwrap();
+        assert_eq!(sent_lines(&fake), vec!["M114"]);
+        fake.reply.lock().unwrap().extend(b"X:10.00 Y:20.00 Z:0.00 E:0.00 Count X:800 Y:1600 Z:0\nok\n");
+        s.pump().unwrap();
+        fake.written.lock().unwrap().clear();
+        s.handle(Cmd::Job(vec!["G1 X1".into(), "G1 X2".into(), "G1 X3".into(), "M400".into()])).unwrap();
+        s.pump().unwrap();
+        assert_eq!(sent_lines(&fake), vec!["G1 X1"], "immer nur eine Zeile unterwegs");
+        fake.reply.lock().unwrap().extend(b"ok\n");
+        s.pump().unwrap();
+        assert_eq!(sent_lines(&fake), vec!["G1 X1", "G1 X2"]);
+        s.handle(Cmd::Pause).unwrap();
+        fake.reply.lock().unwrap().extend(b"ok\n");
+        s.pump().unwrap();
+        assert_eq!(sent_lines(&fake).len(), 2, "angehalten: nichts Neues senden");
+        s.handle(Cmd::Resume).unwrap();
+        for _ in 0..2 {
+            s.pump().unwrap();
+            fake.reply.lock().unwrap().extend(b"ok P15 B3\n");
+        }
+        s.pump().unwrap();
+        assert_eq!(sent_lines(&fake), vec!["G1 X1", "G1 X2", "G1 X3", "M400"]);
+        assert!(s.job.is_none());
+        let l = log.0.lock().unwrap();
+        assert!(l.iter().any(|x| x == "line <Hold>"));
+        assert!(l.iter().any(|x| x.starts_with("done true")), "{l:?}");
+        assert!(l.iter().any(|x| x.starts_with("line X:10.00")));
+        assert!(!l.iter().any(|x| x.starts_with("line ok")), "{l:?}");
+    }
+
+    #[test]
     fn stop_sends_hold_then_reset() {
         let fake = Fake::default();
-        let mut s = Streamer::new(fake.clone(), Log::default(), Arc::new(AtomicBool::new(false)), false);
+        let mut s = Streamer::new(fake.clone(), Log::default(), Arc::new(AtomicBool::new(false)), Protocol::grbl(false));
         s.handle(Cmd::Job(vec!["G1 X1 F100".into(); 5])).unwrap();
         s.pump().unwrap();
         fake.written.lock().unwrap().clear();

@@ -5,25 +5,83 @@ import { bezierPt, segments, shapeSubs } from './geom';
 import { loadFont, textToSubs } from './fonts';
 import { outputGrid, processImage } from './images';
 
-// ---------- Geräteeinstellungen ----------
+// ---------- Geräte und Firmware ----------
 
 export type StartFrom = 'absolute' | 'user' | 'current';
 
+export type Firmware = 'fluidnc' | 'grbl' | 'grblhal' | 'marlin' | 'smoothie';
+
+/** Was je Steuerung anders ist: Übertragung, Laserbefehle, Maschinenbefehle */
+export interface FirmwareInfo {
+  label: string;
+  /** Übliche Leistungsskala (S-Wert für 100 %) */
+  sMax: number;
+  /** Zeile für Zeile senden statt Zeichenzählung */
+  sync: boolean;
+  /** Echtzeitbefehle ? ! ~ 0x18 */
+  realtime: boolean;
+  /** Positionsabfrage per Befehl, wenn es keinen Echtzeitstatus gibt */
+  poll: string | null;
+  /** Laser vorbereiten (vor der ersten Bewegung) */
+  laserOn: string[];
+  /** Laser für den Rahmen mit fester Leistung einschalten */
+  frameOn: string[];
+  /** Ende des Jobs */
+  footer: string[];
+  home: string;
+  unlock: string | null;
+  jog: (x: number, y: number, f: number) => string[];
+  setOrigin: string;
+  clearOrigin: string | null;
+  /** Einstellungen der Maschine lesen: FluidNC-Pfade, GRBL-$$ oder gar nicht */
+  read: 'fluidnc' | 'grbl' | null;
+}
+
+const grblJog = (x: number, y: number, f: number) => [`$J=G91 G21${x ? ` X${num(x)}` : ''}${y ? ` Y${num(y)}` : ''} F${Math.round(f)}`];
+const relJog = (x: number, y: number, f: number) => ['G91', `G0${x ? ` X${num(x)}` : ''}${y ? ` Y${num(y)}` : ''} F${Math.round(f)}`, 'G90'];
+const GRBL_BASE = {
+  sync: false, realtime: true, poll: null, laserOn: ['M4 S0'], frameOn: ['M3 S0'], footer: ['M5', 'M2'],
+  home: '$H', unlock: '$X', jog: grblJog, setOrigin: 'G10 L20 P1 X0 Y0', clearOrigin: 'G10 L2 P1 X0 Y0',
+};
+
+export const FIRMWARES: Record<Firmware, FirmwareInfo> = {
+  fluidnc: { ...GRBL_BASE, label: 'FluidNC', sMax: 1000, read: 'fluidnc' },
+  grbl: { ...GRBL_BASE, label: 'GRBL 1.1', sMax: 1000, read: 'grbl' },
+  grblhal: { ...GRBL_BASE, label: 'grblHAL', sMax: 1000, read: 'grbl' },
+  marlin: {
+    label: 'Marlin (Laser)', sMax: 255, sync: true, realtime: false, poll: 'M114',
+    // Inline-Modus: S an jedem G1 setzt die Leistung, G0 fährt aus
+    laserOn: ['M3 I S0'], frameOn: ['M3 I S0'], footer: ['M5', 'M400'],
+    home: 'G28 X Y', unlock: null, jog: relJog, setOrigin: 'G92 X0 Y0', clearOrigin: null, read: null,
+  },
+  smoothie: {
+    label: 'Smoothieware', sMax: 1, sync: true, realtime: true, poll: null,
+    // Smoothieware feuert nur bei G1, S ist der Anteil 0 … 1
+    laserOn: [], frameOn: [], footer: [],
+    home: '$H', unlock: '$X', jog: relJog, setOrigin: 'G10 L20 P1 X0 Y0', clearOrigin: 'G10 L2 P1 X0 Y0', read: null,
+  },
+};
+
 export interface Device {
+  id: string;
   name: string;
-  /** Verbindung: USB-Seriell oder Netzwerk (Telnet, FluidNC Port 23) */
+  fw: Firmware;
+  /** Arbeitsbereich in mm */
+  bedW: number;
+  bedH: number;
+  /** Verbindung: USB-Seriell oder Netzwerk (Telnet, z. B. FluidNC Port 23) */
   conn: 'serial' | 'tcp';
   port: string;
   baud: number;
   host: string;
   tcpPort: number;
-  /** S-Wert für 100 % Leistung (FluidNC: speed_map, meist 1000) */
+  /** S-Wert für 100 % Leistung (FluidNC/GRBL meist 1000, Marlin 255, Smoothieware 1) */
   sMax: number;
   /** Eilgang in mm/min (für Zeitschätzung und Leerwege) */
   rapid: number;
   /** Beschleunigung in mm/s² (Zeitschätzung) */
   accel: number;
-  /** Junction Deviation in mm (Zeitschätzung, FluidNC-Standard 0,01) */
+  /** Junction Deviation in mm (Zeitschätzung, GRBL-Standard 0,01) */
   junction: number;
   startFrom: StartFrom;
   /** Job-Ursprung 0 … 8: Zeilen von oben nach unten, je links → rechts */
@@ -40,7 +98,11 @@ export interface Device {
 }
 
 export const DEFAULT_DEVICE: Device = {
+  id: 'standard',
   name: 'Swiitol E6 Pro',
+  fw: 'fluidnc',
+  bedW: 400,
+  bedH: 400,
   conn: 'serial',
   port: '',
   baud: 115200,
@@ -61,21 +123,64 @@ export const DEFAULT_DEVICE: Device = {
   frameSpeed: 3000,
 };
 
-const DEVICE_KEY = 'laserwerk.device';
+/** Vorlagen für neue Geräte. Maße nach Herstellerangabe; vor dem ersten Job mit „Von der Maschine lesen“ prüfen. */
+export const PRESETS: (Partial<Device> & { name: string; fw: Firmware })[] = [
+  { name: 'Swiitol E6 Pro', fw: 'fluidnc', bedW: 400, bedH: 400 },
+  { name: 'Ortur Laser Master 3', fw: 'grbl', bedW: 400, bedH: 380 },
+  { name: 'Atomstack A20 Pro', fw: 'grbl', bedW: 400, bedH: 400 },
+  { name: 'Sculpfun S30', fw: 'grbl', bedW: 410, bedH: 400 },
+  { name: 'xTool D1 Pro', fw: 'grbl', bedW: 432, bedH: 406, baud: 230400 },
+  { name: 'Creality Falcon 2', fw: 'grbl', bedW: 400, bedH: 415 },
+  { name: 'Two Trees TS2', fw: 'grbl', bedW: 450, bedH: 450 },
+  { name: 'GRBL-Laser (allgemein)', fw: 'grbl', bedW: 400, bedH: 400 },
+  { name: 'grblHAL-Laser (allgemein)', fw: 'grblhal', bedW: 400, bedH: 400 },
+  { name: 'FluidNC-Laser (allgemein)', fw: 'fluidnc', bedW: 400, bedH: 400 },
+  { name: 'Marlin mit Laser', fw: 'marlin', bedW: 300, bedH: 300, baud: 250000 },
+  { name: 'Smoothieware-Laser', fw: 'smoothie', bedW: 300, bedH: 200 },
+];
 
-export function loadDevice(): Device {
+export function newDevice(preset: Partial<Device> & { fw: Firmware }): Device {
+  const fw = FIRMWARES[preset.fw];
+  return {
+    ...DEFAULT_DEVICE,
+    host: preset.fw === 'fluidnc' ? 'fluidnc.local' : '',
+    sMax: fw.sMax,
+    ...preset,
+    id: `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+  };
+}
+
+export interface DeviceStore {
+  devices: Device[];
+  current: string;
+}
+
+const STORE_KEY = 'laserwerk.devices';
+const OLD_KEY = 'laserwerk.device';
+
+export function loadDevices(): DeviceStore {
   try {
-    const raw = localStorage.getItem(DEVICE_KEY);
-    if (raw) return { ...DEFAULT_DEVICE, ...JSON.parse(raw) };
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw) {
+      const st = JSON.parse(raw) as DeviceStore;
+      st.devices = st.devices.map((d) => ({ ...DEFAULT_DEVICE, ...d }));
+      if (st.devices.length) {
+        if (!st.devices.some((d) => d.id === st.current)) st.current = st.devices[0].id;
+        return st;
+      }
+    }
+    // Früher gab es nur ein Gerät
+    const old = localStorage.getItem(OLD_KEY);
+    if (old) return { devices: [{ ...DEFAULT_DEVICE, ...JSON.parse(old), id: 'standard' }], current: 'standard' };
   } catch {
     /* Standardwerte */
   }
-  return { ...DEFAULT_DEVICE };
+  return { devices: [{ ...DEFAULT_DEVICE }], current: DEFAULT_DEVICE.id };
 }
 
-export function saveDevice(d: Device) {
+export function saveDevices(st: DeviceStore) {
   try {
-    localStorage.setItem(DEVICE_KEY, JSON.stringify(d));
+    localStorage.setItem(STORE_KEY, JSON.stringify(st));
   } catch {
     /* nicht speicherbar, z. B. privates Fenster */
   }
@@ -684,6 +789,12 @@ export function formatDuration(sec: number): string {
 
 // ---------- G-Code ----------
 
+/** S-Wert für Leistung 0 … 1; bei kleiner Skala (Smoothieware 0 … 1) mit mehr Nachkommastellen */
+const sValue = (p: number, d: Device) => {
+  const k = d.sMax > 100 ? 10 : 1000;
+  return Math.round(p * d.sMax * k) / k;
+};
+
 const num = (v: number) => {
   const r = Math.round(v * 1000) / 1000;
   return Object.is(r, -0) ? '0' : String(r);
@@ -709,9 +820,11 @@ export function writeGCode(job: Job, d: Device, est: Estimate, name = 'Laserwerk
   head(`; Erzeugt von Laserwerk am ${new Date().toLocaleString('de-DE')}`);
   head(`; Geschätzte Dauer: ${formatDuration(est.total)}`);
   if (job.bounds) head(`; Bereich: X ${num(job.bounds.x0)} … ${num(job.bounds.x1)}, Y ${num(job.bounds.y0)} … ${num(job.bounds.y1)} mm`);
+  const fw = FIRMWARES[d.fw];
+  head(`; Gerät: ${d.name} (${fw.label})`);
   head('G21');
   head('G90');
-  head('M4 S0');
+  fw.laserOn.forEach(head);
   let g = -1,
     cx = mv.x0,
     cy = mv.y0,
@@ -738,7 +851,7 @@ export function writeGCode(job: Job, d: Device, est: Estimate, name = 'Laserwerk
     if (!known || ys !== num(cy)) l += `${l ? ' ' : ''}Y${ys}`;
     known = true;
     if (!rapid) {
-      const s = Math.round(mv.s[i] * d.sMax * 10) / 10;
+      const s = sValue(mv.s[i], d);
       if (s !== cs) l += ` S${s}`;
       cs = s;
       if (mv.f[i] !== cf) l += ` F${Math.round(mv.f[i])}`;
@@ -749,7 +862,7 @@ export function writeGCode(job: Job, d: Device, est: Estimate, name = 'Laserwerk
     lines.push(l.trim());
     times.push(est.t[i]);
   }
-  for (const l of ['M5', 'M2']) {
+  for (const l of fw.footer) {
     lines.push(l);
     times.push(est.total);
   }
@@ -767,9 +880,10 @@ export function frameGCode(job: Job, d: Device, contour: boolean): string[] | nu
       ? job.hull
       : [{ x: b.x0, y: b.y0 }, { x: b.x1, y: b.y0 }, { x: b.x1, y: b.y1 }, { x: b.x0, y: b.y1 }];
   pts = [...pts, pts[0]];
-  const s = d.frameLaser ? Math.round((d.framePower / 100) * d.sMax * 10) / 10 : 0;
-  const out = ['G21', 'G90', d.frameLaser ? 'M3 S0' : 'M5', `G0 X${num(pts[0].x)} Y${num(pts[0].y)}`];
+  const fw = FIRMWARES[d.fw];
+  const s = d.frameLaser ? sValue(d.framePower / 100, d) : 0;
+  const out = ['G21', 'G90', ...(d.frameLaser ? fw.frameOn : []), `G0 X${num(pts[0].x)} Y${num(pts[0].y)}`];
   for (let i = 1; i < pts.length; i++) out.push(`G1 X${num(pts[i].x)} Y${num(pts[i].y)}${i === 1 ? ` S${s} F${Math.round(d.frameSpeed)}` : ''}`);
-  out.push('M5');
+  out.push(...fw.footer.filter((l) => l !== 'M2'));
   return out;
 }

@@ -1,6 +1,6 @@
 // Verbindung zur Maschine (FluidNC/GRBL). Die eigentliche Kommunikation läuft im Rust-Kern (src-tauri/src/machine.rs);
 // hier liegen Zustand, Statusauswertung und die Befehle für die Oberfläche.
-import type { Device } from './gcode';
+import { Device, FIRMWARES } from './gcode';
 
 export const isTauri = () => '__TAURI_INTERNALS__' in window;
 
@@ -117,6 +117,8 @@ class Machine {
   /** Laufender Auftrag ist eine Rahmenfahrt (keine Fortschrittsanzeige) */
   jobIsFrame = false;
   private wco = [0, 0, 0];
+  /** Firmware der aktuellen Verbindung */
+  fw = FIRMWARES.fluidnc;
   private listeners = new Set<(e: MachineEvent) => void>();
   private unlisten: Unlisten[] = [];
 
@@ -170,6 +172,14 @@ class Machine {
   }
 
   private onLine(line: string) {
+    // Marlin: Antwort auf M114 („X:10.00 Y:20.00 Z:0.00 E:0.00 Count …“)
+    const m114 = /^X:(-?[\d.]+)\s*Y:(-?[\d.]+)(?:\s*Z:(-?[\d.]+))?/.exec(line);
+    if (m114) {
+      const p: [number, number, number] = [+m114[1], +m114[2], +(m114[3] ?? 0)];
+      this.status = { ...this.status, mpos: p, wpos: p };
+      this.emit({ type: 'status' });
+      return;
+    }
     if (line.startsWith('<')) {
       this.status = parseStatus(line, this.status, this.wco);
       this.emit({ type: 'status' });
@@ -193,11 +203,16 @@ class Machine {
       const { invoke } = await import('@tauri-apps/api/core');
       const where = d.conn === 'serial' ? d.port : `${d.host}:${d.tcpPort}`;
       this.log(`Verbinde mit ${where} …`);
-      await invoke('machine_connect', { kind: d.conn, port: d.port, baud: d.baud, host: d.host, tcpPort: d.tcpPort });
+      const fw = FIRMWARES[d.fw];
+      this.fw = fw;
+      await invoke('machine_connect', {
+        kind: d.conn, port: d.port, baud: d.baud, host: d.host, tcpPort: d.tcpPort,
+        sync: fw.sync, realtime: fw.realtime, poll: fw.poll,
+      });
       this.connected = true;
       this.where = where;
       this.log(`Verbunden mit ${where}.`);
-      if (d.homeOnConnect) await this.send('$H');
+      if (d.homeOnConnect) await this.send(fw.home);
     } catch (e) {
       this.log(`Verbindung fehlgeschlagen: ${e}`, 'error');
     } finally {
@@ -250,11 +265,16 @@ class Machine {
     }
   }
 
+  /** Anhalten: GRBL-Familie per Echtzeitbefehl !, Marlin durch Zurückhalten weiterer Zeilen (im Rust-Kern) */
   async pause() {
-    await this.realtime(0x21); // !
+    if (!this.connected) return;
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('machine_pause');
   }
   async resume() {
-    await this.realtime(0x7e); // ~
+    if (!this.connected) return;
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('machine_resume');
   }
   async stop() {
     if (!this.connected) return;
