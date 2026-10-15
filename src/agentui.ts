@@ -2,7 +2,8 @@
 import type { Editor } from './editor';
 import { h } from './dom';
 import { isTauri } from './machine';
-import { agentLog, onAgentLog, Tier, toolOverview } from './agent';
+import { agentLog, onAgentLog, toolOverview } from './agent';
+import { Tier } from './agentutil';
 import { locale, t, tBackend } from './i18n';
 
 interface AgentInfo {

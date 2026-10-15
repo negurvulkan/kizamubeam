@@ -230,13 +230,37 @@ export class Editor {
     this.jointPicks = [];
     this.jointHover = null;
   }
+  /** Während batch(): alle Änderungen zählen als ein Undo-Schritt */
+  private batching = false;
+  /**
+   * Mehrere Änderungen als einen Undo-Schritt ausführen (z. B. ein Aufruf eines KI-Agenten).
+   * Ändert sich nichts, bleibt der Verlauf, wie er war.
+   */
+  async batch<T>(fn: () => T | Promise<T>): Promise<T> {
+    if (this.batching) return fn();
+    const before = this.state();
+    const redo = this.redo;
+    this.snapshot();
+    this.batching = true;
+    try {
+      return await fn();
+    } finally {
+      this.batching = false;
+      if (this.state() === before) {
+        this.undo.pop();
+        this.redo = redo;
+      }
+    }
+  }
   /** Vor jeder Änderung aufrufen. */
   snapshot() {
+    if (this.batching) return;
     this.undo.push(this.state());
     if (this.undo.length > SNAPSHOT_LIMIT) this.undo.shift();
     this.redo = [];
   }
   private dropSnapshot() {
+    if (this.batching) return;
     this.undo.pop();
   }
   doUndo() {

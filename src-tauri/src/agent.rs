@@ -239,6 +239,24 @@ pub fn agent_respond(state: State<'_, Agent>, id: u64, response: Value) {
     }
 }
 
+/// Speichern für Agenten (Projekt oder SVG) unter einem absoluten Pfad; nur diese Endungen,
+/// vorhandene Dateien nur mit `overwrite`
+#[tauri::command]
+pub fn agent_write_file(path: String, contents: String, overwrite: bool) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if !p.is_absolute() {
+        return Err(format!("{path}: Pfad muss absolut sein"));
+    }
+    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    if !matches!(ext.as_str(), "lwk" | "svg") {
+        return Err(format!("{path}: nur .lwk oder .svg"));
+    }
+    if p.exists() && !overwrite {
+        return Err(format!("{path}: Datei gibt es schon (overwrite setzen, um sie zu ersetzen)"));
+    }
+    std::fs::write(&p, contents).map_err(|e| format!("{path}: {e}"))
+}
+
 // ---------- HTTP ----------
 
 struct Request {
