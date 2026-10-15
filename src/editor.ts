@@ -4,7 +4,7 @@ import {
   Node, Obj, PALETTE, Pt, rotate, scale, setLayerDeep, Shape, SubPath, TextShape, translate,
 } from './model';
 import { BoolOp, booleanOp, OffsetOptions, offsetOp } from './ops';
-import { loadFont, textToSubs } from './fonts';
+import { loadFont, onFontLoaded, textToSubs } from './fonts';
 import {
   bezierPt, Box, boundsOf, drawText, hitLeaf, invalidate, invalidateText, leafIntersectsBox, segments, shapeSubs, subsToPath2D,
   worldPath,
@@ -107,6 +107,8 @@ export class Editor {
   constructor(public canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
     this.restore();
+    // Texte werden mit den Schriftkonturen gezeichnet; nach dem Laden einer Schrift neu zeichnen
+    onFontLoaded(() => this.emit('sel'));
     new ResizeObserver(() => this.resize()).observe(canvas);
     canvas.addEventListener('pointerdown', (e) => this.onDown(e));
     canvas.addEventListener('pointermove', (e) => this.onMove(e));

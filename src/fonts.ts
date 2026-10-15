@@ -16,6 +16,16 @@ export interface LoadedFont {
 }
 
 const cache = new Map<string, Promise<LoadedFont>>();
+/** Bereits geladene Schriften für synchronen Zugriff beim Zeichnen */
+const ready = new Map<string, LoadedFont>();
+const fontKey = (family: string, bold: boolean, italic: boolean) => `${family}|${bold}|${italic}`;
+
+/** Schrift, falls schon geladen; sonst null (und das Laden beginnt). */
+export function loadedFont(family: string, bold: boolean, italic: boolean): LoadedFont | null {
+  const f = ready.get(fontKey(family, bold, italic));
+  if (!f) void loadFont(family, bold, italic);
+  return f ?? null;
+}
 
 function dataUrlToBuffer(url: string): ArrayBuffer {
   const b64 = url.slice(url.indexOf(',') + 1);
@@ -57,10 +67,10 @@ async function browserLocalFont(family: string, bold: boolean, italic: boolean):
 }
 
 export function loadFont(family: string, bold: boolean, italic: boolean): Promise<LoadedFont> {
-  const key = `${family}|${bold}|${italic}`;
+  const key = fontKey(family, bold, italic);
   let p = cache.get(key);
   if (!p) {
-    p = (async () => {
+    p = (async (): Promise<LoadedFont> => {
       let buf: ArrayBuffer | null = null;
       if (isTauri()) {
         try {
@@ -78,10 +88,20 @@ export function loadFont(family: string, bold: boolean, italic: boolean): Promis
         }
       }
       return { font: await fallbackFont(bold, italic), fallback: true };
-    })();
+    })().then((f) => {
+      ready.set(key, f);
+      fontListeners.forEach((cb) => cb());
+      return f;
+    });
     cache.set(key, p);
   }
   return p;
+}
+
+const fontListeners: (() => void)[] = [];
+/** Wird aufgerufen, sobald eine weitere Schrift geladen ist */
+export function onFontLoaded(cb: () => void) {
+  fontListeners.push(cb);
 }
 
 /** Liste der installierten Schriften (nur Desktop), sonst null. */
@@ -100,26 +120,34 @@ export async function systemFonts(): Promise<string[] | null> {
  * Gleiche Anordnung wie die Anzeige: Grundlinie der ersten Zeile bei y = 0, Zeilenhöhe 1,2 × Größe + Zeilenabstand.
  */
 export function textToSubs(t: TextShape, font: opentype.Font): SubPath[] {
+  const subs: SubPath[] = [];
+  for (const ln of textLines(t, font))
+    ln.glyphs.forEach((g, i) => subs.push(...commandsToSubs(g.getPath(ln.xs[i], ln.y, t.size).commands)));
+  return subs;
+}
+
+/** Zeilen mit Glyphen und deren x-Positionen (mm); x/w ist die Zeilenbreite nach Vorschub */
+export function textLines(t: TextShape, font: opentype.Font) {
   const size = t.size;
   const scale = size / font.unitsPerEm;
   const lh = size * 1.2 + t.vSpace;
   const lines = (t.upper ? t.text.toUpperCase() : t.text).split('\n');
-  const subs: SubPath[] = [];
-  lines.forEach((line, li) => {
+  return lines.map((line, li) => {
     const glyphs = font.stringToGlyphs(line);
     const advances = glyphs.map((g, i) => {
       const kern = i < glyphs.length - 1 ? font.getKerningValue(g, glyphs[i + 1]) : 0;
       return ((g.advanceWidth ?? 0) + kern) * scale + (i < glyphs.length - 1 ? t.hSpace : 0);
     });
-    const width = advances.reduce((a, b) => a + b, 0);
-    let x = t.align === 'left' ? 0 : t.align === 'center' ? -width / 2 : -width;
-    const y = li * lh;
-    glyphs.forEach((g, i) => {
-      subs.push(...commandsToSubs(g.getPath(x, y, size).commands));
-      x += advances[i];
+    const w = advances.reduce((a, b) => a + b, 0);
+    let x = t.align === 'left' ? 0 : t.align === 'center' ? -w / 2 : -w;
+    const x0 = x;
+    const xs = advances.map((adv) => {
+      const cur = x;
+      x += adv;
+      return cur;
     });
+    return { glyphs, xs, x: x0, w, y: li * lh };
   });
-  return subs;
 }
 
 function commandsToSubs(cmds: opentype.PathCommand[]): SubPath[] {

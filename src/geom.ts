@@ -1,5 +1,6 @@
 // Geometrie: Formen in Pfade umwandeln, Begrenzungsrahmen, Text-Layout, Treffertest.
 import { apply, IDENT, inv, mul, Mat, Node, Obj, Pt, Shape, SubPath, TextShape } from './model';
+import { loadedFont, onFontLoaded, textLines, textToSubs } from './fonts';
 
 export interface Box {
   x: number;
@@ -165,7 +166,25 @@ export interface TextLayout {
   box: Box;
 }
 
-const layoutCache = new WeakMap<TextShape, TextLayout>();
+let layoutCache = new WeakMap<TextShape, TextLayout>();
+/** Schriftkonturen je Text: dieselbe Geometrie wie bei Umwandeln in Pfad, Offset und Booleschen Operationen */
+let outlineCache = new WeakMap<TextShape, { subs: SubPath[]; path: Path2D }>();
+onFontLoaded(() => {
+  layoutCache = new WeakMap();
+  outlineCache = new WeakMap();
+});
+
+/** Konturen des Texts in lokalen mm, sobald die Schrift geladen ist; vorher null */
+export function textOutline(t: TextShape): { subs: SubPath[]; path: Path2D } | null {
+  let o = outlineCache.get(t);
+  if (o) return o;
+  const f = loadedFont(t.font, t.bold, t.italic);
+  if (!f) return null;
+  const subs = textToSubs(t, f.font);
+  o = { subs, path: subsToPath2D(subs) };
+  outlineCache.set(t, o);
+  return o;
+}
 export function textLayout(t: TextShape): TextLayout {
   const cached = layoutCache.get(t);
   if (cached) return cached;
@@ -186,6 +205,13 @@ export function textLayout(t: TextShape): TextLayout {
     maxX = Math.max(maxX, x + w);
     return { text, x, y: i * lh, w };
   });
+  // Mit geladener Schrift die echten Vorschübe verwenden, damit Rahmen und Konturen zusammenpassen
+  const f = loadedFont(t.font, t.bold, t.italic);
+  if (f) {
+    const ls = textLines(t, f.font);
+    minX = Math.min(...ls.map((l) => l.x)) / k;
+    maxX = Math.max(...ls.map((l) => l.x + l.w)) / k;
+  }
   if (maxX - minX < BASE * 0.2) maxX = minX + BASE * 0.2; // leere Zeile bleibt anklickbar
   const top = -BASE * 0.8,
     bottom = (raw.length - 1) * lh + BASE * 0.22;
@@ -196,10 +222,24 @@ export function textLayout(t: TextShape): TextLayout {
 }
 export function invalidateText(t: TextShape) {
   layoutCache.delete(t);
+  outlineCache.delete(t);
 }
 
 /** Text zeichnen. ctx muss bereits die Ansichtstransformation tragen. */
 export function drawText(ctx: CanvasRenderingContext2D, t: TextShape, m: Mat, mode: 'fill' | 'stroke', px: number) {
+  const outline = textOutline(t);
+  if (outline) {
+    ctx.save();
+    ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
+    if (mode === 'fill') ctx.fill(outline.path, 'evenodd');
+    else {
+      ctx.lineWidth = px / Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]));
+      ctx.stroke(outline.path);
+    }
+    ctx.restore();
+    return;
+  }
+  // Schrift noch nicht geladen: vorläufig mit der Browserschrift zeichnen
   const lay = textLayout(t);
   ctx.save();
   ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);

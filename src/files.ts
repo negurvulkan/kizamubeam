@@ -1,7 +1,7 @@
 // Dateien öffnen/speichern: in Tauri über native Dialoge, im Browser per Download/Dateiauswahl.
 import type { Editor } from './editor';
 import { leaves, PALETTE } from './model';
-import { subsToD, shapeSubs, textLayout } from './geom';
+import { subsToD, shapeSubs, textLayout, textOutline } from './geom';
 
 const isTauri = () => '__TAURI_INTERNALS__' in window;
 
@@ -58,6 +58,11 @@ export function buildSvg(ed: Editor): string {
     const fill = L.mode === 'fill' ? color : 'none';
     if (o.shape.kind === 'text') {
       const t = o.shape;
+      const ol = textOutline(t);
+      if (ol) {
+        parts.push(`<path d="${subsToD(ol.subs, m)}" fill="${fill}" fill-rule="evenodd" stroke="${color}" stroke-width="0.1"/>`);
+        continue;
+      }
       const lay = textLayout(t);
       const anchor = t.align === 'left' ? 'start' : t.align === 'center' ? 'middle' : 'end';
       const lines = lay.lines
