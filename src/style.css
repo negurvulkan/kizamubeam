@@ -1033,6 +1033,7 @@ table.devices .actions {
 }
 .cal-result {
   margin: 6px 0;
+}
 
 /* Layer-Dialog */
 .layer-dialog {
@@ -1195,5 +1196,14 @@ table.layers td:nth-child(2) {
   max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Fünf Reiter im Laser-Panel: enger setzen, notfalls seitlich scrollen */
+.panel-title.tabs {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.panel-title.tabs button {
+  padding: 4px 5px 3px;
   white-space: nowrap;
 }
