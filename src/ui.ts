@@ -6,6 +6,7 @@ import { exportSvg, importFile, installDropAndPaste, openProject, saveProcessedB
 import { assetImage, displayCanvas, outputGrid } from './images';
 import { systemFonts } from './fonts';
 import { $, evalExpr, f2, h, iconBtn, numInput, sep, setVal } from './dom';
+import { openCircularArrayDialog, openGridArrayDialog } from './arrayDialogs';
 import { buildLaser, frameJob, openDeviceDialog, openDevicesDialog, openPreview, saveGCode, startJob } from './laser';
 import { openLayerDialog } from './layerdialog';
 
@@ -84,6 +85,7 @@ export function buildUI(ed: Editor) {
   buildStatus(ed);
   buildTextEditor(ed);
   ed.onImport = () => importFile(ed);
+  ed.onGridArray = () => openGridArrayDialog(ed);
   installDropAndPaste(ed, $('#stage'));
   window.addEventListener('keydown', (e) => {
     const el = e.target as HTMLElement;
@@ -136,6 +138,8 @@ function buildMenu(ed: Editor) {
       ['Abziehen', '', () => ed.booleanSel('subtract')],
       ['Schnittmenge', '', () => ed.booleanSel('intersect')],
       ['Offset …', 'Alt+O', () => openOffsetDialog(ed)],
+      ['Rasterarray …', 'Ctrl+Shift+A', () => openGridArrayDialog(ed)],
+      ['Kreisarray …', '', () => openCircularArrayDialog(ed)],
       'sep',
       ['Bild anpassen …', '', () => openAdjustDialog(ed)],
       ['Bild nachzeichnen …', 'Alt+T', () => openTraceDialog(ed)],
@@ -243,6 +247,7 @@ function showHelp() {
     ['Knoten: D I C S', 'Löschen, Einfügen, Ecke, Glatt'],
     ['Alt+W', 'Drahtgitter / Gefüllt'],
     ['Ctrl+I', 'Importieren (Bilder, SVG, DXF); Dateien auch auf die Arbeitsfläche ziehen oder mit Ctrl+V einfügen'],
+    ['Ctrl+Shift+A', 'Rasterarray'],
     ['Alt+T', 'Bild nachzeichnen'],
     ['Alt+P', 'Vorschau mit Zeitschätzung'],
     ['Palette', 'Farbe anklicken = Auswahl diesem Layer zuordnen'],
@@ -545,11 +550,16 @@ function buildTools(ed: Editor) {
     iconBtn('intersect', 'Schnittmenge: nur die gemeinsame Fläche behalten', () => ed.booleanSel('intersect')),
   ];
   const off = iconBtn('offset', 'Offset (Alt+O)', () => openOffsetDialog(ed));
-  bar.append(...mods, off);
+  const arrays = [
+    iconBtn('gridArray', 'Rasterarray: Auswahl in Spalten und Zeilen kopieren (Ctrl+Shift+A)', () => openGridArrayDialog(ed)),
+    iconBtn('circArray', 'Kreisarray: Auswahl im Kreis um einen Mittelpunkt kopieren', () => openCircularArrayDialog(ed)),
+  ];
+  bar.append(...mods, off, ...arrays);
   const refresh = () => {
     btns.forEach((b, t) => b.classList.toggle('on', ed.tool === t));
     mods.forEach((b) => (b.disabled = ed.sel.length < 2));
     off.disabled = ed.sel.length < 1;
+    arrays.forEach((b) => (b.disabled = ed.sel.length < 1));
   };
   ed.on((w) => (w === 'tool' || w === 'sel') && refresh());
   refresh();
