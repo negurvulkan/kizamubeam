@@ -10,6 +10,7 @@ import { openCircularArrayDialog, openGridArrayDialog } from './arrayDialogs';
 import { buildLaser, frameJob, openDeviceDialog, openDevicesDialog, openPreview, saveGCode, startJob } from './laser';
 import { openLayerDialog } from './layerdialog';
 import { openMaterialTestDialog } from './materialtest';
+import { BoolBase } from './ops';
 
 const FONT_CANDIDATES = [
   'Arial', 'Helvetica', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Segoe UI', 'Calibri', 'Times New Roman', 'Georgia',
@@ -137,7 +138,10 @@ function buildMenu(ed: Editor) {
       'sep',
       ['Vereinen', '', () => ed.booleanSel('union')],
       ['Abziehen', '', () => ed.booleanSel('subtract')],
+      ['Vordere vom hinteren abziehen', '', () => ed.booleanSel('subtract', 'back')],
+      ['Hintere vom vorderen abziehen', '', () => ed.booleanSel('subtract', 'front')],
       ['Schnittmenge', '', () => ed.booleanSel('intersect')],
+      ['Boolesche Optionen …', '', () => openBooleanDialog(ed)],
       ['Offset …', 'Alt+O', () => openOffsetDialog(ed)],
       ['Rasterarray …', 'Ctrl+Shift+A', () => openGridArrayDialog(ed)],
       ['Kreisarray …', '', () => openCircularArrayDialog(ed)],
@@ -552,18 +556,21 @@ function buildTools(ed: Editor) {
   bar.append(sep());
   const mods = [
     iconBtn('union', 'Vereinen: alle gewählten Formen verschmelzen', () => ed.booleanSel('union')),
-    iconBtn('subtract', 'Abziehen: weitere Formen von der zuerst gewählten abziehen', () => ed.booleanSel('subtract')),
+    iconBtn('subtract', '', () => ed.booleanSel('subtract')),
     iconBtn('intersect', 'Schnittmenge: nur die gemeinsame Fläche behalten', () => ed.booleanSel('intersect')),
   ];
+  const boolOpts = iconBtn('settings', 'Boolesche Optionen: Basis und Originale behalten', () => openBooleanDialog(ed));
+  boolOpts.classList.add('small');
   const off = iconBtn('offset', 'Offset (Alt+O)', () => openOffsetDialog(ed));
   const arrays = [
     iconBtn('gridArray', 'Rasterarray: Auswahl in Spalten und Zeilen kopieren (Ctrl+Shift+A)', () => openGridArrayDialog(ed)),
     iconBtn('circArray', 'Kreisarray: Auswahl im Kreis um einen Mittelpunkt kopieren', () => openCircularArrayDialog(ed)),
   ];
-  bar.append(...mods, off, ...arrays);
+  bar.append(...mods, boolOpts, off, ...arrays);
   const refresh = () => {
     btns.forEach((b, t) => b.classList.toggle('on', ed.tool === t));
     mods.forEach((b) => (b.disabled = ed.sel.length < 2));
+    mods[1].title = `Abziehen: ${BOOL_BASE_HINT[ed.boolBase]}${ed.boolKeep ? ' (Originale bleiben)' : ''}`;
     off.disabled = ed.sel.length < 1;
     arrays.forEach((b) => (b.disabled = ed.sel.length < 1));
   };
@@ -575,6 +582,55 @@ function buildTools(ed: Editor) {
       openOffsetDialog(ed);
     }
   });
+}
+
+// ---------- Boolesche Optionen ----------
+
+const BOOL_BASE_HINT: Record<BoolBase, string> = {
+  selection: 'weitere Formen von der zuerst gewählten abziehen',
+  back: 'vordere Formen von der hintersten abziehen',
+  front: 'hintere Formen von der vordersten abziehen',
+};
+
+function openBooleanDialog(ed: Editor) {
+  let base = ed.boolBase;
+  let keep = ed.boolKeep;
+  const radio = (value: BoolBase, label: string) =>
+    h('label', {}, h('input', { type: 'radio', name: 'bool-base', value, checked: value === base, onchange: () => (base = value) }), label);
+  const dlg = h(
+    'dialog',
+    { class: 'offset-dialog bool-dialog' },
+    h('h3', {}, 'Boolesche Optionen'),
+    h(
+      'div',
+      { class: 'form' },
+      h('label', {}, 'Basis'),
+      h('div', { class: 'radios column' },
+        radio('selection', 'Zuerst gewählte Form'),
+        radio('back', 'Hinterste Form (vordere werden abgezogen)'),
+        radio('front', 'Vorderste Form (hintere werden abgezogen)'),
+      ),
+      h('label', { for: 'bool-keep' }, 'Originale behalten'),
+      h('input', { type: 'checkbox', id: 'bool-keep', checked: keep, onchange: (e: Event) => (keep = (e.target as HTMLInputElement).checked) }),
+    ),
+    h('div', { class: 'note' }, 'Die Basis bestimmt beim Abziehen, wovon abgezogen wird, und bei allen Operationen die Ebene des Ergebnisses. Vorn ist, was in der Stapelreihenfolge oben liegt (zuletzt gezeichnet).'),
+    h(
+      'div',
+      { class: 'dialog-buttons' },
+      h('button', { class: 'btn', onclick: () => dlg.close() }, 'Abbrechen'),
+      h('button', {
+        class: 'btn primary',
+        onclick: () => {
+          ed.setBoolOptions({ base, keep });
+          dlg.close();
+        },
+      }, 'Übernehmen'),
+    ),
+  );
+  dlg.addEventListener('close', () => dlg.remove());
+  dlg.addEventListener('keydown', (e) => e.stopPropagation());
+  document.body.append(dlg);
+  (dlg as HTMLDialogElement).showModal();
 }
 
 // ---------- Offset-Dialog ----------

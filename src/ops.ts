@@ -85,6 +85,19 @@ export function pathsToSubs(paths: Paths): SubPath[] {
 
 export type BoolOp = 'union' | 'subtract' | 'intersect' | 'xor';
 
+/** Welches Objekt die Basis ist: das zuerst gewählte, das hinterste (vordere werden abgezogen) oder das vorderste (hintere werden abgezogen). */
+export type BoolBase = 'selection' | 'back' | 'front';
+
+/**
+ * Bringt die Auswahl in die Reihenfolge für booleanOp: die Basis zuerst, danach die übrigen.
+ * `stack` ist die Stapelreihenfolge des Dokuments (hinten zuerst).
+ */
+export function orderForBoolean<T>(sel: T[], stack: T[], base: BoolBase): T[] {
+  if (base === 'selection') return [...sel];
+  const z = [...sel].sort((a, b) => stack.indexOf(a) - stack.indexOf(b));
+  return base === 'back' ? z : z.reverse();
+}
+
 /**
  * Boolesche Verknüpfung. Das erste Objekt ist die Basis:
  * Vereinen verschmilzt alle, Abziehen entfernt alle weiteren von der Basis, Schnitt behält die gemeinsame Fläche.

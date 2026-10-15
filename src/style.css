@@ -564,6 +564,21 @@ dialog kbd {
   display: flex;
   gap: 10px;
 }
+.radios.column {
+  flex-direction: column;
+  gap: 4px;
+}
+.bool-dialog {
+  max-width: 460px;
+}
+.bool-dialog .form {
+  grid-template-columns: 120px 300px;
+  align-items: start;
+}
+.bool-dialog .form input {
+  width: auto;
+  justify-self: start;
+}
 .radios label {
   display: inline-flex;
   gap: 3px;
