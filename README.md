@@ -24,12 +24,13 @@ npm run tauri build    # Installationspaket
 - Text in Pfad umwandeln (Ctrl+Shift+C) mit den echten Schriftkonturen: in der Desktop-App aus den installierten Systemschriften, im Browser mit Roboto als Ersatz.
 - Boolesche Operationen: Vereinen, Abziehen (weitere Formen von der zuerst gewählten), Schnittmenge. Texte und Gruppen werden dabei automatisch als Konturen behandelt.
 - Offset (Alt+O) nach außen, innen oder beides, mit runden, spitzen oder abgeschrägten Ecken und Live-Vorschau. Offene Linien bekommen eine geschlossene Kontur.
+- Ergebnisse von Booleschen Operationen und Offset sind wieder Bézierpfade: Ecken und gerade Strecken bleiben erhalten, Rundungen werden mit höchstens 0,02 mm Abweichung als Kurven eingepasst.
 - Farbe ist der Layer: Klick auf eine Palettenfarbe ordnet die Auswahl zu. Layer-Tabelle mit Modus (Linie/Füllen), Speed, Leistung, Ausgabe, Sichtbarkeit und Schnellbearbeitung.
 - Projekt speichern und öffnen (`.lwk`, JSON), SVG-Export, automatisches Zwischenspeichern.
 
 ## Noch nicht enthalten
 
-Maschinenanbindung (FluidNC), G-Code, Vorschau, Bildgravur, Import (SVG/DXF), Text auf Pfad, Schweißen von Buchstaben, Kurvenrückführung nach Booleschen Operationen (Ergebnisse sind feine Polylinien, Toleranz 0,01 mm).
+Maschinenanbindung (FluidNC), G-Code, Vorschau, Bildgravur, Import (SVG/DXF), Text auf Pfad, Schweißen von Buchstaben.
 
 ## Aufbau
 
@@ -41,6 +42,7 @@ Maschinenanbindung (FluidNC), G-Code, Vorschau, Bildgravur, Import (SVG/DXF), Te
 | `src/ui.ts` | Menü, Leisten, Layer- und Laser-Panel, Palette, Statusleiste, Texteingabe |
 | `src/fonts.ts` | Schriftdateien laden (Systemschriften über Rust, Ersatzschrift) und Text in Bézierpfade umwandeln (opentype.js) |
 | `src/ops.ts` | Boolesche Operationen und Offset (Clipper) |
+| `src/fit.ts` | Kurvenrückführung: Linienzüge in Bézierpfade (Ecken erkennen, Schneider-Verfahren) |
 | `src/files.ts` | Öffnen/Speichern (Tauri-Dialoge oder Browser), SVG-Export |
 | `src-tauri/` | Rust-Hülle: native Dateidialoge, Liste und Dateien der Systemschriften (fontdb) |
 

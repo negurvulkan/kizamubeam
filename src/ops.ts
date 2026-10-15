@@ -3,11 +3,16 @@
 import ClipperLib from 'clipper-lib';
 import { apply, leaves, Mat, Obj, Pt, SubPath } from './model';
 import { bezierPt, segments, shapeSubs } from './geom';
+import { fitPolyline } from './fit';
 
 /** Clipper rechnet mit Ganzzahlen: 1 Einheit = 1 µm */
 const SCALE = 1000;
 /** Maximale Abweichung beim Zerlegen von Kurven in mm */
 const FLATTEN_TOL = 0.01;
+/** Größter Punktabstand beim Zerlegen von Kurven (mm); längere Strecken erkennt die Kurvenrückführung als Gerade */
+const FLATTEN_MAX_STEP = 1;
+/** Erlaubte Abweichung der eingepassten Bézierkurven vom Ergebnis (mm) */
+const FIT_TOL = 0.02;
 
 export type JoinStyle = 'round' | 'miter' | 'square';
 
@@ -33,7 +38,7 @@ function flattenSub(sp: SubPath, m: Mat): Path {
     // Anzahl Teilstücke aus der Länge des Kontrollpolygons (in Weltkoordinaten)
     const w = [s.a, s.c1, s.c2, s.b].map((p) => apply(m, p.x, p.y));
     const len = Math.hypot(w[1].x - w[0].x, w[1].y - w[0].y) + Math.hypot(w[2].x - w[1].x, w[2].y - w[1].y) + Math.hypot(w[3].x - w[2].x, w[3].y - w[2].y);
-    const n = Math.max(4, Math.min(512, Math.ceil(Math.sqrt(len / FLATTEN_TOL) * 0.6)));
+    const n = Math.max(4, Math.min(2048, Math.max(Math.ceil(Math.sqrt(len / FLATTEN_TOL) * 0.6), Math.ceil(len / FLATTEN_MAX_STEP))));
     for (let i = 1; i <= n; i++) push(bezierPt(s.a, s.c1, s.c2, s.b, i / n));
   }
   if (sp.closed && out.length > 1) {
@@ -75,7 +80,7 @@ function region(o: Obj): Paths {
 export function pathsToSubs(paths: Paths): SubPath[] {
   return Clipper.CleanPolygons(paths, 1)
     .filter((p) => p.length >= 3)
-    .map((p) => ({ closed: true, nodes: p.map((q) => ({ x: q.X / SCALE, y: q.Y / SCALE })) }));
+    .map((p) => fitPolyline(p.map((q) => ({ x: q.X / SCALE, y: q.Y / SCALE })), true, FIT_TOL));
 }
 
 export type BoolOp = 'union' | 'subtract' | 'intersect' | 'xor';
@@ -112,7 +117,7 @@ export function offsetOp(objs: Obj[], opt: OffsetOptions): SubPath[] {
   }
   // Bogentoleranz in µm
   const inflate = (paths: Paths, delta: number, end: ClipperLib.EndType) => {
-    const co = new ClipperOffset(4, FLATTEN_TOL * SCALE);
+    const co = new ClipperOffset(4, (FLATTEN_TOL / 4) * SCALE);
     co.AddPaths(paths, join, end);
     const out: Paths = [];
     co.Execute(out, delta);
