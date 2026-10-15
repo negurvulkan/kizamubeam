@@ -251,6 +251,8 @@ export interface Layer extends CutSettings {
   priority?: number;
   /** Einstellungen für die Bilder dieses Layers */
   img?: ImageLayer;
+  /** ID des Eintrags der Material-Bibliothek, aus dem die Einstellungen stammen */
+  material?: string;
 }
 
 /** Ältere Dateien kennen nicht alle Einstellungen: fehlende mit Standardwerten auffüllen */

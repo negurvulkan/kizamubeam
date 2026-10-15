@@ -201,11 +201,12 @@ export class Moves {
   s = new Float32Array(1024);
   /** Vorschub mm/min, 0 = Eilgang */
   f = new Float32Array(1024);
-  layer = new Int8Array(1024);
+  /** Layer-Index; Int16, weil der Materialtest bis zu 400 eigene Testlayer anlegt */
+  layer = new Int16Array(1024);
   constructor(public x0 = 0, public y0 = 0) {}
   push(x: number, y: number, f: number, s: number, layer: number) {
     if (this.n === this.x.length) {
-      const grow = <T extends Float64Array | Float32Array | Int8Array>(a: T): T => {
+      const grow = <T extends Float64Array | Float32Array | Int16Array>(a: T): T => {
         const b = new (a.constructor as new (n: number) => T)(a.length * 2);
         b.set(a);
         return b;

@@ -8,6 +8,8 @@ import {
   saveDevices, StartFrom, writeGCode,
 } from './gcode';
 import { isTauri, machine, PortInfo } from './machine';
+import type { Doc, ImageLayer, Layer } from './model';
+import { materialTab } from './materialui';
 
 const store = loadDevices();
 /** Das gewählte Gerät (live gebunden: wechselt mit der Auswahl) */
@@ -47,14 +49,28 @@ let notify: (msg: string, error?: boolean) => void = (m) => machine.log(m);
 
 // ---------- Job ----------
 
-async function makeJob(ed: Editor, forPreview: boolean): Promise<Job> {
+/**
+ * Woher ein Job kommt: normalerweise das Dokument im Editor, beim Materialtest ein eigenes Testdokument
+ * mit eigenen Layern, das nie auf der Arbeitsfläche erscheint.
+ */
+export interface JobSource {
+  doc: Doc;
+  layer: (i: number) => Layer;
+  imgLayer: (i: number) => ImageLayer;
+  /** Name in der G-Code-Datei und Vorschlag für den Dateinamen */
+  name: string;
+  /** Farbe je Layer in der Vorschau */
+  color: (i: number) => string;
+}
+
+async function makeJob(ed: Editor, forPreview: boolean, src?: JobSource): Promise<Job> {
   const pos = machine.status.wpos;
   return buildJob({
-    doc: ed.doc,
-    layer: (i) => ed.layer(i),
-    imgLayer: (i) => ed.imgLayer(i),
+    doc: src?.doc ?? ed.doc,
+    layer: src?.layer ?? ((i) => ed.layer(i)),
+    imgLayer: src?.imgLayer ?? ((i) => ed.imgLayer(i)),
     device,
-    only: device.cutSelected ? ed.sel : null,
+    only: !src && device.cutSelected ? ed.sel : null,
     position: pos ? { x: pos[0], y: pos[1] } : null,
     forPreview,
   });
@@ -100,32 +116,32 @@ function canRun(): boolean {
   return true;
 }
 
-export async function startJob(ed: Editor) {
+export async function startJob(ed: Editor, src?: JobSource) {
   if (!canRun()) return;
-  const job = await makeJob(ed, false);
+  const job = await makeJob(ed, false, src);
   if (nothingToDo(job) || !boundsOk(ed, job)) return;
   job.warnings.forEach((w) => notify(w));
   const est = estimate(job.moves, device);
-  const g = writeGCode(job, device, est);
+  const g = writeGCode(job, device, est, src?.name);
   notify(`Job gestartet, geschätzt ${formatDuration(est.total)}.`);
   await machine.runJob(g.lines, g.times);
 }
 
-export async function frameJob(ed: Editor, contour: boolean) {
+export async function frameJob(ed: Editor, contour: boolean, src?: JobSource) {
   if (!canRun()) return;
-  const job = await makeJob(ed, false);
+  const job = await makeJob(ed, false, src);
   const lines = frameGCode(job, device, contour);
   if (!lines) return void nothingToDo(job);
   if (!boundsOk(ed, job)) return;
   await machine.runJob(lines, null, true);
 }
 
-export async function saveGCode(ed: Editor) {
-  const job = await makeJob(ed, false);
+export async function saveGCode(ed: Editor, src?: JobSource) {
+  const job = await makeJob(ed, false, src);
   if (nothingToDo(job)) return;
   if (device.startFrom === 'current') notify('Hinweis: Die Datei enthält die aktuelle Laserposition als Startpunkt.');
-  const g = writeGCode(job, device, estimate(job.moves, device));
-  await saveText('projekt.gcode', 'G-Code', 'gcode', 'text/plain', g.lines.join('\n') + '\n');
+  const g = writeGCode(job, device, estimate(job.moves, device), src?.name);
+  await saveText(src ? `${src.name.toLowerCase().replace(/[^a-z0-9äöüß]+/g, '-')}.gcode` : 'projekt.gcode', 'G-Code', 'gcode', 'text/plain', g.lines.join('\n') + '\n');
 }
 
 // ---------- Laser-Panel ----------
@@ -139,6 +155,7 @@ export function buildLaser(ed: Editor) {
     ['Laser', laserTab(ed)],
     ['Verschieben', moveTab(ed)],
     ['Konsole', consoleTab()],
+    ['Material', materialTab(ed)],
   ];
   title.textContent = '';
   title.classList.add('tabs');
@@ -668,8 +685,8 @@ export function openDevicesDialog(ed: Editor) {
 
 // ---------- Vorschau ----------
 
-export async function openPreview(ed: Editor) {
-  const job = await makeJob(ed, true);
+export async function openPreview(ed: Editor, src?: JobSource) {
+  const job = await makeJob(ed, true, src);
   if (nothingToDo(job)) return;
   const est = estimate(job.moves, device);
   const mv = job.moves;
@@ -705,7 +722,7 @@ export async function openPreview(ed: Editor) {
         warn,
         h('div', { class: 'note' }, 'Mausrad zoomt, Ziehen verschiebt, Doppelklick passt ein. Die Zeit ist eine Schätzung aus Eilgang und Beschleunigung in den Geräteeinstellungen.'),
         h('div', { class: 'dialog-buttons' },
-          h('button', { class: 'btn', onclick: () => saveGCode(ed) }, 'G-Code speichern'),
+          h('button', { class: 'btn', onclick: () => saveGCode(ed, src) }, 'G-Code speichern'),
           h('button', { class: 'btn primary', onclick: () => dlg.close() }, 'Schließen'),
         ),
       ),
@@ -743,7 +760,7 @@ export async function openPreview(ed: Editor) {
   const css = getComputedStyle(document.documentElement);
   const bedColor = css.getPropertyValue('--surface').trim() || '#fff';
   const lineColor = css.getPropertyValue('--line').trim() || '#ccc';
-  const colorOf = (layer: number) => (layer < 0 ? '#888' : ed.layerDrawColor(layer));
+  const colorOf = (layer: number) => (layer < 0 ? '#888' : src ? src.color(layer) : ed.layerDrawColor(layer));
 
   // Schattierung relativ zur höchsten Leistung des Layers, damit Graustufenbilder auch bei wenig Leistung lesbar sind
   const maxS = new Map<number, number>();
