@@ -166,9 +166,24 @@ export interface Obj {
 
 export type LayerMode = 'line' | 'fill';
 
-export interface Layer {
-  index: number;
-  name: string;
+/** Haltestege (Tabs/Brücken): kurze Stellen, an denen der Laser aus ist, damit Teile nicht herausfallen */
+export interface TabSettings {
+  enabled: boolean;
+  /** Länge eines Stegs in mm */
+  size: number;
+  /** true: feste Anzahl je Form, false: Abstand in mm */
+  useCount: boolean;
+  count: number;
+  spacing: number;
+  /** Formen, die in anderen Formen liegen (Löcher), bekommen keine Stege */
+  skipInner: boolean;
+}
+
+/**
+ * Bearbeitungseinstellungen eines Layers (wie im Cut Settings Editor von LightBurn).
+ * Alles, was eine Material-Bibliothek speichern und wieder auf einen Layer anwenden kann.
+ */
+export interface CutSettings {
   mode: LayerMode;
   /** mm/min */
   speed: number;
@@ -176,14 +191,75 @@ export interface Layer {
   power: number;
   minPower: number;
   passes: number;
-  /** Zeilenabstand bei Fill in mm */
+  /** Air Assist während dieses Layers einschalten (M8/M7, aus mit M9) */
+  air: boolean;
+  /** Kerf-Versatz in mm: positiv = Außenkonturen nach außen, Löcher nach innen */
+  kerf: number;
+  /** Nur Linie: Haltestege */
+  tabs: TabSettings;
+  /** Füllen: Zeilenabstand in mm */
   interval: number;
+  /** Füllen: Scanwinkel in Grad (0 = waagerecht) */
+  angle: number;
+  /** Füllen: zweiter Durchgang um 90° gedreht */
+  crossHatch: boolean;
+  /** Füllen: in beide Richtungen lasern */
+  bidirectional: boolean;
+  /** Füllen: Überfahrweg in % der Geschwindigkeit */
+  overscan: number;
+}
+
+export const CUT_KEYS: (keyof CutSettings)[] = [
+  'mode', 'speed', 'power', 'minPower', 'passes', 'air', 'kerf', 'tabs', 'interval', 'angle', 'crossHatch', 'bidirectional', 'overscan',
+];
+
+export function defaultTabs(): TabSettings {
+  return { enabled: false, size: 0.5, useCount: true, count: 4, spacing: 50, skipInner: true };
+}
+
+export function defaultCutSettings(mode: LayerMode = 'line'): CutSettings {
+  return {
+    mode,
+    speed: mode === 'fill' ? 3000 : 600,
+    power: mode === 'fill' ? 30 : 80,
+    minPower: 0,
+    passes: 1,
+    air: false,
+    kerf: 0,
+    tabs: defaultTabs(),
+    interval: 0.1,
+    angle: 0,
+    crossHatch: false,
+    bidirectional: true,
+    overscan: 2.5,
+  };
+}
+
+/** Bearbeitungseinstellungen eines Layers als eigenständige Kopie (z. B. für die Material-Bibliothek) */
+export function cutSettings(L: CutSettings): CutSettings {
+  const out = {} as Record<string, unknown>;
+  for (const k of CUT_KEYS) out[k] = structuredClone(L[k]);
+  return out as unknown as CutSettings;
+}
+
+export interface Layer extends CutSettings {
+  index: number;
+  name: string;
   output: boolean;
   show: boolean;
   /** Ausgabereihenfolge (kleiner = früher) */
   priority?: number;
   /** Einstellungen für die Bilder dieses Layers */
   img?: ImageLayer;
+}
+
+/** Ältere Dateien kennen nicht alle Einstellungen: fehlende mit Standardwerten auffüllen */
+export function normalizeLayer(L: Layer): Layer {
+  if (L.tabs && L.overscan !== undefined) return L;
+  const d = defaultCutSettings(L.mode);
+  for (const k of CUT_KEYS) if (L[k] === undefined) (L as unknown as Record<string, unknown>)[k] = d[k];
+  L.tabs = { ...defaultTabs(), ...L.tabs };
+  return L;
 }
 
 export interface Doc {
@@ -207,14 +283,9 @@ export const layerLabel = (i: number) => (i >= 30 ? `T${i - 29}` : String(i).pad
 
 export function defaultLayer(index: number): Layer {
   return {
+    ...defaultCutSettings(index === 0 ? 'fill' : 'line'),
     index,
     name: `C${layerLabel(index)}`,
-    mode: index === 0 ? 'fill' : 'line',
-    speed: index === 0 ? 3000 : 600,
-    power: index === 0 ? 30 : 80,
-    minPower: 0,
-    passes: 1,
-    interval: 0.1,
     output: index < 30,
     show: true,
   };

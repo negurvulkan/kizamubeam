@@ -529,6 +529,11 @@ export function openDeviceDialog(ed: Editor, target: Device = device, onDone?: (
   num('Geschwindigkeit (mm/min)', () => d.frameSpeed, (v) => (d.frameSpeed = v));
   bool('Mit Laser (schwach)', () => d.frameLaser, (v) => (d.frameLaser = v), 'Rahmen mit niedriger Leistung sichtbar machen');
   num('Leistung (%)', () => d.framePower, (v) => (d.framePower = Math.min(100, v)));
+  head('Air Assist');
+  rows.push(h('label', { title: 'Wird auf Layern mit „Air Assist“ vor dem Lasern gesendet, ausgeschaltet wird mit M9' }, 'Einschalten mit'), h('select', { onchange: (e: Event) => (d.airCmd = (e.target as HTMLSelectElement).value as Device['airCmd']) },
+    h('option', { value: 'M8', selected: d.airCmd !== 'M7' }, 'M8 (Flood, üblich)'),
+    h('option', { value: 'M7', selected: d.airCmd === 'M7' }, 'M7 (Mist)'),
+  ));
   const readNote = h('div', { class: 'note' });
   // Lesen nur vom verbundenen Gerät und nur bei FluidNC und GRBL-artigen Steuerungen
   const canRead = () => isCurrent && machine.connected && !machine.busy && FIRMWARES[d.fw].read !== null;

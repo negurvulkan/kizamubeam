@@ -198,8 +198,8 @@ impl<P: Read + Write, E: Events> Streamer<P, E> {
                     std::thread::sleep(Duration::from_millis(300));
                     self.write(&[0x18])?;
                 } else {
-                    // Marlin: Schnellstopp (M410) und Laser aus; die Antworten darauf werden nicht gezählt
-                    self.write(b"M410\nM5\n")?;
+                    // Marlin: Schnellstopp (M410), Laser und Air Assist aus; die Antworten darauf werden nicht gezählt
+                    self.write(b"M410\nM5\nM9\n")?;
                 }
                 self.paused = false;
                 self.queue.clear();

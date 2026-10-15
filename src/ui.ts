@@ -8,6 +8,7 @@ import { systemFonts } from './fonts';
 import { $, evalExpr, f2, h, iconBtn, numInput, sep, setVal } from './dom';
 import { openCircularArrayDialog, openGridArrayDialog } from './arrayDialogs';
 import { buildLaser, frameJob, openDeviceDialog, openDevicesDialog, openPreview, saveGCode, startJob } from './laser';
+import { openLayerDialog } from './layerdialog';
 
 const FONT_CANDIDATES = [
   'Arial', 'Helvetica', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Segoe UI', 'Calibri', 'Times New Roman', 'Georgia',
@@ -653,7 +654,7 @@ function buildLayers(ed: Editor) {
     const table = h(
       'table',
       { class: 'layers' },
-      h('tr', {}, ...['Nr.', 'Layer', 'Modus', 'Speed', 'Leist.', 'Aus', 'Zeig.'].map((t) => h('th', {}, t))),
+      h('tr', {}, ...['Nr.', 'Layer', 'Modus', 'Speed', 'Leist.', 'Air', 'Aus', 'Zeig.'].map((t) => h('th', {}, t))),
     );
     const partsOf = new Map(used.map((i) => [i, ed.layerParts(i)]));
     const ap = partsOf.get(ed.activeLayer!)!;
@@ -676,14 +677,16 @@ function buildLayers(ed: Editor) {
             );
         const out = h('input', { type: 'checkbox', checked: L.output, onchange: (e: Event) => ed.updateLayer(i, { output: (e.target as HTMLInputElement).checked }) });
         const show = h('input', { type: 'checkbox', checked: L.show, onchange: (e: Event) => ed.updateLayer(i, { show: (e.target as HTMLInputElement).checked }) });
+        const air = h('input', { type: 'checkbox', checked: L.air, title: 'Air Assist', onchange: (e: Event) => ed.updateLayer(i, { air: (e.target as HTMLInputElement).checked }) });
         const row = h(
           'tr',
-          { class: ed.activeLayer === i && part === p ? 'active' : '', title: 'Doppelklick: alle Formen dieses Layers auswählen' },
+          { class: ed.activeLayer === i && part === p ? 'active' : '', title: isImg ? 'Doppelklick: Bild anpassen' : 'Doppelklick: Layer-Einstellungen' },
           h('td', {}, h('span', { class: 'swatch', style: `background:${PALETTE[i]}` }, layerLabel(i))),
           h('td', {}, L.name),
           h('td', {}, mode),
           h('td', {}, String(IL ? IL.speed : L.speed)),
           h('td', {}, `${IL ? IL.power : L.power}%`),
+          h('td', {}, air),
           h('td', {}, out),
           h('td', {}, show),
         );
@@ -695,7 +698,12 @@ function buildLayers(ed: Editor) {
           render();
           ed.emit('tool');
         });
-        row.addEventListener('dblclick', () => ed.selectLayer(i));
+        // Wie in LightBurn: Doppelklick öffnet die Einstellungen
+        row.addEventListener('dblclick', (e) => {
+          if ((e.target as HTMLElement).closest('select,input')) return;
+          if (isImg) openAdjustDialog(ed, i);
+          else openLayerDialog(ed, i);
+        });
         table.append(row);
       }
     }
@@ -708,6 +716,7 @@ function buildLayers(ed: Editor) {
         h('button', { title: 'Nach oben (früher ausgeben)', onclick: () => ed.moveLayer(a, -1), html: '▲' }),
         h('button', { title: 'Nach unten (später ausgeben)', onclick: () => ed.moveLayer(a, 1), html: '▼' }),
         h('button', { onclick: () => ed.selectLayer(a) }, 'Formen auswählen'),
+        part === 'vec' ? h('button', { title: 'Alle Einstellungen dieses Layers (Doppelklick auf den Layer)', onclick: () => openLayerDialog(ed, a) }, 'Einstellungen …') : null,
       ),
     );
     const L = ed.layer(a);
@@ -735,7 +744,12 @@ function buildLayers(ed: Editor) {
         h('label', {}, 'Min. Leistung (%)'), num('minPower', 0, 100),
         h('label', {}, 'Durchgänge'), num('passes', 1, 100, true),
         ...(L.mode === 'fill' ? [h('label', {}, 'Zeilenabstand (mm)'), num('interval', 0.01, 5)] : []),
+        h('span', { class: 'checks' },
+          h('label', { class: 'check', title: 'Luftunterstützung während dieses Layers (M8/M7, aus mit M9)' },
+            h('input', { type: 'checkbox', checked: L.air, onchange: (e: Event) => ed.updateLayer(a, { air: (e.target as HTMLInputElement).checked }) }), 'Air Assist'),
+        ),
       ),
+      h('div', { class: 'note' }, layerSummary(L)),
     );
   };
   ed.on((w) => (w === 'doc' || w === 'sel') && schedule());
@@ -751,6 +765,19 @@ function buildLayers(ed: Editor) {
   };
   root.addEventListener('focusout', () => setTimeout(schedule, 0));
   render();
+}
+
+/** Kurzfassung der weiteren Einstellungen aus dem Layer-Dialog */
+function layerSummary(L: Layer): string {
+  const parts: string[] = [];
+  if (L.kerf) parts.push(`Kerf ${fmtNum(L.kerf)} mm`);
+  if (L.mode === 'line' && L.tabs.enabled) parts.push(L.tabs.useCount ? `${L.tabs.count} Stege je Form` : `Stege alle ${fmtNum(L.tabs.spacing)} mm`);
+  if (L.mode === 'fill') {
+    if (L.angle) parts.push(`Winkel ${fmtNum(L.angle)}°`);
+    if (L.crossHatch) parts.push('Kreuzschraffur');
+    if (!L.bidirectional) parts.push('nur eine Richtung');
+  }
+  return parts.length ? `Außerdem: ${parts.join(', ')}.` : 'Kerf, Haltestege, Scanwinkel und mehr: Doppelklick auf den Layer.';
 }
 
 /** Felder für die Bild-Einstellungen eines Layers (auch im Dialog „Bild anpassen“ verwendet) */
