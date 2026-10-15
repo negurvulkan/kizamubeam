@@ -2882,7 +2882,7 @@ export const TOOL_HINTS: Record<Tool, string> = {
   ellipse: 'Ziehen zum Zeichnen. Shift: Kreis, Ctrl: von der Mitte.',
   polygon: 'Von der Mitte aus ziehen. Shift: nicht drehen.',
   text: 'Klicken, um Text zu setzen, oder vorhandenen Text anklicken.',
-  joint: 'Verbindung: erste gerade Kante anklicken (Zinken bzw. Zapfen). Esc hebt die Wahl auf.',
+  joint: 'Verbindung: erste gerade Kante anklicken (Zinken, Zapfen oder Schlitze). Esc hebt die Wahl auf.',
 };
 
 const JOINT_HINT_SECOND =

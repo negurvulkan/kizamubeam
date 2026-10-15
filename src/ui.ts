@@ -147,7 +147,7 @@ function buildMenu(ed: Editor) {
       ['Offset …', 'Alt+O', () => openOffsetDialog(ed)],
       ['Rasterarray …', 'Ctrl+Shift+A', () => openGridArrayDialog(ed)],
       ['Kreisarray …', '', () => openCircularArrayDialog(ed)],
-      ['Verbindung (Fingerzinken, Zapfen) …', '', () => ed.setTool('joint')],
+      ['Verbindung (Zinken, Zapfen, Überblattung) …', '', () => ed.setTool('joint')],
       'sep',
       ['Bild anpassen …', '', () => openAdjustDialog(ed)],
       ['Bild nachzeichnen …', 'Alt+T', () => openTraceDialog(ed)],
@@ -569,7 +569,7 @@ function buildTools(ed: Editor) {
     iconBtn('gridArray', 'Rasterarray: Auswahl in Spalten und Zeilen kopieren (Ctrl+Shift+A)', () => openGridArrayDialog(ed)),
     iconBtn('circArray', 'Kreisarray: Auswahl im Kreis um einen Mittelpunkt kopieren', () => openCircularArrayDialog(ed)),
   ];
-  const joint = iconBtn('joint', 'Verbindung: Fingerzinken oder Schlitz und Zapfen auf gerade Kanten anwenden', () => ed.setTool('joint'));
+  const joint = iconBtn('joint', 'Verbindung: Fingerzinken, Schlitz und Zapfen oder Überblattung auf gerade Kanten anwenden', () => ed.setTool('joint'));
   joint.dataset.tool = 'joint';
   btns.set('joint', joint);
   bar.append(...mods, boolOpts, off, ...arrays, joint);

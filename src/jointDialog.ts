@@ -39,13 +39,13 @@ export function openJointDialog(ed: Editor) {
   if (L.kerf) notes.push('Der Layer hat schon einen Kerf-Versatz: Kerf hier auf 0 lassen, sonst wird doppelt ausgeglichen.');
 
   const info = h('div', { class: 'note' }, ' ');
-  const rows: Record<JointKind, HTMLElement[]> = { finger: [], tenon: [] };
+  const rows: Record<JointKind, HTMLElement[]> = { finger: [], tenon: [], lap: [] };
   const row = (kind: JointKind, ...els: HTMLElement[]) => (rows[kind].push(...els), els);
   let applied = false;
 
   const preview = () => {
     if (!dlg.open) return;
-    for (const k of ['finger', 'tenon'] as JointKind[]) rows[k].forEach((el) => (el.hidden = st.kind !== k));
+    for (const k of ['finger', 'tenon', 'lap'] as JointKind[]) rows[k].forEach((el) => (el.hidden = st.kind !== k));
     const r = computeJoint(picks, st);
     info.textContent = r.error ?? `${r.info}. Orange gestrichelt: Vorschau.`;
     info.classList.toggle('error', !!r.error);
@@ -55,7 +55,7 @@ export function openJointDialog(ed: Editor) {
   const second = picks.length > 1;
   const body = [
     h('label', { for: 'joint-kind' }, 'Art'),
-    select('joint-kind', st.kind, [['finger', 'Fingerzinken'], ['tenon', 'Schlitz und Zapfen']], (v) => (st.kind = v)),
+    select('joint-kind', st.kind, [['finger', 'Fingerzinken'], ['tenon', 'Schlitz und Zapfen'], ['lap', 'Überblattung (Kreuzverbindung)']], (v) => (st.kind = v)),
     h('label', { for: 'joint-t' }, 'Materialdicke (mm)'),
     numField('joint-t', st.thickness, (v) => (st.thickness = v), 'Tiefe der Zinken und Zapfen, Breite der Schlitze'),
     ...row('finger',
@@ -72,6 +72,12 @@ export function openJointDialog(ed: Editor) {
       h('label', { for: 'joint-off' }, 'Schlitzmitte ab Linie (mm)'),
       numField('joint-off', st.slotOffset, (v) => (st.slotOffset = v), 'Bei einer Kante: Abstand nach innen. Bei einer einzelnen Hilfslinie: 0 = Schlitze mittig auf der Linie'),
     ),
+    ...row('lap',
+      h('label', { for: 'joint-ln' }, 'Schlitze je Kante'),
+      numField('joint-ln', st.lapCount, (v) => (st.lapCount = Math.max(1, Math.round(v))), 'Teilen die Kante in gleiche Fächer, z. B. 3 Schlitze = 4 Fächer'),
+      h('label', { for: 'joint-ld' }, 'Tiefe Kante 1 (%)'),
+      numField('joint-ld', st.lapDepth, (v) => (st.lapDepth = v), 'Anteil der Plattenbreite; Kante 2 wird um den Rest geschlitzt (50 % = beide zur Hälfte)'),
+    ),
     h('label', { for: 'joint-kerf' }, 'Kerf (mm)'),
     numField('joint-kerf', st.kerf, (v) => (st.kerf = Math.max(0, v)), 'Schnittbreite des Lasers: Zinken/Zapfen werden breiter, Lücken/Schlitze schmaler gezeichnet'),
     h('label', { for: 'joint-clear' }, 'Spiel (mm)'),
@@ -79,8 +85,8 @@ export function openJointDialog(ed: Editor) {
     ...row('finger', h('span', { class: 'checks' }, check(st.swap, (v) => (st.swap = v), 'Zinken und Lücken tauschen'))),
   ];
   const howto = second
-    ? 'Kante 1 bekommt die Zinken bzw. Zapfen, Kante 2 das Gegenstück bzw. die Schlitze. Eine einzelne gezeichnete Linie wird durch die Schlitze ersetzt.'
-    : 'Nur eine Kante gewählt: Zinken bzw. Zapfen ohne Gegenstück.';
+    ? 'Kante 1 bekommt die Zinken, Zapfen bzw. Überblattungs-Schlitze, Kante 2 das Gegenstück. Für Schlitz und Zapfen wird eine einzelne gezeichnete Linie durch die Schlitze ersetzt.'
+    : 'Nur eine Kante gewählt: Zinken, Zapfen bzw. Schlitze ohne Gegenstück.';
 
   const dlg = h(
     'dialog',

@@ -1,4 +1,4 @@
-// Holzverbindungen für gelaserte Bauteile: Fingerzinken sowie Schlitz und Zapfen.
+// Holzverbindungen für gelaserte Bauteile: Fingerzinken, Schlitz und Zapfen sowie Überblattung.
 // Eine Verbindung wird auf gerade Kanten vorhandener Formen angewendet. Die Kante wird durch das Zinken- bzw.
 // Zapfenprofil ersetzt, Schlitze kommen als geschlossene Unterpfade hinzu. Alles bleibt ein normaler Pfad mit
 // geraden Segmenten (exakte Ecken, keine Näherung) und lässt sich danach im Knoteneditor weiter bearbeiten.
@@ -8,7 +8,7 @@ import { Mat, Obj, Pt, SubPath } from './model';
 import { bezierPt, segments, shapeSubs } from './geom';
 import { transformSubs } from './importers';
 
-export type JointKind = 'finger' | 'tenon';
+export type JointKind = 'finger' | 'tenon' | 'lap';
 
 export interface JointOptions {
   kind: JointKind;
@@ -25,6 +25,10 @@ export interface JointOptions {
   tenonWidth: number;
   /** Schlitz und Zapfen: Abstand der Schlitzmitte von der gewählten Linie (bei Kanten geschlossener Formen nach innen) */
   slotOffset: number;
+  /** Überblattung: Anzahl der Schlitze je Kante (gleichmäßig verteilt, wie bei Rastereinsätzen) */
+  lapCount: number;
+  /** Überblattung: Schlitztiefe der ersten Kante in % der Plattenbreite; die zweite Kante bekommt den Rest */
+  lapDepth: number;
   /** Schnittbreite des Lasers in mm: Zinken/Zapfen werden um so viel breiter, Lücken/Schlitze schmaler gezeichnet */
   kerf: number;
   /** Spiel in mm: positiv = lockerer, negativ = strammer (Press-Fit) */
@@ -33,7 +37,7 @@ export interface JointOptions {
 
 export const DEFAULT_JOINT: JointOptions = {
   kind: 'finger', thickness: 3, fingerWidth: 10, direction: 'in', swap: false,
-  tenonCount: 2, tenonWidth: 15, slotOffset: 0, kerf: 0, clearance: 0,
+  tenonCount: 2, tenonWidth: 15, slotOffset: 0, lapCount: 1, lapDepth: 50, kerf: 0, clearance: 0,
 };
 
 /** Gewählte gerade Kante: Blatt-Objekt, seine Weltmatrix und das Segment in shapeSubs(obj.shape) */
@@ -74,16 +78,24 @@ export function isStraight(o: Obj, sub: number, seg: number): boolean {
   return !!s && !s.curve && Math.hypot(s.b.x - s.a.x, s.b.y - s.a.y) > 1e-6;
 }
 
-/** Punkt in der Fläche der geschlossenen Unterpfade (Gerade-Ungerade-Regel, Kurven fein abgetastet)? */
+/** Geschlossene Unterpfade als Polygone (Kurven fein abgetastet) */
+function polygons(subs: SubPath[]): Pt[][] {
+  return subs
+    .filter((sp) => sp.closed)
+    .map((sp) => {
+      const pts: Pt[] = [];
+      for (const s of segments(sp)) {
+        if (!s.curve) pts.push(s.a);
+        else for (let i = 0; i < 16; i++) pts.push(bezierPt(s.a, s.c1, s.c2, s.b, i / 16));
+      }
+      return pts;
+    });
+}
+
+/** Punkt in der Fläche der geschlossenen Unterpfade (Gerade-Ungerade-Regel)? */
 function insideSubs(subs: SubPath[], p: Pt): boolean {
   let inside = false;
-  for (const sp of subs) {
-    if (!sp.closed) continue;
-    const pts: Pt[] = [];
-    for (const s of segments(sp)) {
-      if (!s.curve) pts.push(s.a);
-      else for (let i = 0; i < 16; i++) pts.push(bezierPt(s.a, s.c1, s.c2, s.b, i / 16));
-    }
+  for (const pts of polygons(subs)) {
     for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
       const a = pts[i],
         b = pts[j];
@@ -107,6 +119,25 @@ function edgeGeom(pick: EdgePick, subs: SubPath[]): EdgeGeom {
     if (insideSubs(subs, probe)) out = { x: -out.x, y: -out.y };
   }
   return { a, b, len, dir, out, closed: sp.closed };
+}
+
+/** Abstand von p in Richtung d bis zur nächsten Kontur (Infinity, wenn keine getroffen wird) */
+function rayDistance(subs: SubPath[], p: Pt, d: Pt): number {
+  let best = Infinity;
+  for (const pts of polygons(subs)) {
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const a = pts[j],
+        e = { x: pts[i].x - a.x, y: pts[i].y - a.y };
+      const den = d.x * e.y - d.y * e.x;
+      if (Math.abs(den) < 1e-12) continue;
+      const wx = a.x - p.x,
+        wy = a.y - p.y;
+      const t = (wx * e.y - wy * e.x) / den,
+        u = (wx * d.y - wy * d.x) / den;
+      if (t > 1e-6 && u >= 0 && u <= 1) best = Math.min(best, t);
+    }
+  }
+  return best;
 }
 
 /** Punkt im Kantensystem (u entlang der Kante ab a, v nach außen) in Weltkoordinaten */
@@ -140,6 +171,9 @@ export function fingerProfile(len: number, pattern: number, n: number, phase: 0 
   if (level(n - 1) !== 0) pts.push({ x: len, y: level(n - 1) });
   return pts;
 }
+
+/** Mitten von n Überblattungs-Schlitzen: teilen die Kante in n + 1 gleiche Abschnitte (Fächer eines Rastereinsatzes) */
+export const lapCenters = (len: number, n: number) => Array.from({ length: n }, (_, i) => (len * (i + 1)) / (n + 1));
 
 /** Mitten von n gleichmäßig verteilten Zapfen auf einer Kante der Länge len */
 export const tenonCenters = (len: number, n: number) => Array.from({ length: n }, (_, i) => (len * (2 * i + 1)) / (2 * n));
@@ -184,6 +218,33 @@ export function computeJoint(picks: EdgePick[], o: JointOptions): JointResult {
     info = `${n} Felder à ${fmt(w)} mm`;
     if (geoms.length > 1 && Math.abs(geoms[0].len - geoms[1].len) > 0.01)
       info += `. Kanten unterschiedlich lang (${fmt(geoms[0].len)} / ${fmt(geoms[1].len)} mm): Muster liegt mittig auf ${fmt(pattern)} mm`;
+  } else if (o.kind === 'lap') {
+    const n = Math.max(1, Math.round(o.lapCount));
+    const sw = t - adj;
+    if (sw <= 0) return fail('Schlitze zu schmal für Kerf und Spiel.');
+    const frac = Math.max(1, Math.min(99, o.lapDepth)) / 100;
+    const depths: number[] = [];
+    for (let i = 0; i < geoms.length; i++) {
+      const g = geoms[i];
+      if (!g.closed) return fail('Überblattung braucht Kanten geschlossener Formen.');
+      const centers = lapCenters(g.len, n);
+      if (g.len / (n + 1) <= sw) return fail('Zu viele Schlitze für die Kantenlänge.');
+      const inward = { x: -g.out.x, y: -g.out.y };
+      const subs = changes.get(picks[i].obj)!.subs;
+      const pts: Pt[] = [];
+      let minDepth = Infinity;
+      for (const c of centers) {
+        // Plattenbreite an dieser Stelle: von der Kante bis zur gegenüberliegenden Kontur
+        const width = rayDistance(subs, at(g, c, -1e-4), inward);
+        if (!isFinite(width)) return fail('Gegenüberliegende Kante nicht gefunden.');
+        const d = width * (i === 0 ? frac : 1 - frac);
+        minDepth = Math.min(minDepth, d);
+        pts.push(at(g, c - sw / 2, 0), at(g, c - sw / 2, -d), at(g, c + sw / 2, -d), at(g, c + sw / 2, 0));
+      }
+      depths.push(minDepth);
+      edits.push({ pick: picks[i], pts });
+    }
+    info = `${n} Schlitz${n > 1 ? 'e' : ''} je Kante, ${fmt(sw)} mm breit, ${depths.map((d) => `${fmt(d)} mm`).join(' / ')} tief`;
   } else {
     const g = geoms[0];
     const n = Math.max(1, Math.round(o.tenonCount));
