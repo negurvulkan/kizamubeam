@@ -1307,6 +1307,11 @@ export class Editor {
       obj.shape = { kind: 'path', subs: transformSubs(subs, inv(m)) };
       invalidate(obj.shape);
     }
+    if (r.added.length) {
+      // Neue Teile (Keile) auf dem Layer der ersten Kante
+      const first = this.jointPicks[0]?.obj;
+      this.doc.objs.push({ id: newId(), m: IDENT, layer: first?.layer ?? this.currentLayer, shape: { kind: 'path', subs: r.added } });
+    }
     this.jointPicks = [];
     this.hint = `Verbindung angelegt: ${r.info}.`;
     this.emit('doc');

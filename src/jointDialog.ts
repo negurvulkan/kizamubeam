@@ -39,26 +39,26 @@ export function openJointDialog(ed: Editor) {
   if (L.kerf) notes.push('Der Layer hat schon einen Kerf-Versatz: Kerf hier auf 0 lassen, sonst wird doppelt ausgeglichen.');
 
   const info = h('div', { class: 'note' }, ' ');
-  const rows: Record<JointKind | 'tenons', HTMLElement[]> = { finger: [], tenon: [], lap: [], snap: [], hook: [], tenons: [] };
+  const rows: Record<JointKind | 'tenons', HTMLElement[]> = { finger: [], tenon: [], lap: [], snap: [], hook: [], wedge: [], tslot: [], tenons: [] };
   const row = (kind: JointKind | 'tenons', ...els: HTMLElement[]) => (rows[kind].push(...els), els);
   /** Alle Arten mit Zapfen und Schlitzen */
-  const tenonKinds: JointKind[] = ['tenon', 'snap', 'hook'];
+  const tenonKinds: JointKind[] = ['tenon', 'snap', 'hook', 'wedge', 'tslot'];
   let applied = false;
 
   const preview = () => {
     if (!dlg.open) return;
-    for (const k of ['finger', 'tenon', 'lap', 'snap', 'hook'] as JointKind[]) rows[k].forEach((el) => (el.hidden = st.kind !== k));
+    for (const k of ['finger', 'tenon', 'lap', 'snap', 'hook', 'wedge', 'tslot'] as JointKind[]) rows[k].forEach((el) => (el.hidden = st.kind !== k));
     rows.tenons.forEach((el) => (el.hidden = !tenonKinds.includes(st.kind)));
     const r = computeJoint(picks, st);
     info.textContent = r.error ?? `${r.info}. Orange gestrichelt: Vorschau.`;
     info.classList.toggle('error', !!r.error);
-    ed.setJointPreview(r.error ? null : [...r.changes.values()].flatMap((c) => c.subs));
+    ed.setJointPreview(r.error ? null : [...[...r.changes.values()].flatMap((c) => c.subs), ...r.added]);
   };
 
   const second = picks.length > 1;
   const body = [
     h('label', { for: 'joint-kind' }, 'Art'),
-    select('joint-kind', st.kind, [['finger', 'Fingerzinken'], ['tenon', 'Schlitz und Zapfen'], ['lap', 'Überblattung (Kreuzverbindung)'], ['snap', 'Schnappverbindung'], ['hook', 'Hakenverbindung']], (v) => (st.kind = v)),
+    select('joint-kind', st.kind, [['finger', 'Fingerzinken'], ['tenon', 'Schlitz und Zapfen'], ['lap', 'Überblattung (Kreuzverbindung)'], ['snap', 'Schnappverbindung'], ['hook', 'Hakenverbindung'], ['wedge', 'Keilzapfen'], ['tslot', 'T-Slot mit Mutter']], (v) => (st.kind = v)),
     h('label', { for: 'joint-t' }, 'Materialdicke (mm)'),
     numField('joint-t', st.thickness, (v) => (st.thickness = v), 'Tiefe der Zinken und Zapfen, Breite der Schlitze'),
     ...row('finger',
@@ -86,6 +86,22 @@ export function openJointDialog(ed: Editor) {
     ...row('hook',
       h('label', { for: 'joint-hl' }, 'Hakenlänge (mm)'),
       numField('joint-hl', st.hookLength, (v) => (st.hookLength = v), 'Seitlicher Überstand des Hakens; um so viel wird nach dem Einstecken geschoben'),
+    ),
+    ...row('wedge',
+      h('label', { for: 'joint-ww' }, 'Keilbreite (mm)'),
+      numField('joint-ww', st.wedgeWidth, (v) => (st.wedgeWidth = v), 'Länge des Keillochs im Zapfen; die Keile werden 1,5 mm schmaler bis breiter gezeichnet'),
+      h('label', { for: 'joint-wp' }, 'Keil zieht an (mm)'),
+      numField('joint-wp', st.wedgePull, (v) => (st.wedgePull = v), 'So weit reicht das Keilloch in die Gegenplatte hinein; der Keil zieht die Platten um diesen Betrag zusammen'),
+    ),
+    ...row('tslot',
+      h('label', { for: 'joint-bd' }, 'Schraube Ø (mm)'),
+      numField('joint-bd', st.boltDia, (v) => (st.boltDia = v), 'Für M3 etwa 3,2'),
+      h('label', { for: 'joint-bl' }, 'Schraubenlänge (mm)'),
+      numField('joint-bl', st.boltLength, (v) => (st.boltLength = v), 'Länge unter dem Kopf'),
+      h('label', { for: 'joint-nw' }, 'Mutter Schlüsselweite (mm)'),
+      numField('joint-nw', st.nutWidth, (v) => (st.nutWidth = v), 'M3: 5,5 (mit etwas Luft 5,6)'),
+      h('label', { for: 'joint-nh' }, 'Mutter Höhe (mm)'),
+      numField('joint-nh', st.nutHeight, (v) => (st.nutHeight = v), 'M3: 2,4 (mit etwas Luft 2,6)'),
     ),
     ...row('lap',
       h('label', { for: 'joint-ln' }, 'Schlitze je Kante'),
