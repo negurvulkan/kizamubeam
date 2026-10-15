@@ -1,6 +1,6 @@
 // Editor: Zustand, Zeichnen auf der Arbeitsfläche, Werkzeuge und Befehle.
 import {
-  about, apply, bumpIds, clone, cloneObj, DEFAULT_ADJUST, defaultImageLayer, defaultLayer, Doc, IDENT, ImageAdjust, ImageLayer,
+  about, apply, bumpIds, clone, cloneObj, DEFAULT_ADJUST, defaultImageLayer, defaultLayer, Doc, normalizeLayer, IDENT, ImageAdjust, ImageLayer,
   ImageShape, inv, Layer, leaves, Mat, mul, newDoc, newId, Node, Obj, PALETTE, Pt, rotate, scale, setLayerDeep, Shape, SubPath,
   TextShape, translate,
 } from './model';
@@ -159,7 +159,7 @@ export class Editor {
   // ---------- Dokument, Undo, Autosave ----------
 
   layer(i: number): Layer {
-    return (this.doc.layers[i] ??= defaultLayer(i));
+    return normalizeLayer((this.doc.layers[i] ??= defaultLayer(i)));
   }
   /** Bild-Einstellungen eines Layers */
   imgLayer(i: number): ImageLayer {

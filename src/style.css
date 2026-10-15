@@ -957,3 +957,28 @@ table.devices .actions {
 .devices-dialog .conn-row select {
   flex: 1;
 }
+
+/* Layer-Dialog */
+.layer-dialog {
+  width: min(400px, 96vw);
+}
+.layer-dialog h3 {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.layer-dialog .form {
+  grid-template-columns: 1fr 140px;
+}
+.layer-tools {
+  flex-wrap: wrap;
+}
+table.layers th,
+table.layers td {
+  padding-left: 3px;
+  padding-right: 3px;
+}
+table.layers input[type='checkbox'] {
+  margin: 0;
+  vertical-align: middle;
+}
