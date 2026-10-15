@@ -110,6 +110,8 @@ export class Editor {
   /** Einfügen aus der System-Zwischenablage (Bilder, SVG); true = verarbeitet */
   externalPaste: ((data: DataTransfer) => Promise<boolean>) | null = null;
   private pasteTimer = 0;
+  /** Hintergrund auf dem Bett unter dem Raster (Kamerabild), in Weltkoordinaten gezeichnet */
+  background: ((ctx: CanvasRenderingContext2D) => void) | null = null;
 
   constructor(public canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
@@ -1662,6 +1664,15 @@ export class Editor {
     this.placeNew([o], `Bild importiert: ${a.w} × ${a.h} Pixel, ${w.toFixed(1)} × ${h.toFixed(1)} mm${f < 1 ? ' (auf das Bett verkleinert)' : ''}.`);
   }
 
+  /** Rasterbild an fester Stelle einfügen (Weltkoordinaten), z. B. das entzerrte Kamerabild */
+  async importImageAt(dataUrl: string, x: number, y: number, w: number, h: number, name: string, hint: string, layer = this.currentLayer) {
+    const a = await addAsset(dataUrl);
+    const shape: ImageShape = { kind: 'image', asset: a.id, w, h, pxW: a.w, pxH: a.h, name, adjust: { ...DEFAULT_ADJUST } };
+    const o: Obj = { id: newId(), m: translate(x, y), layer, shape };
+    this.imgLayer(layer);
+    this.placeNew([o], hint);
+  }
+
   /** Ergebnis eines Vektor-Imports (SVG/DXF) einfügen */
   async importVectors(res: ImportResult, name: string) {
     const objs: Obj[] = [];
@@ -1841,6 +1852,15 @@ export class Editor {
       p1 = this.toScreen({ x: bed.w, y: bed.h });
     ctx.fillStyle = T.bed;
     ctx.fillRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
+    if (this.background) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
+      ctx.clip();
+      ctx.setTransform(dpr * z, 0, 0, dpr * z, dpr * ox, dpr * oy);
+      this.background(ctx);
+      ctx.restore();
+    }
     const grid = (step: number, color: string) => {
       if (step * z < 6) return;
       ctx.beginPath();

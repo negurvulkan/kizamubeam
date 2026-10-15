@@ -46,11 +46,12 @@ npm run tauri build    # Installationspaket
   - Vorschau (Alt+P) mit Zeitschätzung wie im Bahnplaner von FluidNC (Beschleunigung, Ecken), Abspielen und Zeitschieber, Leerwege, Schattierung nach Leistung, Zoomen und Verschieben.
   - G-Code speichern, Verschieben-Reiter (Jog in Schritten, Ursprung setzen/löschen, Laser zur Auswahl, Entsperren), Konsole mit Verlauf.
   - Geräteeinstellungen: Arbeitsbereich, S-Wert für 100 %, Baudrate, WLAN-Adresse, Eilgang und Beschleunigung, Rahmen. „Von der Maschine lesen“ holt Arbeitsbereich, Eilgang, Beschleunigung (FluidNC-Konfiguration bzw. GRBL `$$`) und bei GRBL auch die Leistungsskala `$30`.
+- Kamera (Reiter „Kamera“ im Laser-Panel): USB-Kamera wählen, Bild entzerrt und lagerichtig unter den Objekten auf der Arbeitsfläche, Deckkraft, einmalig oder laufend aktualisieren, als Bild auf T1 einfügen (zum Nachzeichnen). Kalibrieren: 2 × 2 bis 5 × 5 Markierungen lasern (oder als G-Code speichern), im Foto anklicken; daraus werden Lage (Homographie) und ab 3 × 3 die Linsenverzeichnung berechnet, mit Restfehler in mm und entzerrter Kontrollansicht. Kalibrierung je Gerät gespeichert. Unter macOS fragt das System beim ersten Verbinden nach der Kamera-Freigabe.
 - Projekt speichern und öffnen (`.lwk`, JSON, Bilder eingebettet), SVG-Export (mit Bildern), automatisches Zwischenspeichern (Bilddaten in IndexedDB).
 
 ## Noch nicht enthalten
 
-Verbindung per WebSocket, Lasern ab einem Punkt der Vorschau („Start Here“), Kamera, Tabs/Brücken, Kerf-Ausgleich, eigene Start-/End-Skripte, Text auf Pfad, Schweißen von Buchstaben. Bei Bildern fehlen noch Zuschneiden/Maske, TIFF, die Verfahren Newsprint und Sketch sowie Bild-Presets.
+Verbindung per WebSocket, Lasern ab einem Punkt der Vorschau („Start Here“), Kopfkamera und mehrere Kameras, Tabs/Brücken, Kerf-Ausgleich, eigene Start-/End-Skripte, Text auf Pfad, Schweißen von Buchstaben. Bei Bildern fehlen noch Zuschneiden/Maske, TIFF, die Verfahren Newsprint und Sketch sowie Bild-Presets.
 
 ## Aufbau
 
@@ -67,6 +68,8 @@ Verbindung per WebSocket, Lasern ab einem Punkt der Vorschau („Start Here“),
 | `src/importers.ts` | SVG- und DXF-Import |
 | `src/fit.ts` | Kurvenrückführung: Linienzüge in Bézierpfade (Ecken erkennen, Schneider-Verfahren) |
 | `src/gcode.ts` | Maschinenausgabe: Job aus dem Dokument (Linie, Füllen, Bilder, Reihenfolge), G-Code, Laufzeitschätzung, Rahmen, Geräteeinstellungen |
+| `src/camera.ts` | Kamera: Zugriff, Kalibriermodell (Homographie und radiale Verzeichnung, Levenberg-Marquardt), Entzerrung aufs Bett |
+| `src/cameraui.ts` | Kamera-Reiter, Kamerabild auf der Arbeitsfläche, Kalibrier-Assistent mit Markierungen |
 | `src/machine.ts` | Verbindung zur Maschine aus Sicht der Oberfläche: Zustand, Statusauswertung, Klartext für Alarme, Befehle an Rust |
 | `src/laser.ts` | Laser-Panel (Laser, Verschieben, Konsole), Geräteeinstellungen, Vorschau |
 | `src/dom.ts` | DOM-Helfer und Zahlenfelder mit Formeln |
