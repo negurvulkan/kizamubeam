@@ -1,0 +1,421 @@
+// Objekte-Fenster: Baum aus Layern und den Objekten darin (mit Gruppen), angelehnt an LightBurns „Objects“.
+// Auswahl synchron mit der Arbeitsfläche, Umbenennen per Doppelklick, Ein-/Ausblenden, Sperren,
+// Reihenfolge und Layer per Ziehen.
+//
+// Aufbau: sections() liefert die oberste Ebene des Baums (je Layer ein Abschnitt). Kommen später Seiten dazu,
+// legt sich je Seite ein weiterer Knoten darüber; renderSection() und renderObj() bleiben dabei gleich.
+import type { Editor } from './editor';
+import { ICONS } from './icons';
+import { homeLayer, layerLabel, Obj, PALETTE } from './model';
+import { $, h } from './dom';
+import { t, tn } from './i18n';
+
+const OPEN_KEY = 'laserwerk.objectsPanel';
+/** Mehr Zeilen je Layer werden erst auf Wunsch gezeigt (große Arrays, Nachzeichnungen) */
+const ROW_LIMIT = 300;
+
+/** Anzeigename eines Objekts: eigener Name oder aus der Form abgeleitet */
+export function objLabel(o: Obj): string {
+  if (o.name) return o.name;
+  const s = o.shape;
+  switch (s.kind) {
+    case 'rect':
+      return t('Rechteck');
+    case 'ellipse':
+      return t('Ellipse');
+    case 'polygon':
+      return s.star ? t('Stern') : t('Polygon');
+    case 'path':
+      return s.subs.every((sp) => sp.closed) ? t('Pfad') : t('Linie');
+    case 'text': {
+      const line = s.text.split('\n')[0].trim();
+      return line ? `„${line.length > 28 ? line.slice(0, 27) + '…' : line}“` : t('Text');
+    }
+    case 'image':
+      return s.name || t('Bild');
+    case 'group':
+      return tn('Gruppe ({n} Objekt)', 'Gruppe ({n} Objekte)', s.children.length);
+  }
+}
+
+const KIND_ICON: Record<Obj['shape']['kind'], string> = {
+  rect: 'rect', ellipse: 'ellipse', polygon: 'polygon', path: 'path', text: 'text', image: 'image', group: 'group',
+};
+
+interface Section {
+  layer: number;
+  /** Oberste Objekte dieses Layers, vorderstes zuerst */
+  objs: Obj[];
+}
+
+let toggle = () => {};
+/** Objekte-Fenster ein- oder ausklappen (Menü Ansicht) */
+export const toggleObjectsPanel = () => toggle();
+
+type Drop =
+  | { kind: 'obj'; ref: Obj; front: boolean }
+  | { kind: 'layer'; layer: number; before: boolean; into: boolean };
+
+export function buildObjectsPanel(ed: Editor) {
+  const panel = $('#objects-panel');
+  const title = panel.querySelector('.panel-title') as HTMLElement;
+  const body = $('#objects');
+  const chev = h('span', { class: 'ot-chev-title' });
+  const titleText = h('span', {}, t('Objekte'));
+  const count = h('span', { class: 'muted ot-count' });
+  title.replaceChildren(chev, titleText, count);
+  title.title = t('Objekte-Fenster ein- oder ausklappen');
+
+  let open = true;
+  try {
+    open = localStorage.getItem(OPEN_KEY) !== '0';
+  } catch {
+    /* Speicher nicht verfügbar */
+  }
+  const collapsedLayers = new Set<number>();
+  const openGroups = new Set<number>();
+  const showAll = new Set<number>();
+  /** Zeile → Objekt und oberstes Objekt */
+  let rows = new Map<number, { el: HTMLElement; obj: Obj; top: Obj }>();
+  let layerRows = new Map<number, HTMLElement>();
+  let fromPanel = false;
+  let renaming = false;
+
+  const setOpen = (v: boolean) => {
+    open = v;
+    try {
+      localStorage.setItem(OPEN_KEY, v ? '1' : '0');
+    } catch {
+      /* Speicher nicht verfügbar */
+    }
+    panel.classList.toggle('collapsed', !v);
+    chev.textContent = v ? '▾' : '▸';
+    if (v) render();
+  };
+  title.addEventListener('click', () => setOpen(!open));
+  toggle = () => setOpen(!open);
+
+  /** Oberste Ebene des Baums. Für Seiten kommt hier später eine Ebene darüber hinzu. */
+  const sections = (): Section[] => {
+    const by = new Map<number, Obj[]>();
+    for (let k = ed.doc.objs.length - 1; k >= 0; k--) {
+      const o = ed.doc.objs[k];
+      const L = homeLayer(o);
+      let list = by.get(L);
+      if (!list) by.set(L, (list = []));
+      list.push(o);
+    }
+    const order = ed.layerOrder();
+    for (const L of by.keys()) if (!order.includes(L)) order.push(L);
+    return order.filter((L) => by.has(L)).map((layer) => ({ layer, objs: by.get(layer)! }));
+  };
+
+  const toggleBtn = (cls: string, on: boolean, icon: string, title: string, onclick: () => void) =>
+    h('button', {
+      class: `ot-btn ${cls}${on ? ' on' : ''}`,
+      title,
+      html: ICONS[icon],
+      onclick: (e: Event) => (e.stopPropagation(), onclick()),
+    });
+
+  const startRename = (label: HTMLElement, value: string, commit: (v: string) => void) => {
+    renaming = true;
+    const inp = h('input', { type: 'text', class: 'ot-rename', value }) as HTMLInputElement;
+    label.replaceWith(inp);
+    inp.focus();
+    inp.select();
+    let done = false;
+    const finish = (ok: boolean) => {
+      if (done) return;
+      done = true;
+      renaming = false;
+      if (ok && inp.value !== value) commit(inp.value);
+      else render();
+    };
+    inp.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') finish(true);
+      else if (e.key === 'Escape') finish(false);
+    });
+    inp.addEventListener('blur', () => finish(true));
+    inp.addEventListener('click', (e) => e.stopPropagation());
+    inp.addEventListener('dblclick', (e) => e.stopPropagation());
+  };
+
+  const renderObj = (o: Obj, top: Obj, depth: number, dimmed: boolean, out: HTMLElement[]) => {
+    const isGroup = o.shape.kind === 'group';
+    const expanded = isGroup && openGroups.has(o.id);
+    const isTop = o === top;
+    const off = dimmed || !!o.hidden;
+    const label = h('span', { class: 'ot-label' }, objLabel(o));
+    const chevron = isGroup
+      ? h('span', {
+          class: 'ot-chev',
+          onclick: (e: Event) => {
+            e.stopPropagation();
+            if (expanded) openGroups.delete(o.id);
+            else openGroups.add(o.id);
+            render();
+          },
+        }, expanded ? '▾' : '▸')
+      : h('span', { class: 'ot-chev' });
+    // Layer-Farbe nur zeigen, wo sie vom Abschnitt abweicht (Gruppen über mehrere Layer)
+    const swatch = o.shape.kind !== 'group' && depth > 0 ? h('span', { class: 'ot-dot', style: `background:${PALETTE[o.layer]}`, title: layerLabel(o.layer) }) : null;
+    const row = h(
+      'div',
+      {
+        class: `ot-row ot-obj${off ? ' off' : ''}${top.locked ? ' locked' : ''}`,
+        style: `padding-left:${8 + depth * 14}px`,
+        draggable: isTop ? 'true' : 'false',
+        title: t('Klick: auswählen (Shift/Ctrl: hinzufügen) · Doppelklick auf den Namen: umbenennen · Ziehen: Reihenfolge oder Layer ändern'),
+      },
+      chevron,
+      h('span', { class: 'ot-icon', html: ICONS[KIND_ICON[o.shape.kind]] }),
+      swatch,
+      label,
+      toggleBtn('ot-eye', !o.hidden, o.hidden ? 'eyeoff' : 'eye', o.hidden ? t('Einblenden') : t('Ausblenden (wird dann auch nicht gelasert)'), () =>
+        ed.setObjProps([o], { hidden: !o.hidden }),
+      ),
+      isTop
+        ? toggleBtn('ot-lock', !!o.locked, o.locked ? 'lock' : 'unlock', o.locked ? t('Entsperren') : t('Sperren (auf der Arbeitsfläche nicht auswählbar)'), () =>
+            ed.setObjProps([o], { locked: !o.locked }),
+          )
+        : h('span', { class: 'ot-btn ot-spacer' }),
+    );
+    row.dataset.id = String(o.id);
+    label.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      startRename(label, o.name ?? '', (v) => ed.setObjProps([o], { name: v }));
+    });
+    rows.set(o.id, { el: row, obj: o, top });
+    out.push(row);
+    if (expanded && o.shape.kind === 'group')
+      for (let k = o.shape.children.length - 1; k >= 0; k--) renderObj(o.shape.children[k], top, depth + 1, off, out);
+  };
+
+  const renderSection = (sec: Section, out: HTMLElement[]) => {
+    const i = sec.layer;
+    const L = ed.layer(i);
+    const collapsed = collapsedLayers.has(i);
+    const label = h('span', { class: 'ot-label' }, L.name);
+    const row = h(
+      'div',
+      {
+        class: `ot-row ot-layer${L.show ? '' : ' off'}${ed.currentLayer === i ? ' cur' : ''}`,
+        draggable: 'true',
+        title: t('Klick: aktueller Layer · Doppelklick auf den Namen: umbenennen · Ziehen: Ausgabereihenfolge ändern'),
+      },
+      h('span', {
+        class: 'ot-chev',
+        onclick: (e: Event) => {
+          e.stopPropagation();
+          if (collapsed) collapsedLayers.delete(i);
+          else collapsedLayers.add(i);
+          render();
+        },
+      }, collapsed ? '▸' : '▾'),
+      h('span', { class: 'swatch', style: `background:${PALETTE[i]}` }, layerLabel(i)),
+      label,
+      h('span', { class: 'muted ot-n' }, String(sec.objs.length)),
+      toggleBtn('ot-eye', L.show, L.show ? 'eye' : 'eyeoff', L.show ? t('Layer ausblenden') : t('Layer einblenden'), () => {
+        ed.updateLayer(i, { show: !L.show });
+        ed.dropUnselectable();
+      }),
+      toggleBtn('ot-lock', !!L.locked, L.locked ? 'lock' : 'unlock', L.locked ? t('Layer entsperren') : t('Layer sperren (Objekte nicht auswählbar)'), () => {
+        ed.updateLayer(i, { locked: !L.locked });
+        ed.dropUnselectable();
+      }),
+    );
+    row.dataset.layer = String(i);
+    label.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      startRename(label, L.name, (v) => v.trim() && ed.updateLayer(i, { name: v.trim() }));
+    });
+    layerRows.set(i, row);
+    out.push(row);
+    if (collapsed) return;
+    const list = showAll.has(i) ? sec.objs : sec.objs.slice(0, ROW_LIMIT);
+    for (const o of list) renderObj(o, o, 0, !L.show, out);
+    if (list.length < sec.objs.length) {
+      out.push(
+        h('button', { class: 'ot-more', onclick: () => (showAll.add(i), render()) },
+          tn('{n} weiteres Objekt anzeigen', '{n} weitere Objekte anzeigen', sec.objs.length - list.length)),
+      );
+    }
+  };
+
+  const render = () => {
+    count.textContent = ed.doc.objs.length ? ` ${ed.doc.objs.length}` : '';
+    if (!open || renaming) return;
+    const scroll = body.scrollTop;
+    rows = new Map();
+    layerRows = new Map();
+    const out: HTMLElement[] = [];
+    const secs = sections();
+    if (!secs.length) {
+      body.replaceChildren(h('div', { class: 'empty' }, t('Noch keine Objekte.')));
+      return;
+    }
+    for (const sec of secs) renderSection(sec, out);
+    const tree = h('div', { class: 'obj-tree' });
+    tree.append(...out);
+    body.replaceChildren(tree);
+    body.scrollTop = scroll;
+    markSelection(false);
+  };
+
+  /** Auswahl und aktuellen Layer markieren, ohne den Baum neu zu bauen */
+  const markSelection = (reveal: boolean) => {
+    const sel = new Set(ed.sel);
+    let first: HTMLElement | null = null;
+    for (const { el, obj, top } of rows.values()) {
+      const s = sel.has(obj);
+      el.classList.toggle('sel', s);
+      el.classList.toggle('sel-in', !s && obj !== top && sel.has(top));
+      if (s && !first) first = el;
+    }
+    for (const [i, el] of layerRows) el.classList.toggle('cur', ed.currentLayer === i);
+    if (reveal && first) first.scrollIntoView({ block: 'nearest' });
+  };
+
+  let frame = 0;
+  const scheduleRender = () => {
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      render();
+    });
+  };
+  ed.on((what) => {
+    if (what === 'doc') scheduleRender();
+    else if (what === 'sel' || what === 'tool') {
+      count.textContent = ed.doc.objs.length ? ` ${ed.doc.objs.length}` : '';
+      if (!open) return;
+      // Neue Objekte (Zeichnen, Einfügen) kommen ohne 'doc' an: dann neu aufbauen
+      if (ed.sel.some((o) => !rows.has(o.id)) && ed.doc.objs.length) {
+        scheduleRender();
+        return;
+      }
+      markSelection(what === 'sel' && !fromPanel);
+    }
+  });
+
+  // ---------- Klicks ----------
+
+  body.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('.ot-rename')) return;
+    const row = target.closest('.ot-row') as HTMLElement | null;
+    if (!row) return;
+    if (row.dataset.layer) {
+      const i = Number(row.dataset.layer);
+      ed.currentLayer = i;
+      ed.activeLayer = i;
+      ed.emit('tool');
+      return;
+    }
+    const r = rows.get(Number(row.dataset.id));
+    if (!r) return;
+    const top = r.top;
+    if (!ed.selectable(top)) {
+      ed.hint = t('Ausgeblendete oder gesperrte Objekte lassen sich nicht auswählen.');
+      ed.emit('tool');
+      return;
+    }
+    fromPanel = true;
+    if (e.shiftKey || e.ctrlKey || e.metaKey) ed.setSel(ed.sel.includes(top) ? ed.sel.filter((o) => o !== top) : [...ed.sel, top]);
+    else ed.setSel([top]);
+    fromPanel = false;
+  });
+
+  // ---------- Ziehen ----------
+
+  let dragObjs: Obj[] | null = null;
+  let dragLayer: number | null = null;
+  let drop: Drop | null = null;
+  let marked: HTMLElement | null = null;
+  const unmark = () => {
+    marked?.classList.remove('drop-before', 'drop-after', 'drop-into');
+    marked = null;
+  };
+
+  body.addEventListener('dragstart', (e) => {
+    const row = (e.target as HTMLElement).closest('.ot-row') as HTMLElement | null;
+    if (!row || renaming) return e.preventDefault();
+    if (row.dataset.layer) {
+      dragLayer = Number(row.dataset.layer);
+      dragObjs = null;
+    } else {
+      const r = rows.get(Number(row.dataset.id));
+      if (!r || r.obj !== r.top) return e.preventDefault();
+      dragObjs = ed.sel.includes(r.top) && ed.sel.length > 1 ? [...ed.sel] : [r.top];
+      dragLayer = null;
+    }
+    e.dataTransfer!.effectAllowed = 'move';
+    e.dataTransfer!.setData('text/plain', 'laserwerk-objects');
+    row.classList.add('dragging');
+  });
+
+  body.addEventListener('dragover', (e) => {
+    if (dragObjs === null && dragLayer === null) return;
+    const row = (e.target as HTMLElement).closest('.ot-row') as HTMLElement | null;
+    unmark();
+    drop = null;
+    if (!row) return;
+    const rect = row.getBoundingClientRect();
+    const upper = e.clientY < rect.top + rect.height / 2;
+    if (dragLayer !== null) {
+      // Layer nur zwischen Layern einordnen
+      if (!row.dataset.layer || Number(row.dataset.layer) === dragLayer) return;
+      drop = { kind: 'layer', layer: Number(row.dataset.layer), before: upper, into: false };
+    } else if (row.dataset.layer) {
+      drop = { kind: 'layer', layer: Number(row.dataset.layer), before: false, into: true };
+    } else {
+      const r = rows.get(Number(row.dataset.id));
+      if (!r || dragObjs!.includes(r.top)) return;
+      // Kinder einer Gruppe: vor bzw. hinter die ganze Gruppe
+      const tr = r.obj === r.top ? row : rows.get(r.top.id)?.el ?? row;
+      drop = { kind: 'obj', ref: r.top, front: upper };
+      marked = tr;
+      tr.classList.add(upper ? 'drop-before' : 'drop-after');
+      e.preventDefault();
+      e.dataTransfer!.dropEffect = 'move';
+      return;
+    }
+    marked = row;
+    row.classList.add(drop.into ? 'drop-into' : drop.before ? 'drop-before' : 'drop-after');
+    e.preventDefault();
+    e.dataTransfer!.dropEffect = 'move';
+  });
+
+  body.addEventListener('dragleave', (e) => {
+    if (!body.contains(e.relatedTarget as Node)) unmark();
+  });
+
+  body.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const d = drop;
+    const objs = dragObjs,
+      layer = dragLayer;
+    unmark();
+    if (!d) return;
+    if (layer !== null && d.kind === 'layer') ed.placeLayer(layer, d.layer, d.before);
+    else if (objs && d.kind === 'obj') ed.moveObjects(objs, d.ref, d.front, homeLayer(d.ref));
+    else if (objs && d.kind === 'layer') {
+      // Auf einen Layer: dorthin verschieben, vor alle Objekte dieses Layers
+      const sec = sections().find((s) => s.layer === d.layer);
+      const ref = sec?.objs.find((o) => !objs.includes(o)) ?? null;
+      ed.moveObjects(objs, ref, true, d.layer);
+    }
+  });
+
+  body.addEventListener('dragend', () => {
+    unmark();
+    body.querySelector('.dragging')?.classList.remove('dragging');
+    dragObjs = null;
+    dragLayer = null;
+    drop = null;
+  });
+
+  setOpen(open);
+}

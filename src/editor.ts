@@ -2,7 +2,7 @@
 import {
   about, apply, bumpIds, clone, cloneObj, DEFAULT_ADJUST, defaultImageLayer, defaultLayer, Doc, normalizeLayer, IDENT, ImageAdjust, ImageLayer,
   ImageShape, inv, Layer, leaves, Mat, mul, newDoc, newId, Node, Obj, PALETTE, Pt, rotate, scale, setLayerDeep, Shape, SubPath,
-  TextShape, translate,
+  TextShape, translate, visibleLeaves, homeLayer,
 } from './model';
 import { addAsset, adjustedGray, assetUrl, displayCanvas, onImageReady, registerAsset, restoreAssets, sourceSize } from './images';
 import { ImportResult, transformSubs } from './importers';
@@ -424,7 +424,8 @@ export class Editor {
     const tol = 4 / this.view.zoom;
     for (let i = this.doc.objs.length - 1; i >= 0; i--) {
       const top = this.doc.objs[i];
-      for (const [leaf, m] of leaves([top])) {
+      if (this.isLocked(top)) continue;
+      for (const [leaf, m] of visibleLeaves([top])) {
         const ly = this.layer(leaf.layer);
         if (!ly.show) continue;
         if (hitLeaf(leaf, m, p, tol, this.filled && ly.mode === 'fill')) return top;
@@ -1113,12 +1114,12 @@ export class Editor {
         }
         const enclose = d.end.x >= d.start.x;
         const hits = this.doc.objs.filter((o) => {
-          if ([...leaves([o])].every(([l]) => !this.layer(l.layer).show)) return false;
+          if (!this.selectable(o)) return false;
           if (enclose) {
             const b = boundsOf([o]);
             return !!b && b.x >= r.x && b.y >= r.y && b.x + b.w <= r.x + r.w && b.y + b.h <= r.y + r.h;
           }
-          return [...leaves([o])].some(([l, m]) => leafIntersectsBox(l, m, r));
+          return [...visibleLeaves([o])].some(([l, m]) => leafIntersectsBox(l, m, r));
         });
         let next: Obj[];
         if (d.mode === 'set') next = hits;
@@ -1281,7 +1282,7 @@ export class Editor {
     const prev = this.jointHover;
     let best = 7;
     this.jointHover = null;
-    for (const [leaf, m] of leaves(this.doc.objs)) {
+    for (const [leaf, m] of visibleLeaves(this.doc.objs)) {
       const k = leaf.shape.kind;
       if (k === 'text' || k === 'image' || !this.layer(leaf.layer).show) continue;
       shapeSubs(leaf.shape).forEach((sp, si) =>
@@ -1865,10 +1866,10 @@ export class Editor {
     this.emit('doc');
   }
   selectAll() {
-    this.setSel(this.doc.objs.filter((o) => [...leaves([o])].some(([l]) => this.layer(l.layer).show)));
+    this.setSel(this.doc.objs.filter((o) => this.selectable(o)));
   }
   selectLayer(i: number) {
-    this.setSel(this.doc.objs.filter((o) => [...leaves([o])].some(([l]) => l.layer === i)));
+    this.setSel(this.doc.objs.filter((o) => this.selectable(o) && [...visibleLeaves([o])].some(([l]) => l.layer === i)));
   }
   copy() {
     this.clipboard = this.sel.map((o) => clone(o));
@@ -1936,6 +1937,87 @@ export class Editor {
     // Positive Werte drehen gegen den Uhrzeigersinn (Maschinensicht, y nach oben)
     this.transformSel(about(rotate((-deg * Math.PI) / 180), c.x, c.y));
   }
+  // ---------- Objekte-Fenster: Name, Sichtbarkeit, Sperre, Reihenfolge ----------
+
+  /** Gesperrt: selbst oder alle sichtbaren Teile liegen auf gesperrten Layern */
+  isLocked(top: Obj): boolean {
+    if (top.locked) return true;
+    let any = false;
+    for (const [l] of visibleLeaves([top])) {
+      if (!this.layer(l.layer).locked) return false;
+      any = true;
+    }
+    return any;
+  }
+  /** Auf der Arbeitsfläche auswählbar: nicht gesperrt und etwas davon ist zu sehen */
+  selectable(top: Obj): boolean {
+    if (top.hidden || this.isLocked(top)) return false;
+    for (const [l] of visibleLeaves([top])) if (this.layer(l.layer).show) return true;
+    return false;
+  }
+  /** Name, Sichtbarkeit oder Sperre eines Objekts (auch in Gruppen) ändern */
+  setObjProps(objs: Obj[], patch: { name?: string; hidden?: boolean; locked?: boolean }) {
+    if (!objs.length) return;
+    this.snapshot();
+    for (const o of objs) {
+      if (patch.name !== undefined) {
+        const n = patch.name.trim();
+        if (n) o.name = n;
+        else delete o.name;
+      }
+      if (patch.hidden !== undefined) {
+        if (patch.hidden) o.hidden = true;
+        else delete o.hidden;
+      }
+      if (patch.locked !== undefined) {
+        if (patch.locked) o.locked = true;
+        else delete o.locked;
+      }
+    }
+    this.emit('doc');
+    this.dropUnselectable();
+  }
+  /** Ausgeblendete oder gesperrte Objekte aus der Auswahl nehmen */
+  dropUnselectable() {
+    const keep = this.sel.filter((o) => this.selectable(o));
+    if (keep.length !== this.sel.length) this.setSel(keep);
+    else this.emit('sel');
+  }
+  /**
+   * Oberste Objekte in der Stapelreihenfolge verschieben: vor (front) oder hinter ein Bezugsobjekt,
+   * ohne Bezug ganz nach vorn. Mit layer wechseln sie dabei auf diesen Layer.
+   */
+  moveObjects(objs: Obj[], ref: Obj | null, front: boolean, layer?: number) {
+    const moving = this.doc.objs.filter((o) => objs.includes(o) && o !== ref);
+    if (!moving.length) return;
+    this.snapshot();
+    const rest = this.doc.objs.filter((o) => !moving.includes(o));
+    let at = rest.length;
+    if (ref) {
+      const k = rest.indexOf(ref);
+      if (k >= 0) at = front ? k + 1 : k;
+    }
+    rest.splice(at, 0, ...moving);
+    this.doc.objs = rest;
+    if (layer !== undefined) {
+      for (const o of moving) if (homeLayer(o) !== layer) setLayerDeep(o, layer);
+      this.layer(layer);
+    }
+    this.emit('doc');
+    this.emit('sel');
+  }
+  /** Layer i in der Ausgabereihenfolge vor (before) oder hinter ref setzen */
+  placeLayer(i: number, ref: number, before: boolean) {
+    if (i === ref) return;
+    const order = this.layerOrder().filter((l) => l !== i);
+    const k = order.indexOf(ref);
+    if (k < 0) return;
+    order.splice(before ? k : k + 1, 0, i);
+    this.snapshot();
+    order.forEach((l, n) => (this.layer(l).priority = n));
+    this.emit('doc');
+  }
+
   group() {
     if (this.sel.length < 2) return;
     this.snapshot();
@@ -2424,7 +2506,7 @@ export class Editor {
     const batches = new Map<string, { color: string; fill: boolean; sel: boolean; stroke: Path2D; fillPath: Path2D }>();
     const texts: [Obj, Mat, boolean, boolean][] = [];
     const images: [Obj, Mat, boolean][] = [];
-    for (const [o, m] of leaves(this.doc.objs)) {
+    for (const [o, m] of visibleLeaves(this.doc.objs)) {
       const ly = this.layer(o.layer);
       if (!ly.show) continue;
       const selected = selSet.has(o);
@@ -2576,7 +2658,7 @@ export class Editor {
     if (this.arrayPreview && this.sel.length) {
       const p = new Path2D();
       for (const M of this.arrayPreview.slice(1)) {
-        for (const [leaf, m] of leaves(this.sel, M)) {
+        for (const [leaf, m] of visibleLeaves(this.sel, M)) {
           const s = leaf.shape;
           const local = s.kind === 'text' ? textOutline(s)?.path : s.kind === 'image' ? rectPath(s.w, s.h) : localPath(s);
           if (local) p.addPath(local, new DOMMatrix(m));
