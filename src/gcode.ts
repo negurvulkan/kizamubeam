@@ -1,6 +1,7 @@
 // Maschinenausgabe: aus dem Dokument einen Job berechnen (Linien, Füllen, Bilder), G-Code schreiben,
 // Laufzeit schätzen und Rahmenfahrten erzeugen. Alles in Maschinenkoordinaten (mm, Ursprung unten links, y nach oben).
-import { apply, Doc, ImageLayer, ImageShape, inv, Layer, leaves, Mat, mul, Obj, Pt, SubPath } from './model';
+import ClipperLib from 'clipper-lib';
+import { apply, Doc, ImageLayer, ImageShape, inv, Layer, leaves, Mat, mul, normalizeLayer, Obj, Pt, SubPath, TabSettings } from './model';
 import { bezierPt, segments, shapeSubs } from './geom';
 import { loadFont, textToSubs } from './fonts';
 import { outputGrid, processImage } from './images';
@@ -95,6 +96,8 @@ export interface Device {
   frameLaser: boolean;
   framePower: number;
   frameSpeed: number;
+  /** Befehl für Air Assist an (aus immer mit M9): M8 = Flood, M7 = Mist */
+  airCmd: 'M8' | 'M7';
 }
 
 export const DEFAULT_DEVICE: Device = {
@@ -121,6 +124,7 @@ export const DEFAULT_DEVICE: Device = {
   frameLaser: false,
   framePower: 1,
   frameSpeed: 3000,
+  airCmd: 'M8',
 };
 
 /** Vorlagen für neue Geräte. Maße nach Herstellerangabe; vor dem ersten Job mit „Von der Maschine lesen“ prüfen. */
@@ -245,6 +249,8 @@ export interface Job {
   warnings: string[];
   /** Verschiebung von Bettkoordinaten auf Ausgabekoordinaten */
   offset: Pt;
+  /** Layer, bei denen Air Assist läuft */
+  air: number[];
 }
 
 export interface JobInput {
@@ -265,6 +271,8 @@ export interface JobInput {
 interface Poly {
   pts: Pt[];
   closed: boolean;
+  /** Haltestege: off[i] = 1 heißt, die Strecke von pts[i] zum nächsten Punkt wird ohne Laser gefahren */
+  off?: Uint8Array;
 }
 
 const FLATTEN_TOL = 0.01;
@@ -411,16 +419,113 @@ function orderPolys(polys: Poly[], from: Pt): Poly[] {
     done[best] = 1;
     for (const c of containers[best]) pending[c]--;
     const p = polys[best];
-    let pts = p.pts;
-    if (p.closed && bestIdx) pts = pts.slice(bestIdx).concat(pts.slice(0, bestIdx));
-    if (bestRev) pts = [...pts].reverse();
-    out.push({ pts, closed: p.closed });
+    let q = p.closed && bestIdx ? startAt(p, bestIdx) : p;
+    if (bestRev) q = { pts: [...q.pts].reverse(), closed: false };
+    out.push(q);
+    const pts = q.pts;
     const last = p.closed ? pts[0] : pts[pts.length - 1];
     cur = last;
   }
   return out;
 }
 const midOf = (b: Box): Pt => ({ x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 });
+
+/** Geschlossene Form ab Punkt k beginnen lassen (Haltestege wandern mit) */
+function startAt(p: Poly, k: number): Poly {
+  const pts = p.pts.slice(k).concat(p.pts.slice(0, k));
+  if (!p.off) return { pts, closed: p.closed };
+  const off = new Uint8Array(p.off.length);
+  off.set(p.off.subarray(k));
+  off.set(p.off.subarray(0, k), p.off.length - k);
+  return { pts, closed: p.closed, off };
+}
+
+// ---------- Kerf und Haltestege ----------
+
+/** Clipper rechnet mit Ganzzahlen: 1 Einheit = 0,1 µm */
+const KSCALE = 10000;
+
+/**
+ * Kerf-Versatz der geschlossenen Konturen eines Objekts: Fläche nach Gerade-Ungerade-Regel bilden,
+ * dann um d versetzen. Positiv vergrößert Außenkonturen und verkleinert Löcher, sodass ausgeschnittene
+ * Teile die gezeichneten Maße behalten. Runde Ecken entsprechen dem runden Laserfleck.
+ */
+export function kerfOffset(polys: Poly[], d: number): Poly[] {
+  if (!polys.length || !d) return polys;
+  const { Clipper, ClipperOffset, ClipType, PolyType, PolyFillType, JoinType, EndType } = ClipperLib;
+  const paths = polys.map((p) => p.pts.map((q) => ({ X: Math.round(q.x * KSCALE), Y: Math.round(q.y * KSCALE) })));
+  const c = new Clipper();
+  c.AddPaths(paths, PolyType.ptSubject, true);
+  const area: ClipperLib.Paths = [];
+  c.Execute(ClipType.ctUnion, area, PolyFillType.pftEvenOdd, PolyFillType.pftEvenOdd);
+  const co = new ClipperOffset(2, 0.002 * KSCALE);
+  co.AddPaths(area, JoinType.jtRound, EndType.etClosedPolygon);
+  const out: ClipperLib.Paths = [];
+  co.Execute(out, d * KSCALE);
+  return out.filter((p) => p.length > 2).map((p) => ({ pts: p.map((q) => ({ x: q.X / KSCALE, y: q.Y / KSCALE })), closed: true }));
+}
+
+/** Haltestege gleichmäßig über den Umfang einer geschlossenen Form verteilen */
+export function addTabs(p: Poly, T: TabSettings): Poly {
+  const P = p.pts,
+    n = P.length;
+  if (!p.closed || n < 3 || T.size <= 0) return p;
+  const cum = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) {
+    const a = P[i],
+      b = P[(i + 1) % n];
+    cum[i + 1] = cum[i] + Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  const total = cum[n];
+  let k = T.useCount ? Math.round(T.count) : Math.max(1, Math.round(total / Math.max(0.1, T.spacing)));
+  // Stege dürfen höchstens die Hälfte des Umfangs ausmachen
+  while (k > 0 && T.size >= (total / k) * 0.5) k--;
+  if (k < 1) return p;
+  const step = total / k,
+    half = T.size / 2;
+  const cuts: number[] = [];
+  for (let j = 0; j < k; j++) cuts.push(step * (j + 0.5) - half, step * (j + 0.5) + half);
+  const inTab = (d: number) => Math.abs(d - step * (Math.floor(d / step) + 0.5)) < half;
+  const pts: Pt[] = [],
+    off: number[] = [];
+  let b = 0;
+  for (let i = 0; i < n; i++) {
+    const a = P[i],
+      e = P[(i + 1) % n];
+    const d0 = cum[i],
+      d1 = cum[i + 1],
+      l = d1 - d0;
+    pts.push(a);
+    let last = d0;
+    while (b < cuts.length && cuts[b] <= d0) b++;
+    while (l > 1e-9 && b < cuts.length && cuts[b] < d1) {
+      const t = (cuts[b] - d0) / l;
+      off.push(inTab((last + cuts[b]) / 2) ? 1 : 0);
+      pts.push({ x: a.x + (e.x - a.x) * t, y: a.y + (e.y - a.y) * t });
+      last = cuts[b++];
+    }
+    off.push(inTab((last + d1) / 2) ? 1 : 0);
+  }
+  return { pts, closed: true, off: Uint8Array.from(off) };
+}
+
+/** Haltestege für alle geschlossenen Formen eines Layers; innere Formen auf Wunsch auslassen */
+function withTabs(polys: Poly[], T: TabSettings): Poly[] {
+  const boxes = polys.map((p) => {
+    const b = emptyBox();
+    for (const q of p.pts) addPt(b, q.x, q.y);
+    return b;
+  });
+  const inner = (i: number) =>
+    polys.some((o, j) => {
+      if (j === i || !o.closed) return false;
+      const a = boxes[i],
+        c = boxes[j];
+      if (a.x0 < c.x0 || a.y0 < c.y0 || a.x1 > c.x1 || a.y1 > c.y1) return false;
+      return pointInPoly(polys[i].pts[0], o.pts);
+    });
+  return polys.map((p, i) => (p.closed && !(T.skipInner && inner(i)) ? addTabs(p, T) : p));
+}
 
 // ---------- Rasterzeilen ----------
 
@@ -433,13 +538,20 @@ interface ScanOptions {
   /** Überfahrweg in mm */
   overscan: number;
   layer: number;
+  /** Zeilen liegen in einem um diesen Winkel (rad) gedrehten System */
+  angle?: number;
 }
 
 /** Lücken bis zu dieser Länge fährt der Laser ausgeschaltet mit Arbeitsgeschwindigkeit durch */
 const GAP_RAPID = 10;
 
-function emitScanlines(mv: Moves, lines: { y: number; runs: Run[] }[], o: ScanOptions, flip: { v: boolean }) {
+function emitScanlines(out: Moves, lines: { y: number; runs: Run[] }[], o: ScanOptions, flip: { v: boolean }) {
   const { speed: F, overscan: ov, layer } = o;
+  const rc = Math.cos(o.angle ?? 0),
+    rs = Math.sin(o.angle ?? 0);
+  const mv = o.angle
+    ? { push: (x: number, y: number, f: number, s: number, l: number) => out.push(x * rc - y * rs, x * rs + y * rc, f, s, l) }
+    : out;
   for (const ln of lines) {
     if (!ln.runs.length) continue;
     const rev = o.bidirectional && flip.v;
@@ -555,6 +667,14 @@ function imageLines(shape: ImageShape, world: Mat, toOut: Mat, L: ImageLayer): {
   return out;
 }
 
+/** Formen um den Ursprung drehen (Winkel in rad) */
+function rotatePolys(polys: Poly[], a: number): Poly[] {
+  if (!a) return polys;
+  const c = Math.cos(a),
+    s = Math.sin(a);
+  return polys.map((p) => ({ ...p, pts: p.pts.map((q) => ({ x: q.x * c - q.y * s, y: q.x * s + q.y * c })) }));
+}
+
 // ---------- Job berechnen ----------
 
 const FLIP = (h: number): Mat => [1, 0, 0, -1, 0, h];
@@ -562,6 +682,7 @@ const FLIP = (h: number): Mat => [1, 0, 0, -1, 0, h];
 /** Aus dem Dokument einen Job berechnen. Texte werden mit ihren Schriftkonturen gelasert. */
 export async function buildJob(inp: JobInput): Promise<Job> {
   const { doc, device } = inp;
+  const layerOf = (i: number) => normalizeLayer(inp.layer(i));
   const warnings: string[] = [];
   const roots = inp.only ?? doc.objs;
   const toBed = FLIP(doc.bed.h);
@@ -580,7 +701,7 @@ export async function buildJob(inp: JobInput): Promise<Job> {
   const bounds = emptyBox();
   let skippedOpen = 0;
   for (const [o, world] of leaves(roots)) {
-    const L = inp.layer(o.layer);
+    const L = layerOf(o.layer);
     if (!L.output) continue;
     const s = o.shape;
     if (s.kind === 'image') {
@@ -598,6 +719,7 @@ export async function buildJob(inp: JobInput): Promise<Job> {
       subs = textToSubs(s, f.font);
     } else subs = shapeSubs(s);
     const M = mul(toBed, world);
+    const own: Poly[] = [];
     for (const sp of subs) {
       if (sp.nodes.length < 2) continue;
       const p = flatten(sp, M);
@@ -606,6 +728,11 @@ export async function buildJob(inp: JobInput): Promise<Job> {
         skippedOpen++;
         continue;
       }
+      own.push(p);
+    }
+    // Kerf je Objekt, damit sich benachbarte Objekte nicht zu einer Fläche verbinden
+    const polys = L.kerf ? [...own.filter((p) => !p.closed), ...kerfOffset(own.filter((p) => p.closed), L.kerf)] : own;
+    for (const p of polys) {
       bucket(o.layer).polys.push(p);
       for (const q of p.pts) addPt(bounds, q.x, q.y);
     }
@@ -632,9 +759,9 @@ export async function buildJob(inp: JobInput): Promise<Job> {
   // 3. Bewegungen je Layer in Ausgabereihenfolge
   const start: Pt = device.startFrom === 'current' && inp.position && !inp.forPreview ? inp.position : { x: 0, y: 0 };
   const mv = new Moves(start.x, start.y);
-  const order = [...buckets.keys()].sort((a, b) => (inp.layer(a).priority ?? a) - (inp.layer(b).priority ?? b) || a - b);
+  const order = [...buckets.keys()].sort((a, b) => (layerOf(a).priority ?? a) - (layerOf(b).priority ?? b) || a - b);
   for (const li of order) {
-    const L = inp.layer(li);
+    const L = layerOf(li);
     const bk = buckets.get(li)!;
     const flip = { v: false };
     // Bilder zuerst (gravieren), dann Vektoren
@@ -653,18 +780,26 @@ export async function buildJob(inp: JobInput): Promise<Job> {
     if (!bk.polys.length) continue;
     const s = L.power / 100;
     if (L.mode === 'fill') {
-      const lines = fillLines(bk.polys, Math.max(0.01, L.interval), s);
-      const ov = (2.5 / 100) * (L.speed / 60);
-      for (let p = 0; p < Math.max(1, L.passes); p++) emitScanlines(mv, lines, { speed: L.speed, bidirectional: true, overscan: ov, layer: li }, flip);
+      // Zeilen im gedrehten System berechnen und beim Ausgeben zurückdrehen; Kreuzschraffur = zweite Richtung um 90° versetzt
+      const angles = [L.angle, ...(L.crossHatch ? [L.angle + 90] : [])].map((a) => (a * Math.PI) / 180);
+      const sets = angles.map((a) => ({ a, lines: fillLines(rotatePolys(bk.polys, -a), Math.max(0.01, L.interval), s) }));
+      const ov = (Math.max(0, L.overscan) / 100) * (L.speed / 60);
+      for (let p = 0; p < Math.max(1, L.passes); p++)
+        for (const st of sets) emitScanlines(mv, st.lines, { speed: L.speed, bidirectional: L.bidirectional, overscan: ov, layer: li, angle: st.a }, flip);
       continue;
     }
+    const cuts = L.tabs.enabled ? withTabs(bk.polys, L.tabs) : bk.polys;
     for (let p = 0; p < Math.max(1, L.passes); p++) {
-      const polys = device.optimize ? orderPolys(bk.polys, { x: mv.lastX(), y: mv.lastY() }) : bk.polys;
-      for (const poly of polys) {
-        const pts = poly.pts;
+      const polys = device.optimize ? orderPolys(cuts, { x: mv.lastX(), y: mv.lastY() }) : cuts;
+      for (let poly of polys) {
+        // Nicht in einem Steg beginnen, sonst fährt der Laser ihn zuerst ohne Leistung ab
+        if (poly.off?.[0]) poly = startAt(poly, Math.max(0, poly.off.indexOf(0)));
+        const pts = poly.pts,
+          off = poly.off;
         mv.push(pts[0].x, pts[0].y, 0, 0, li);
-        for (let i = 1; i < pts.length; i++) mv.push(pts[i].x, pts[i].y, L.speed, s, li);
-        if (poly.closed) mv.push(pts[0].x, pts[0].y, L.speed, s, li);
+        for (let i = 1; i < pts.length; i++) mv.push(pts[i].x, pts[i].y, L.speed, off?.[i - 1] ? 0 : s, li);
+        // Endet die Form in einem Steg, braucht es die letzte Strecke nicht
+        if (poly.closed && !off?.[pts.length - 1]) mv.push(pts[0].x, pts[0].y, L.speed, s, li);
       }
     }
   }
@@ -685,7 +820,8 @@ export async function buildJob(inp: JobInput): Promise<Job> {
     px = mv.x[i];
     py = mv.y[i];
   }
-  return { moves: mv, bounds: ob, travel: finite(travel), hull: convexHull(dedupe(hullPts)), warnings, offset };
+  const air = order.filter((li) => layerOf(li).air);
+  return { moves: mv, bounds: ob, travel: finite(travel), hull: convexHull(dedupe(hullPts)), warnings, offset, air };
 }
 
 function dedupe(pts: Pt[]): Pt[] {
@@ -809,7 +945,8 @@ export interface GCode {
 
 /**
  * G-Code für FluidNC/GRBL im Lasermodus: M4 (Leistung folgt der Geschwindigkeit), S je Bewegung,
- * unveränderte Werte (G1, X, Y, F, S) werden weggelassen.
+ * unveränderte Werte (G1, X, Y, F, S) werden weggelassen. Air Assist wird je Layer mit M8/M7 ein-
+ * und mit M9 ausgeschaltet.
  */
 export function writeGCode(job: Job, d: Device, est: Estimate, name = 'Laserwerk'): GCode {
   const mv = job.moves;
@@ -831,9 +968,17 @@ export function writeGCode(job: Job, d: Device, est: Estimate, name = 'Laserwerk
     cf = -1,
     cs = -1,
     known = false;
+  const airLayers = new Set(job.air);
+  let air = false;
   for (let i = 0; i < mv.n; i++) {
     const x = mv.x[i],
       y = mv.y[i];
+    const wantAir = airLayers.has(mv.layer[i]);
+    if (wantAir !== air) {
+      air = wantAir;
+      lines.push(air ? d.airCmd || 'M8' : 'M9');
+      times.push(i ? est.t[i - 1] : 0);
+    }
     const rapid = mv.f[i] === 0;
     const xs = num(x),
       ys = num(y);
@@ -862,7 +1007,7 @@ export function writeGCode(job: Job, d: Device, est: Estimate, name = 'Laserwerk
     lines.push(l.trim());
     times.push(est.t[i]);
   }
-  for (const l of fw.footer) {
+  for (const l of [...(air ? ['M9'] : []), ...fw.footer]) {
     lines.push(l);
     times.push(est.total);
   }

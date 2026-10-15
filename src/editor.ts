@@ -1,6 +1,6 @@
 // Editor: Zustand, Zeichnen auf der Arbeitsfläche, Werkzeuge und Befehle.
 import {
-  about, apply, bumpIds, clone, cloneObj, DEFAULT_ADJUST, defaultImageLayer, defaultLayer, Doc, IDENT, ImageAdjust, ImageLayer,
+  about, apply, bumpIds, clone, cloneObj, DEFAULT_ADJUST, defaultImageLayer, defaultLayer, Doc, normalizeLayer, IDENT, ImageAdjust, ImageLayer,
   ImageShape, inv, Layer, leaves, Mat, mul, newDoc, newId, Node, Obj, PALETTE, Pt, rotate, scale, setLayerDeep, Shape, SubPath,
   TextShape, translate,
 } from './model';
@@ -9,10 +9,12 @@ import { ImportResult, transformSubs } from './importers';
 import { traceGray, TraceOptions } from './trace';
 import { BoolOp, booleanOp, OffsetOptions, offsetOp } from './ops';
 import { loadFont, onFontLoaded, textToSubs } from './fonts';
+import { MAX_COPIES } from './arrays';
 import {
-  bezierPt, Box, boundsOf, drawText, hitLeaf, invalidate, invalidateText, leafIntersectsBox, segments, shapeSubs, subsToPath2D,
-  worldPath,
+  bezierPt, Box, boundsOf, drawText, hitLeaf, invalidate, invalidateText, leafIntersectsBox, localPath, segments, shapeSubs, subsToPath2D,
+  textOutline, worldPath,
 } from './geom';
+import { AlignGuide, alignBox, alignPoint, buildSnapSet, findSnap, SNAP_LABELS, SnapHit, SnapSet } from './snap';
 
 export type Tool = 'select' | 'node' | 'line' | 'rect' | 'ellipse' | 'polygon' | 'text';
 
@@ -37,15 +39,23 @@ const HANDLE_OFF = 9; // Abstand der Griffe vom Auswahlrahmen in px
 
 type Drag =
   | { type: 'pan'; sx: number; sy: number; ox: number; oy: number }
-  | { type: 'move'; start: Pt; orig: Mat[]; moved: boolean; toggleRotate: boolean; sx: number; sy: number }
+  | {
+      type: 'move'; start: Pt; orig: Mat[]; moved: boolean; toggleRotate: boolean; sx: number; sy: number;
+      /** Fangpunkt der Auswahl, an dem gegriffen wurde (sonst null: Ecken und Mitte der Auswahl fangen) */
+      anchor: Pt | null; box: Box; snapSet: SnapSet;
+    }
   | { type: 'scale'; handle: number; box: Box; orig: Mat[] }
   | { type: 'rotate'; center: Pt; a0: number; orig: Mat[]; angle: number }
   | { type: 'pivot' }
   | { type: 'marquee'; start: Pt; end: Pt; base: Obj[]; mode: 'set' | 'add' | 'toggle' | 'remove' }
-  | { type: 'create'; start: Pt; obj: Obj | null }
+  | { type: 'create'; start: Pt; obj: Obj | null; snapSet: SnapSet }
   | { type: 'linenode'; node: Node }
+  /** Hilfslinie aus dem Lineal ziehen: 'y' = waagrecht (oberes Lineal), 'x' = senkrecht (linkes Lineal) */
+  | { type: 'guide'; axis: 'x' | 'y'; obj: Obj | null; snapSet: SnapSet }
   | {
       type: 'node'; obj: Obj; sub: number; idx: number; which: 'p' | 'cin' | 'cout'; start: Pt; orig: Node; moved: boolean;
+      /** Gezogener Punkt in Weltkoordinaten zu Beginn und Fangpunkte ohne die bewegten Knoten */
+      origWorld: Pt; snapSet: SnapSet;
       /** Beim Ziehen eines Knotens: alle ausgewählten Knoten mit Ausgangslage */
       group: { sub: number; idx: number; orig: Node }[];
     }
@@ -64,6 +74,13 @@ interface SegHover {
 
 const SNAPSHOT_LIMIT = 200;
 const STORAGE_KEY = 'laserwerk.autosave';
+const SNAP_KEY = 'laserwerk.snap';
+/** Fangabstand in Pixeln; mit Alt größer (wie LightBurn) */
+const SNAP_PX = 8;
+const SNAP_PX_ALT = 20;
+/** Werkzeug-Layer T1: Hilfslinien liegen dort und werden nie gelasert */
+const GUIDE_LAYER = 30;
+type Mods = { altKey: boolean; ctrlKey: boolean; metaKey: boolean };
 
 export class Editor {
   doc: Doc = newDoc();
@@ -78,6 +95,14 @@ export class Editor {
   dark = false;
   snapGrid = false;
   gridStep = 1;
+  /** An Objekten fangen (Knoten, Mittelpunkte, Zentren, Schnittpunkte, Linien) */
+  snapObjects = true;
+  /** Aktueller Fangpunkt zur Anzeige */
+  snapHit: SnapHit | null = null;
+  /** Ausrichtungshilfen (Alt) zur Anzeige */
+  alignGuides: AlignGuide[] = [];
+  private snapCache: { ver: number; set: SnapSet } | null = null;
+  private snapVer = 0;
   currentLayer = 0;
   activeLayer: number | null = null;
   polySides = 6;
@@ -116,6 +141,7 @@ export class Editor {
   constructor(public canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
     this.restore();
+    this.loadSnapSettings();
     // Texte werden mit den Schriftkonturen gezeichnet; nach dem Laden einer Schrift neu zeichnen
     onFontLoaded(() => this.emit('sel'));
     onImageReady(() => this.redraw());
@@ -124,8 +150,9 @@ export class Editor {
     canvas.addEventListener('pointermove', (e) => this.onMove(e));
     canvas.addEventListener('pointerup', (e) => this.onUp(e));
     canvas.addEventListener('pointerleave', () => {
-      if (this.drag || (!this.nodeHover && !this.segHover)) return;
+      if (this.drag || (!this.nodeHover && !this.segHover && !this.snapHit && !this.alignGuides.length)) return;
       this.nodeHover = this.segHover = null;
+      this.clearSnap();
       this.redraw();
     });
     canvas.addEventListener('dblclick', (e) => this.onDouble(e));
@@ -151,6 +178,7 @@ export class Editor {
   }
   emit(what: 'doc' | 'sel' | 'view' | 'tool') {
     this.dirty = true;
+    if (what !== 'view') this.snapVer++;
     this.listeners.forEach((f) => f(what));
     if (what === 'doc') this.scheduleSave();
   }
@@ -161,7 +189,7 @@ export class Editor {
   // ---------- Dokument, Undo, Autosave ----------
 
   layer(i: number): Layer {
-    return (this.doc.layers[i] ??= defaultLayer(i));
+    return normalizeLayer((this.doc.layers[i] ??= defaultLayer(i)));
   }
   /** Bild-Einstellungen eines Layers */
   imgLayer(i: number): ImageLayer {
@@ -431,15 +459,158 @@ export class Editor {
     if (this.draft) this.finishLine();
     this.tool = t;
     this.nodeHover = this.segHover = null;
+    this.clearSnap();
     this.hint = TOOL_HINTS[t];
     this.canvas.style.cursor = t === 'select' ? 'default' : t === 'text' ? 'text' : 'crosshair';
     this.emit('tool');
   }
 
-  private snap(p: Pt): Pt {
-    if (!this.snapGrid) return p;
+  // ---------- Fangen ----------
+
+  /** Fang-Einstellungen ändern und merken */
+  setSnap(patch: { grid?: boolean; objects?: boolean; step?: number }) {
+    if (patch.grid !== undefined) this.snapGrid = patch.grid;
+    if (patch.objects !== undefined) this.snapObjects = patch.objects;
+    if (patch.step !== undefined && patch.step > 0) this.gridStep = patch.step;
+    try {
+      localStorage.setItem(SNAP_KEY, JSON.stringify({ grid: this.snapGrid, objects: this.snapObjects, step: this.gridStep }));
+    } catch {
+      /* Speicher nicht verfügbar */
+    }
+    this.emit('view');
+  }
+  private loadSnapSettings() {
+    try {
+      const st = JSON.parse(localStorage.getItem(SNAP_KEY) ?? '{}');
+      if (typeof st.grid === 'boolean') this.snapGrid = st.grid;
+      if (typeof st.objects === 'boolean') this.snapObjects = st.objects;
+      if (typeof st.step === 'number' && st.step > 0) this.gridStep = st.step;
+    } catch {
+      /* Standardwerte */
+    }
+  }
+  private clearSnap() {
+    this.snapHit = null;
+    this.alignGuides = [];
+  }
+  /** Fangpunkte aller sichtbaren Objekte außer skip */
+  private buildSnap(skip: Obj[] = []): SnapSet {
+    return buildSnapSet(this.doc.objs, (o) => this.layer(o.layer).show, new Set(skip));
+  }
+  /** Fangpunkte aller Objekte, zwischengespeichert bis zur nächsten Änderung */
+  private hoverSnapSet(): SnapSet {
+    if (!this.snapCache || this.snapCache.ver !== this.snapVer) this.snapCache = { ver: this.snapVer, set: this.buildSnap() };
+    return this.snapCache.set;
+  }
+  /** Ctrl hält gedrückt: Fangen umkehren (Standard: aus), wie in LightBurn */
+  private snapModes(e: Mods | null, toggle: boolean) {
+    const flip = !!e && toggle && (e.ctrlKey || e.metaKey);
+    return { obj: this.snapObjects !== flip, grid: this.snapGrid !== flip, alt: !!e?.altKey };
+  }
+  private gridRound(p: Pt): Pt {
     const g = this.gridStep;
     return { x: Math.round(p.x / g) * g, y: Math.round(p.y / g) * g };
+  }
+  /**
+   * Weltpunkt fangen: zuerst Objektfang, mit Alt Ausrichtung an Fangpunkten, sonst Raster.
+   * toggle: Ctrl kehrt das Fangen um (nicht beim Aufziehen von Formen, dort heißt Ctrl „von der Mitte“).
+   */
+  private snapPt(p: Pt, e: Mods | null, opt: { set?: SnapSet; extra?: Pt[]; toggle?: boolean } = {}): Pt {
+    this.clearSnap();
+    const md = this.snapModes(e, opt.toggle ?? true);
+    if (md.obj) {
+      const set = opt.set ?? this.hoverSnapSet();
+      const tol = (md.alt ? SNAP_PX_ALT : SNAP_PX) / this.view.zoom;
+      const hit = findSnap(set, p, tol, opt.extra);
+      if (hit) {
+        this.snapHit = hit;
+        return hit.p;
+      }
+      if (md.alt) {
+        const a = alignPoint(set, p, tol, opt.extra);
+        if (a.guides.length) {
+          this.alignGuides = a.guides;
+          return a.p;
+        }
+      }
+    }
+    return md.grid ? this.gridRound(p) : p;
+  }
+  /** Verschiebung der Auswahl fangen: Griffpunkt oder Ecken/Mitte der Auswahl an anderen Objekten, Alt richtet Kanten aus */
+  private snapMove(d: Extract<Drag, { type: 'move' }>, dx: number, dy: number, e: Mods): [number, number] {
+    this.clearSnap();
+    const md = this.snapModes(e, true);
+    const tol = (md.alt ? SNAP_PX_ALT : SNAP_PX) / this.view.zoom;
+    if (md.obj) {
+      const b = d.box;
+      const own = d.anchor
+        ? [d.anchor]
+        : [0, 0.5, 1].flatMap((fx) => [0, 0.5, 1].map((fy) => ({ x: b.x + fx * b.w, y: b.y + fy * b.h })));
+      let best: { hit: SnapHit; from: Pt; dist: number } | null = null;
+      for (const pass of ['point', 'line'] as const) {
+        for (const q of own) {
+          const moved = { x: q.x + dx, y: q.y + dy };
+          const hit = findSnap(d.snapSet, moved, tol);
+          if (!hit || (pass === 'point') === (hit.kind === 'line')) continue;
+          const dist = Math.hypot(hit.p.x - moved.x, hit.p.y - moved.y);
+          if (!best || dist < best.dist) best = { hit, from: q, dist };
+        }
+        if (best) break;
+      }
+      if (best) {
+        this.snapHit = best.hit;
+        return [best.hit.p.x - best.from.x, best.hit.p.y - best.from.y];
+      }
+      if (md.alt) {
+        const a = alignBox(d.snapSet, { x: b.x + dx, y: b.y + dy, w: b.w, h: b.h }, tol);
+        if (a.guides.length) {
+          this.alignGuides = a.guides;
+          dx += a.dx;
+          dy += a.dy;
+          // nicht ausgerichtete Achse darf noch am Raster fangen
+          if (md.grid && !a.guides.some((g) => g.axis === 'x')) dx = this.gridDelta(d, dx, 'x');
+          if (md.grid && !a.guides.some((g) => g.axis === 'y')) dy = this.gridDelta(d, dy, 'y');
+          return [dx, dy];
+        }
+      }
+    }
+    if (md.grid) return [this.gridDelta(d, dx, 'x'), this.gridDelta(d, dy, 'y')];
+    return [dx, dy];
+  }
+  /** Rasterfang beim Verschieben: der Griffpunkt landet auf dem Raster, ohne Griffpunkt wird der Weg gerundet */
+  private gridDelta(d: Extract<Drag, { type: 'move' }>, v: number, axis: 'x' | 'y'): number {
+    const g = this.gridStep;
+    if (!d.anchor) return Math.round(v / g) * g;
+    return Math.round((d.anchor[axis] + v) / g) * g - d.anchor[axis];
+  }
+  /** Hilfslinie fangen: an der Höhe (bzw. x-Lage) des nächsten Fangpunkts irgendwo auf der Fläche, sonst am Raster */
+  private snapGuide(d: Extract<Drag, { type: 'guide' }>, wp: Pt, e: Mods): number {
+    this.clearSnap();
+    const md = this.snapModes(e, true);
+    const ax = d.axis;
+    if (md.obj) {
+      const tol = (md.alt ? SNAP_PX_ALT : SNAP_PX) / this.view.zoom;
+      let best: (typeof d.snapSet.pts)[number] | null = null;
+      for (const q of d.snapSet.pts) if (Math.abs(q[ax] - wp[ax]) <= tol && (!best || Math.abs(q[ax] - wp[ax]) < Math.abs(best[ax] - wp[ax]))) best = q;
+      if (best) {
+        this.snapHit = { p: { x: best.x, y: best.y }, kind: best.kind };
+        return best[ax];
+      }
+    }
+    return md.grid ? this.gridRound(wp)[ax] : wp[ax];
+  }
+  /** Ist der Werkzeug-Modus einer, bei dem der Mauszeiger schon ohne Ziehen fängt? */
+  private get drawTool() {
+    return this.tool === 'line' || this.tool === 'rect' || this.tool === 'ellipse' || this.tool === 'polygon' || this.tool === 'text';
+  }
+  /** Neue Hilfslinie (Werkzeug-Layer T1) über das ganze Bett */
+  private makeGuide(axis: 'x' | 'y', v: number): Obj {
+    const { w, h } = this.doc.bed;
+    const nodes = axis === 'y' ? [{ x: 0, y: 0 }, { x: w, y: 0 }] : [{ x: 0, y: 0 }, { x: 0, y: h }];
+    return {
+      id: newId(), m: axis === 'y' ? translate(0, v) : translate(v, 0), layer: GUIDE_LAYER,
+      shape: { kind: 'path', subs: [{ nodes, closed: false }] },
+    };
   }
 
   private evPt(e: PointerEvent | MouseEvent) {
@@ -462,6 +633,12 @@ export class Editor {
     }
     if (e.button !== 0) return;
     const ctrl = e.ctrlKey || e.metaKey;
+    // Aus dem Lineal ziehen: Hilfslinie (oben waagrecht, links senkrecht)
+    if ((sy < RULER) !== (sx < RULER) && !this.drag) {
+      if (this.draft) this.finishLine();
+      this.drag = { type: 'guide', axis: sy < RULER ? 'y' : 'x', obj: null, snapSet: this.hoverSnapSet() };
+      return;
+    }
     switch (this.tool) {
       case 'select': {
         if (this.hitPivot(sx, sy)) {
@@ -488,9 +665,12 @@ export class Editor {
             this.setSel([o]);
           }
           if (!this.sel.includes(o)) return;
+          // Wird an einem Fangpunkt der Auswahl gegriffen, fängt genau dieser Punkt
+          const own = findSnap(buildSnapSet(this.sel, (l) => this.layer(l.layer).show), wp, SNAP_PX / this.view.zoom);
           this.drag = {
             type: 'move', start: wp, orig: this.sel.map((x) => x.m), moved: false,
             toggleRotate: was && !e.shiftKey && !ctrl, sx, sy,
+            anchor: own && own.kind !== 'line' ? own.p : null, box: this.selBounds()!, snapSet: this.buildSnap(this.sel),
           };
         } else {
           const mode = e.shiftKey && ctrl ? 'remove' : ctrl ? 'toggle' : e.shiftKey ? 'add' : 'set';
@@ -502,10 +682,10 @@ export class Editor {
       case 'rect':
       case 'ellipse':
       case 'polygon':
-        this.drag = { type: 'create', start: this.snap(wp), obj: null };
+        this.drag = { type: 'create', start: this.snapPt(wp, e, { toggle: false }), obj: null, snapSet: this.hoverSnapSet() };
         return;
       case 'line': {
-        const p = this.snap(wp);
+        const p = this.snapPt(wp, e, { extra: this.draft?.nodes });
         if (!this.draft) this.draft = { nodes: [], closed: false };
         const ns = this.draft.nodes;
         if (ns.length >= 2) {
@@ -530,7 +710,8 @@ export class Editor {
           this.textEditor?.(o, false);
           return;
         }
-        const p = this.snap(wp);
+        const p = this.snapPt(wp, e);
+        this.clearSnap();
         this.snapshot();
         const t: Obj = {
           id: newId(), m: translate(p.x, p.y), layer: this.currentLayer,
@@ -566,10 +747,22 @@ export class Editor {
             this.emit('sel');
           }
           const group = h.which === 'p' ? this.selectedNodes(target).map(({ sub, idx }) => ({ sub, idx, orig: clone(subs[sub].nodes[idx]) })) : [];
+          const orig = clone(subs[h.sub].nodes[h.idx]);
+          const op = h.which === 'p' ? orig : orig[h.which]!;
+          // Fangpunkte: andere Objekte und die ruhenden Knoten des Ziels
+          const snapSet = this.buildSnap([target]);
+          const moving = new Set(h.which === 'p' ? group.map((g) => `${g.sub}:${g.idx}`) : []);
+          subs.forEach((sp, si) =>
+            sp.nodes.forEach((n, ni) => {
+              if (moving.has(`${si}:${ni}`) || (si === h.sub && ni === h.idx)) return;
+              const q = apply(target.m, n.x, n.y);
+              snapSet.addPoint(q.x, q.y, 'node');
+            }),
+          );
           this.snapshot();
           this.drag = {
             type: 'node', obj: target, sub: h.sub, idx: h.idx,
-            which: h.which, start: wp, orig: clone(subs[h.sub].nodes[h.idx]), moved: false, group,
+            which: h.which, start: wp, orig, moved: false, group, origWorld: apply(target.m, op.x, op.y), snapSet,
           };
           return;
         }
@@ -610,6 +803,19 @@ export class Editor {
     const d = this.drag;
     this.emit('view');
     if (!d) {
+      const hadSnap = !!this.snapHit || this.alignGuides.length > 0;
+      this.clearSnap();
+      if ((sy < RULER) !== (sx < RULER)) {
+        this.canvas.style.cursor = sy < RULER ? 'row-resize' : 'col-resize';
+        return;
+      }
+      if (this.drawTool) {
+        // Fangpunkt schon vor dem Klicken zeigen; die Linie im Entstehen folgt ihm
+        this.cursor = this.snapPt(wp, e, { extra: this.draft?.nodes, toggle: this.tool === 'line' || this.tool === 'text' });
+        this.canvas.style.cursor = this.space ? 'grab' : this.tool === 'text' ? 'text' : 'crosshair';
+        return;
+      }
+      if (hadSnap) this.redraw();
       if (this.tool === 'select') {
         const h = this.hitHandle(sx, sy);
         this.canvas.style.cursor = this.hitPivot(sx, sy)
@@ -639,12 +845,13 @@ export class Editor {
         }
         let dx = wp.x - d.start.x,
           dy = wp.y - d.start.y;
-        if (e.shiftKey) Math.abs(dx) > Math.abs(dy) ? (dy = 0) : (dx = 0);
-        if (this.snapGrid) {
-          const g = this.gridStep;
-          dx = Math.round(dx / g) * g;
-          dy = Math.round(dy / g) * g;
-        }
+        const lock = e.shiftKey ? (Math.abs(dx) > Math.abs(dy) ? 'y' : 'x') : null;
+        if (lock === 'y') dy = 0;
+        if (lock === 'x') dx = 0;
+        [dx, dy] = this.snapMove(d, dx, dy, e);
+        // Shift hält die Richtung auch beim Fangen
+        if (lock === 'y') dy = 0;
+        if (lock === 'x') dx = 0;
         const t = translate(dx, dy);
         this.sel.forEach((o, i) => (o.m = mul(t, d.orig[i])));
         this.emit('doc');
@@ -689,10 +896,26 @@ export class Editor {
         if (d.type === 'nodebox') this.redraw();
         return;
       case 'pivot':
-        this.pivot = this.snap(wp);
+        this.pivot = this.snapPt(wp, e);
         return;
+      case 'guide': {
+        const v = this.snapGuide(d, wp, e);
+        const onRuler = d.axis === 'y' ? sy < RULER : sx < RULER;
+        if (!d.obj) {
+          if (onRuler) return;
+          this.snapshot();
+          d.obj = this.makeGuide(d.axis, v);
+          this.doc.objs.push(d.obj);
+          this.setSel([d.obj]);
+        }
+        d.obj.m = d.axis === 'y' ? translate(0, v) : translate(v, 0);
+        const mv = this.toMachine({ x: v, y: v });
+        this.hint = `Hilfslinie ${d.axis === 'y' ? 'y' : 'x'} = ${(d.axis === 'y' ? mv.y : mv.x).toFixed(2)} mm · zurück ins Lineal ziehen verwirft sie`;
+        this.emit('doc');
+        return;
+      }
       case 'create': {
-        const p = this.snap(wp);
+        const p = this.snapPt(wp, e, { set: d.snapSet, toggle: false });
         let dx = p.x - d.start.x,
           dy = p.y - d.start.y;
         if (!d.obj) {
@@ -735,7 +958,7 @@ export class Editor {
       }
       case 'linenode': {
         const n = d.node;
-        const p = this.snap(wp);
+        const p = this.snapPt(wp, e, { extra: this.draft?.nodes.filter((m) => m !== n) });
         if (Math.hypot(p.x - n.x, p.y - n.y) * this.view.zoom < 3) {
           delete n.cin;
           delete n.cout;
@@ -751,8 +974,9 @@ export class Editor {
       case 'node': {
         const o = d.obj;
         const im = inv(o.m);
-        const a = apply(im, d.start.x, d.start.y),
-          b = apply(im, this.snap(wp).x, this.snap(wp).y);
+        const tgt = this.snapPt({ x: d.origWorld.x + wp.x - d.start.x, y: d.origWorld.y + wp.y - d.start.y }, e, { set: d.snapSet });
+        const a = apply(im, d.origWorld.x, d.origWorld.y),
+          b = apply(im, tgt.x, tgt.y);
         const dx = b.x - a.x,
           dy = b.y - a.y;
         d.moved = true;
@@ -799,7 +1023,23 @@ export class Editor {
     const d = this.drag;
     this.drag = null;
     if (!d) return;
+    if (!this.drawTool) this.clearSnap();
+    this.alignGuides = [];
+    this.redraw();
     switch (d.type) {
+      case 'guide': {
+        if (!d.obj) return;
+        const { sx, sy } = this.evPt(e);
+        this.hint = '';
+        if (d.axis === 'y' ? sy < RULER : sx < RULER) {
+          // zurück ins Lineal gezogen: verwerfen
+          this.doc.objs = this.doc.objs.filter((o) => o !== d.obj);
+          this.dropSnapshot();
+          this.setSel([]);
+        }
+        this.emit('doc');
+        return;
+      }
       case 'pan':
         this.canvas.style.cursor = this.tool === 'select' ? 'default' : 'crosshair';
         return;
@@ -952,7 +1192,7 @@ export class Editor {
     if (d.type === 'move' || d.type === 'scale' || d.type === 'rotate') {
       this.sel.forEach((o, i) => (o.m = d.orig[i]));
       if (d.type !== 'move' || d.moved) this.dropSnapshot();
-    } else if (d.type === 'create' && d.obj) {
+    } else if ((d.type === 'create' || d.type === 'guide') && d.obj) {
       this.doc.objs = this.doc.objs.filter((o) => o !== d.obj);
       this.dropSnapshot();
       this.setSel([]);
@@ -969,6 +1209,7 @@ export class Editor {
       this.dropSnapshot();
     }
     this.hint = '';
+    this.clearSnap();
     this.emit('doc');
     this.emit('sel');
   }
@@ -1121,6 +1362,47 @@ export class Editor {
 
   /** Vorschau für den Offset-Dialog (ohne das Dokument zu ändern) */
   offsetPreview: SubPath[] | null = null;
+  /** Vorschau für die Array-Dialoge: Weltmatrix je Kopie (die erste ist das Original) */
+  arrayPreview: Mat[] | null = null;
+  /** Mittelpunkt des Kreisarrays (Welt), wird als Kreuz gezeigt */
+  arrayCenter: Pt | null = null;
+  setArrayPreview(mats: Mat[] | null, center: Pt | null = null) {
+    this.arrayPreview = mats;
+    this.arrayCenter = mats ? center : null;
+    this.redraw();
+  }
+  /** Array anlegen: Auswahl je Matrix kopieren (erste Matrix = Original), optional alles gruppieren. */
+  applyArray(mats: Mat[], asGroup: boolean, what: string) {
+    if (!this.sel.length || mats.length < 2) return;
+    if (mats.length * this.sel.length > MAX_COPIES) {
+      this.hint = `${what}: zu viele Kopien (höchstens ${MAX_COPIES}).`;
+      this.emit('tool');
+      return;
+    }
+    this.snapshot();
+    const originals = this.doc.objs.filter((o) => this.sel.includes(o));
+    const copies: Obj[] = [];
+    for (const M of mats.slice(1)) {
+      for (const o of originals) {
+        const c = cloneObj(o);
+        c.m = mul(M, o.m);
+        copies.push(c);
+      }
+    }
+    const all = [...originals, ...copies];
+    if (asGroup) {
+      const idx = this.doc.objs.indexOf(originals[originals.length - 1]);
+      const g: Obj = { id: newId(), m: IDENT, layer: originals[0].layer, shape: { kind: 'group', children: all } };
+      this.doc.objs.splice(idx + 1, 0, g);
+      this.doc.objs = this.doc.objs.filter((o) => !originals.includes(o));
+      this.setSel([g]);
+    } else {
+      this.doc.objs.push(...copies);
+      this.setSel(all);
+    }
+    this.hint = `${what}: ${mats.length - 1} Kopie${mats.length > 2 ? 'n' : ''} angelegt.`;
+    this.emit('doc');
+  }
   /** Position des Laserkopfs (Werkstückkoordinaten, y nach oben), solange verbunden */
   laserPos: Pt | null = null;
   async previewOffset(opt: OffsetOptions | null) {
@@ -1399,6 +1681,8 @@ export class Editor {
     if (data && this.externalPaste && (await this.externalPaste(data))) return;
     this.paste();
   }
+  /** Rasterarray-Dialog öffnen (Ctrl+Shift+A, von der Oberfläche gesetzt) */
+  onGridArray: (() => void) | null = null;
   /** Datei > Importieren (von der Oberfläche gesetzt) */
   onImport: (() => void) | null = null;
   cut() {
@@ -1753,6 +2037,7 @@ export class Editor {
       if (k === 'v') return run(() => this.mirror(false));
       if (k === 'z') return run(() => this.doRedo());
       if (k === 'c') return run(() => this.convertSelToPath());
+      if (k === 'a') return run(() => this.onGridArray?.());
     }
     const nodeMode = this.tool === 'node' && !!this.nodeTarget();
     if (ctrl && !e.shiftKey && k === 'a' && nodeMode) return run(() => this.selectAllNodes());
@@ -1997,6 +2282,33 @@ export class Editor {
       ctx.setLineDash([]);
     }
 
+    // Array-Vorschau: Umrisse der Kopien
+    if (this.arrayPreview && this.sel.length) {
+      const p = new Path2D();
+      for (const M of this.arrayPreview.slice(1)) {
+        for (const [leaf, m] of leaves(this.sel, M)) {
+          const s = leaf.shape;
+          const local = s.kind === 'text' ? textOutline(s)?.path : s.kind === 'image' ? rectPath(s.w, s.h) : localPath(s);
+          if (local) p.addPath(local, new DOMMatrix(m));
+        }
+      }
+      ctx.strokeStyle = '#ff6020';
+      ctx.setLineDash([4 * px, 2 * px]);
+      ctx.lineWidth = 1.2 * px;
+      ctx.stroke(p);
+      ctx.setLineDash([]);
+      if (this.arrayCenter) {
+        const { x, y } = this.arrayCenter;
+        ctx.lineWidth = 1.5 * px;
+        ctx.beginPath();
+        ctx.moveTo(x - 7 * px, y);
+        ctx.lineTo(x + 7 * px, y);
+        ctx.moveTo(x, y - 7 * px);
+        ctx.lineTo(x, y + 7 * px);
+        ctx.stroke();
+      }
+    }
+
     // Laserkopf (Werkstückkoordinaten der Maschine, y nach oben)
     if (this.laserPos) {
       const lx = this.laserPos.x,
@@ -2171,6 +2483,7 @@ export class Editor {
         ctx.stroke();
       }
     }
+    this.renderSnap(ctx);
     // Startknoten der Linie hervorheben (Schließen)
     if (this.draft && this.draft.nodes.length >= 2) {
       const q = this.toScreen(this.draft.nodes[0]);
@@ -2178,6 +2491,81 @@ export class Editor {
       ctx.lineWidth = 1.5;
       ctx.strokeRect(q.x - 5, q.y - 5, 10, 10);
     }
+  }
+
+  /** Ausrichtungshilfen und Fangpunkt mit Art (wie das Fang-Symbol am Mauszeiger in LightBurn) */
+  private renderSnap(ctx: CanvasRenderingContext2D) {
+    const T = this.colors;
+    if (this.alignGuides.length) {
+      ctx.strokeStyle = SNAP_COLOR;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      for (const g of this.alignGuides) {
+        const a = this.toScreen(g.axis === 'x' ? { x: g.v, y: g.a } : { x: g.a, y: g.v }),
+          b = this.toScreen(g.axis === 'x' ? { x: g.v, y: g.b } : { x: g.b, y: g.v });
+        const pad = 12;
+        if (g.axis === 'x') {
+          const x = Math.round(a.x) + 0.5;
+          ctx.moveTo(x, Math.min(a.y, b.y) - pad);
+          ctx.lineTo(x, Math.max(a.y, b.y) + pad);
+        } else {
+          const y = Math.round(a.y) + 0.5;
+          ctx.moveTo(Math.min(a.x, b.x) - pad, y);
+          ctx.lineTo(Math.max(a.x, b.x) + pad, y);
+        }
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    const hit = this.snapHit;
+    if (!hit) return;
+    const q = this.toScreen(hit.p);
+    const x = Math.round(q.x) + 0.5,
+      y = Math.round(q.y) + 0.5;
+    ctx.strokeStyle = SNAP_COLOR;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    switch (hit.kind) {
+      case 'node':
+        ctx.rect(x - 5, y - 5, 10, 10);
+        break;
+      case 'mid':
+        ctx.moveTo(x, y - 6);
+        ctx.lineTo(x + 6, y + 4.5);
+        ctx.lineTo(x - 6, y + 4.5);
+        ctx.closePath();
+        break;
+      case 'center':
+        ctx.arc(x, y, 5.5, 0, Math.PI * 2);
+        ctx.moveTo(x - 8, y);
+        ctx.lineTo(x + 8, y);
+        ctx.moveTo(x, y - 8);
+        ctx.lineTo(x, y + 8);
+        break;
+      case 'cross':
+        ctx.moveTo(x - 5, y - 5);
+        ctx.lineTo(x + 5, y + 5);
+        ctx.moveTo(x + 5, y - 5);
+        ctx.lineTo(x - 5, y + 5);
+        break;
+      case 'line':
+        ctx.moveTo(x, y - 5);
+        ctx.lineTo(x + 5, y);
+        ctx.lineTo(x, y + 5);
+        ctx.lineTo(x - 5, y);
+        ctx.closePath();
+        break;
+    }
+    ctx.stroke();
+    const label = SNAP_LABELS[hit.kind];
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+    const w = ctx.measureText(label).width + 8;
+    ctx.fillStyle = T.label;
+    ctx.fillRect(x + 10, y + 8, w, 16);
+    ctx.fillStyle = T.labelText;
+    ctx.fillText(label, x + 14, y + 16);
   }
 
   private renderRulers(ctx: CanvasRenderingContext2D) {
@@ -2261,6 +2649,12 @@ function cachedWorldPath(o: Obj, m: Mat): Path2D {
   return path;
 }
 
+function rectPath(w: number, h: number): Path2D {
+  const p = new Path2D();
+  p.rect(0, 0, w, h);
+  return p;
+}
+
 function closedPath(subs: SubPath[], m: Mat): Path2D {
   const p = new Path2D();
   p.addPath(subsToPath2D(subs.filter((sp) => sp.closed)), new DOMMatrix(m));
@@ -2287,6 +2681,9 @@ const ROTATE_CURSOR =
   `url("data:image/svg+xml,${encodeURIComponent(
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12a7 7 0 1 1-2-5" stroke="white" stroke-width="4"/><path d="M19 4v4h-4" stroke="white" stroke-width="4"/><path d="M19 12a7 7 0 1 1-2-5" stroke="black" stroke-width="1.8"/><path d="M19 4v4h-4" stroke="black" stroke-width="1.8"/></g></svg>',
   )}") 12 12, alias`;
+
+/** Farbe für Fangpunkte und Ausrichtungshilfen (auf hellem und dunklem Grund gut sichtbar) */
+const SNAP_COLOR = '#e0218a';
 
 const fmt = (v: number) => (Math.abs(v) < 1e-9 ? '0' : String(Math.round(v * 100) / 100));
 
