@@ -166,6 +166,12 @@ fn decode_base64(s: &str) -> Option<Vec<u8>> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // Kamera für das Kamerabild auf der Arbeitsfläche ohne zusätzliche Rückfrage der Webansicht freigeben;
+        // die Freigabe des Betriebssystems (macOS: Datenschutz › Kamera) bleibt davon unberührt.
+        .on_permission_request(|_, kind| match kind {
+            tauri::webview::PermissionKind::Camera => tauri::webview::PermissionResponse::Allow,
+            _ => tauri::webview::PermissionResponse::Default,
+        })
         .manage(machine::Machine::default())
         .invoke_handler(tauri::generate_handler![
             save_text_file,

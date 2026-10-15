@@ -8,6 +8,7 @@ import {
   saveDevices, StartFrom, writeGCode,
 } from './gcode';
 import { isTauri, machine, PortInfo } from './machine';
+import { cameraTab } from './cameraui';
 
 const store = loadDevices();
 /** Das gewählte Gerät (live gebunden: wechselt mit der Auswahl) */
@@ -139,6 +140,7 @@ export function buildLaser(ed: Editor) {
     ['Laser', laserTab(ed)],
     ['Verschieben', moveTab(ed)],
     ['Konsole', consoleTab()],
+    ['Kamera', cameraTab(ed)],
   ];
   title.textContent = '';
   title.classList.add('tabs');
