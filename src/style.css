@@ -1229,3 +1229,14 @@ table.layers td:nth-child(2) {
 .note.error {
   color: #d03030;
 }
+.hinge-inline {
+  display: flex;
+  gap: 6px;
+}
+.hinge-inline input {
+  flex: 1;
+  min-width: 0;
+}
+.hinge-dialog {
+  width: min(440px, 95vw);
+}

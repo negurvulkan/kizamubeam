@@ -8,6 +8,7 @@ import { systemFonts } from './fonts';
 import { $, evalExpr, f2, h, iconBtn, numInput, sep, setVal } from './dom';
 import { openCircularArrayDialog, openGridArrayDialog } from './arrayDialogs';
 import { openJointDialog } from './jointDialog';
+import { openHingeDialog } from './hingeDialog';
 import { buildLaser, frameJob, openDeviceDialog, openDevicesDialog, openPreview, saveGCode, startJob } from './laser';
 import { openLayerDialog } from './layerdialog';
 import { openMaterialTestDialog } from './materialtest';
@@ -148,6 +149,7 @@ function buildMenu(ed: Editor) {
       ['Rasterarray …', 'Ctrl+Shift+A', () => openGridArrayDialog(ed)],
       ['Kreisarray …', '', () => openCircularArrayDialog(ed)],
       ['Verbindungen (Zinken, Zapfen, Keil, T-Slot) …', '', () => ed.setTool('joint')],
+      ['Biegeschnitte (Living Hinge) …', '', () => openHingeDialog(ed)],
       'sep',
       ['Bild anpassen …', '', () => openAdjustDialog(ed)],
       ['Bild nachzeichnen …', 'Alt+T', () => openTraceDialog(ed)],
@@ -572,7 +574,8 @@ function buildTools(ed: Editor) {
   const joint = iconBtn('joint', 'Verbindung: Fingerzinken, Zapfen, Überblattung, Schnapp-, Haken-, Keil- oder T-Slot-Verbindung auf gerade Kanten anwenden', () => ed.setTool('joint'));
   joint.dataset.tool = 'joint';
   btns.set('joint', joint);
-  bar.append(...mods, boolOpts, off, ...arrays, joint);
+  const hinge = iconBtn('hinge', 'Biegeschnitte (Living Hinge): gewählte Form mit einem Schnittmuster füllen, damit sich die Platte dort biegen lässt', () => openHingeDialog(ed));
+  bar.append(...mods, boolOpts, off, ...arrays, joint, hinge);
   const refresh = () => {
     btns.forEach((b, t) => b.classList.toggle('on', ed.tool === t));
     mods.forEach((b) => (b.disabled = ed.sel.length < 2));
