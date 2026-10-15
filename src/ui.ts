@@ -241,6 +241,9 @@ function showHelp() {
     ['Mausrad', 'Zoomen'],
     ['Knoten: D I C S', 'Löschen, Einfügen, Ecke, Glatt'],
     ['Alt+W', 'Drahtgitter / Gefüllt'],
+    ['Ctrl beim Ziehen', 'Fangen vorübergehend umkehren (aus, wenn eingeschaltet)'],
+    ['Alt beim Ziehen', 'Stärker fangen und Ausrichtungshilfen an anderen Objekten'],
+    ['Aus dem Lineal ziehen', 'Hilfslinie auf T1 (zurück ins Lineal: verwerfen)'],
     ['Ctrl+I', 'Importieren (Bilder, SVG, DXF); Dateien auch auf die Arbeitsfläche ziehen oder mit Ctrl+V einfügen'],
     ['Alt+T', 'Bild nachzeichnen'],
     ['Alt+P', 'Vorschau mit Zeitschätzung'],
@@ -1056,14 +1059,16 @@ function buildStatus(ed: Editor) {
   const coords = h('span', { class: 'coords' });
   const selInfo = h('span', {});
   const hint = h('span', { class: 'hint' });
-  const snap = h('input', { type: 'checkbox', onchange: (e: Event) => ((ed.snapGrid = (e.target as HTMLInputElement).checked), ed.emit('view')) }) as HTMLInputElement;
-  const step = numInput('', (v) => v > 0 && (ed.gridStep = v), 'Rasterweite (mm)');
+  const snap = h('input', { type: 'checkbox', onchange: (e: Event) => ed.setSnap({ grid: (e.target as HTMLInputElement).checked }) }) as HTMLInputElement;
+  const snapObj = h('input', { type: 'checkbox', onchange: (e: Event) => ed.setSnap({ objects: (e.target as HTMLInputElement).checked }) }) as HTMLInputElement;
+  const step = numInput('', (v) => v > 0 && ed.setSnap({ step: v }), 'Rasterweite (mm)');
   step.style.width = '40px';
   step.value = String(ed.gridStep);
   const filled = h('input', { type: 'checkbox', checked: ed.filled, onchange: (e: Event) => ((ed.filled = (e.target as HTMLInputElement).checked), ed.emit('view')) }) as HTMLInputElement;
   const zoom = h('span', {});
   root.append(
     coords, selInfo, hint,
+    h('label', { title: 'An Knoten, Mittelpunkten, Zentren, Schnittpunkten und Linien fangen (Ctrl beim Ziehen: umkehren, Alt: stärker und Ausrichtungshilfen)' }, snapObj, 'Fang'),
     h('label', { title: 'Am Raster fangen' }, snap, 'Raster', step, 'mm'),
     h('label', { title: 'Füll-Layer gefüllt anzeigen (Alt+W)' }, filled, 'Gefüllt'),
     zoom,
@@ -1075,6 +1080,7 @@ function buildStatus(ed: Editor) {
     selInfo.textContent = b ? `${ed.sel.length} Objekt${ed.sel.length > 1 ? 'e' : ''} · ${b.w.toFixed(2)} × ${b.h.toFixed(2)} mm` : `${ed.doc.objs.length} Objekte`;
     hint.textContent = ed.hint;
     snap.checked = ed.snapGrid;
+    snapObj.checked = ed.snapObjects;
     filled.checked = ed.filled;
     zoom.textContent = `${Math.round(ed.view.zoom * 100) / 100} px/mm`;
   };
