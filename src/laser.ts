@@ -504,6 +504,16 @@ export function openDeviceDialog(ed: Editor, target: Device = device, onDone?: (
   const bh = num('Höhe (mm)', () => bed.h, (v) => (bed.h = v), 'Arbeitsbereich Y');
   sMaxRef.el = num('S-Wert für 100 %', () => d.sMax, (v) => (d.sMax = v), 'GRBL $30 bzw. FluidNC speed_map (meist 1000), Marlin meist 255, Smoothieware 1');
   head('Verbindung');
+  rows.push(h('label', {}, 'Anschluss'), h('select', { onchange: (e: Event) => (d.conn = (e.target as HTMLSelectElement).value as Device['conn']) },
+    h('option', { value: 'serial', selected: d.conn === 'serial' }, 'USB (seriell)'),
+    h('option', { value: 'tcp', selected: d.conn === 'tcp' }, 'WLAN (Telnet)'),
+  ));
+  // Schnittstelle frei eintragbar (z. B. COM3, /dev/ttyUSB0), erkannte Schnittstellen als Vorschlag
+  const portList = h('datalist', { id: `ports-${Math.random().toString(36).slice(2)}` });
+  const portIn = h('input', { type: 'text', value: d.port, placeholder: 'z. B. COM3 oder /dev/ttyUSB0', oninput: (e: Event) => (d.port = (e.target as HTMLInputElement).value.trim()) });
+  portIn.setAttribute('list', portList.id);
+  rows.push(h('label', { title: 'Feste USB-Schnittstelle dieses Geräts' }, 'USB-Schnittstelle'), portIn, portList);
+  machine.ports().then((ps) => ps.forEach((p) => portList.append(h('option', { value: p.name }, p.description || p.name)))).catch(() => {});
   const baud = h('select', { onchange: (e: Event) => (d.baud = Number((e.target as HTMLSelectElement).value)) },
     ...[57600, 115200, 230400, 250000, 460800, 921600].map((b) => h('option', { value: String(b), selected: b === d.baud }, String(b))),
   );
