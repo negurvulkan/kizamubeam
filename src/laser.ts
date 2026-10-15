@@ -48,6 +48,8 @@ function selectDevice(ed: Editor, id: string) {
 
 /** Kurze Meldung im Laser-Panel (und in der Konsole) */
 let notify: (msg: string, error?: boolean) => void = (m) => machine.log(m);
+/** Meldung im Laser-Panel, auch für Aktionen von KI-Agenten */
+export const laserNotify = (msg: string, error = false) => notify(msg, error);
 
 // ---------- Job ----------
 
@@ -65,7 +67,7 @@ export interface JobSource {
   color: (i: number) => string;
 }
 
-async function makeJob(ed: Editor, forPreview: boolean, src?: JobSource): Promise<Job> {
+export async function makeJob(ed: Editor, forPreview: boolean, src?: JobSource): Promise<Job> {
   const pos = machine.status.wpos;
   return buildJob({
     doc: src?.doc ?? ed.doc,
@@ -98,26 +100,22 @@ function boundsOk(ed: Editor, job: Job): boolean {
   );
 }
 
-function canRun(): boolean {
-  if (!machine.connected) {
-    notify(t('Nicht verbunden.'), true);
-    return false;
-  }
-  if (machine.busy) {
-    notify(t('Es läuft bereits ein Auftrag.'), true);
-    return false;
-  }
-  if (machine.status.state.startsWith('Alarm')) {
-    notify(fw().unlock
+/** Warum gerade kein Job oder Rahmen laufen kann (null = es geht) */
+export function runBlocker(): string | null {
+  if (!machine.connected) return t('Nicht verbunden.');
+  if (machine.busy) return t('Es läuft bereits ein Auftrag.');
+  if (machine.status.state.startsWith('Alarm'))
+    return fw().unlock
       ? t('Die Maschine ist im Alarmzustand. Erst referenzieren (Home) oder entsperren ({unlock}).', { unlock: fw().unlock! })
-      : t('Die Maschine ist im Alarmzustand. Erst referenzieren (Home).'), true);
-    return false;
-  }
-  if (device.startFrom === 'current' && !machine.status.wpos) {
-    notify(t('Die aktuelle Position ist noch nicht bekannt.'), true);
-    return false;
-  }
-  return true;
+      : t('Die Maschine ist im Alarmzustand. Erst referenzieren (Home).');
+  if (device.startFrom === 'current' && !machine.status.wpos) return t('Die aktuelle Position ist noch nicht bekannt.');
+  return null;
+}
+
+function canRun(): boolean {
+  const why = runBlocker();
+  if (why) notify(why, true);
+  return !why;
 }
 
 export async function startJob(ed: Editor, src?: JobSource) {
@@ -565,6 +563,19 @@ export function openDeviceDialog(ed: Editor, target: Device = device, onDone?: (
     h('option', { value: 'M8', selected: d.airCmd !== 'M7' }, t('M8 (Flood, üblich)')),
     h('option', { value: 'M7', selected: d.airCmd === 'M7' }, 'M7 (Mist)'),
   ));
+  head(t('KI-Agenten'));
+  const limit = (label: string, title: string, get: () => number, set: (v: number) => void) => {
+    const el = numInput('', (v) => {
+      set(v);
+      el.value = String(get());
+    }, title);
+    el.value = String(get());
+    rows.push(h('label', { title }, label), el);
+  };
+  limit(t('Höchste Leistung (%)'), t('Jobs, die ein KI-Agent anfordert, dürfen auf keinem Layer mehr Leistung haben'),
+    () => d.agentMaxPower, (v) => (d.agentMaxPower = Math.max(0, Math.min(100, v))));
+  limit(t('Kleinste Geschwindigkeit (mm/min)'), t('Jobs, die ein KI-Agent anfordert, dürfen nirgends langsamer sein (0 = keine Grenze)'),
+    () => d.agentMinSpeed, (v) => (d.agentMinSpeed = Math.max(0, v)));
   const readNote = h('div', { class: 'note' });
   // Lesen nur vom verbundenen Gerät und nur bei FluidNC und GRBL-artigen Steuerungen
   const canRead = () => isCurrent && machine.connected && !machine.busy && FIRMWARES[d.fw].read !== null;

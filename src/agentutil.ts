@@ -30,6 +30,24 @@ export interface ToolDef {
 /** Fehler, die der Agent als Werkzeugergebnis sieht (statt als Protokollfehler) */
 export class ToolError extends Error {}
 
+// ---------- Protokoll der Aufrufe ----------
+
+export interface LogEntry {
+  time: Date;
+  tool: string;
+  summary: string;
+  ok: boolean;
+}
+export const agentLog: LogEntry[] = [];
+const logListeners = new Set<() => void>();
+export const onAgentLog = (f: () => void) => (logListeners.add(f), () => logListeners.delete(f));
+export function log(e: LogEntry) {
+  agentLog.push(e);
+  if (agentLog.length > 200) agentLog.shift();
+  logListeners.forEach((f) => f());
+}
+
+
 // ---------- Hilfen ----------
 
 export const r3 = (v: number) => Math.round(v * 1000) / 1000;

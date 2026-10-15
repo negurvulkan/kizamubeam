@@ -99,6 +99,9 @@ export interface Device {
   frameSpeed: number;
   /** Befehl für Air Assist an (aus immer mit M9): M8 = Flood, M7 = Mist */
   airCmd: 'M8' | 'M7';
+  /** Grenzen für Jobs, die ein KI-Agent anfordert: höchste Leistung in %, kleinste Geschwindigkeit in mm/min (0 = keine) */
+  agentMaxPower: number;
+  agentMinSpeed: number;
 }
 
 export const DEFAULT_DEVICE: Device = {
@@ -126,6 +129,8 @@ export const DEFAULT_DEVICE: Device = {
   framePower: 1,
   frameSpeed: 3000,
   airCmd: 'M8',
+  agentMaxPower: 100,
+  agentMinSpeed: 0,
 };
 
 /** Vorlagen für neue Geräte. Maße nach Herstellerangabe; vor dem ersten Job mit „Von der Maschine lesen“ prüfen. */
