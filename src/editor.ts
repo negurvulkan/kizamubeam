@@ -7,7 +7,7 @@ import {
 import { addAsset, adjustedGray, assetUrl, displayCanvas, onImageReady, registerAsset, restoreAssets, sourceSize } from './images';
 import { ImportResult, transformSubs } from './importers';
 import { traceGray, TraceOptions } from './trace';
-import { BoolOp, booleanOp, OffsetOptions, offsetOp } from './ops';
+import { BoolBase, BoolOp, booleanOp, OffsetOptions, offsetOp, orderForBoolean } from './ops';
 import { loadFont, onFontLoaded, textToSubs } from './fonts';
 import { MAX_COPIES } from './arrays';
 import {
@@ -75,6 +75,7 @@ interface SegHover {
 const SNAPSHOT_LIMIT = 200;
 const STORAGE_KEY = 'laserwerk.autosave';
 const SNAP_KEY = 'laserwerk.snap';
+const BOOL_KEY = 'laserwerk.boolean';
 /** Fangabstand in Pixeln; mit Alt größer (wie LightBurn) */
 const SNAP_PX = 8;
 const SNAP_PX_ALT = 20;
@@ -142,6 +143,7 @@ export class Editor {
     this.ctx = canvas.getContext('2d')!;
     this.restore();
     this.loadSnapSettings();
+    this.loadBoolSettings();
     // Texte werden mit den Schriftkonturen gezeichnet; nach dem Laden einer Schrift neu zeichnen
     onFontLoaded(() => this.emit('sel'));
     onImageReady(() => this.redraw());
@@ -1316,27 +1318,63 @@ export class Editor {
     return out;
   }
 
-  /** Boolesche Operation auf die Auswahl. Das zuerst gewählte Objekt ist die Basis. */
-  async booleanSel(op: BoolOp) {
+  /** Basis bei Booleschen Operationen: zuerst gewähltes, hinterstes oder vorderstes Objekt */
+  boolBase: BoolBase = 'selection';
+  /** Originalobjekte nach Booleschen Operationen behalten */
+  boolKeep = false;
+  setBoolOptions(patch: { base?: BoolBase; keep?: boolean }) {
+    if (patch.base) this.boolBase = patch.base;
+    if (patch.keep !== undefined) this.boolKeep = patch.keep;
+    try {
+      localStorage.setItem(BOOL_KEY, JSON.stringify({ base: this.boolBase, keep: this.boolKeep }));
+    } catch {
+      /* Speicher nicht verfügbar */
+    }
+    this.emit('tool');
+  }
+  private loadBoolSettings() {
+    try {
+      const st = JSON.parse(localStorage.getItem(BOOL_KEY) ?? '{}');
+      if (st.base === 'selection' || st.base === 'back' || st.base === 'front') this.boolBase = st.base;
+      if (typeof st.keep === 'boolean') this.boolKeep = st.keep;
+    } catch {
+      /* Standardwerte */
+    }
+  }
+
+  /**
+   * Boolesche Operation auf die Auswahl. Welches Objekt die Basis ist, bestimmt `base`
+   * (sonst die Einstellung boolBase): beim Abziehen werden alle anderen von der Basis abgezogen.
+   */
+  async booleanSel(op: BoolOp, base: BoolBase = this.boolBase) {
     // Bilder nehmen nicht teil (sie haben keine Kontur)
-    const inputs = this.sel.filter((o) => o.shape.kind !== 'image');
+    const inputs = orderForBoolean(this.sel.filter((o) => o.shape.kind !== 'image'), this.doc.objs, base);
     if (inputs.length < 2) {
       this.hint = 'Für Boolesche Operationen mindestens zwei Formen auswählen.';
       this.emit('tool');
       return;
     }
     const subs = booleanOp(op, await this.withTextOutlines(inputs));
+    const keep = this.boolKeep;
+    if (!subs.length && keep) {
+      this.hint = 'Ergebnis ist leer (keine gemeinsame Fläche).';
+      this.emit('tool');
+      return;
+    }
     this.snapshot();
-    const idx = Math.min(...inputs.map((o) => this.doc.objs.indexOf(o)));
-    this.doc.objs = this.doc.objs.filter((o) => !inputs.includes(o));
+    const z = inputs.map((o) => this.doc.objs.indexOf(o));
+    // Ohne Originale nimmt das Ergebnis den Platz des hintersten Objekts ein, sonst liegt es direkt vor dem vordersten
+    let idx = keep ? Math.max(...z) + 1 : Math.min(...z);
+    if (!keep) this.doc.objs = this.doc.objs.filter((o) => !inputs.includes(o));
     if (!subs.length) {
       this.hint = 'Ergebnis ist leer (keine gemeinsame Fläche).';
       this.setSel([]);
     } else {
       const res: Obj = { id: newId(), m: IDENT, layer: inputs[0].layer, shape: { kind: 'path', subs } };
+      idx = Math.min(idx, this.doc.objs.length);
       this.doc.objs.splice(idx, 0, res);
       this.setSel([res]);
-      this.hint = '';
+      this.hint = keep ? 'Originale behalten, Ergebnis liegt davor.' : '';
     }
     this.emit('doc');
   }
