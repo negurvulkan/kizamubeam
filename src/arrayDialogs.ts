@@ -10,7 +10,7 @@ let circState = { count: 6, span: 360, ccw: true, rotate: true, group: false };
 const fmt = (v: number) => (Number.isInteger(v) ? String(v) : f2(v));
 
 /** Zahlenfeld mit Formeln, das schon beim Tippen die Vorschau aktualisiert */
-function numField(id: string, value: number, set: (v: number) => void, title?: string) {
+export function numField(id: string, value: number, set: (v: number) => void, title?: string) {
   const el = h('input', { type: 'text', id, title, value: fmt(value) }) as HTMLInputElement;
   const take = () => {
     const v = evalExpr(el.value);
@@ -32,10 +32,10 @@ function numField(id: string, value: number, set: (v: number) => void, title?: s
   return el;
 }
 
-const check = (checked: boolean, set: (v: boolean) => void, label: string) =>
+export const check = (checked: boolean, set: (v: boolean) => void, label: string) =>
   h('label', { class: 'check' }, h('input', { type: 'checkbox', checked, onchange: (e: Event) => set((e.target as HTMLInputElement).checked) }), label);
 
-function select<T extends string>(id: string, cur: T, opts: [T, string][], set: (v: T) => void) {
+export function select<T extends string>(id: string, cur: T, opts: [T, string][], set: (v: T) => void) {
   return h('select', { id, onchange: (e: Event) => set((e.target as HTMLSelectElement).value as T) },
     ...opts.map(([v, l]) => h('option', { value: v, selected: v === cur }, l)));
 }

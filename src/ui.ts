@@ -7,6 +7,7 @@ import { assetImage, displayCanvas, outputGrid } from './images';
 import { systemFonts } from './fonts';
 import { $, evalExpr, f2, h, iconBtn, numInput, sep, setVal } from './dom';
 import { openCircularArrayDialog, openGridArrayDialog } from './arrayDialogs';
+import { openJointDialog } from './jointDialog';
 import { buildLaser, frameJob, openDeviceDialog, openDevicesDialog, openPreview, saveGCode, startJob } from './laser';
 import { openLayerDialog } from './layerdialog';
 import { openMaterialTestDialog } from './materialtest';
@@ -88,6 +89,7 @@ export function buildUI(ed: Editor) {
   buildTextEditor(ed);
   ed.onImport = () => importFile(ed);
   ed.onGridArray = () => openGridArrayDialog(ed);
+  ed.onJointDialog = () => openJointDialog(ed);
   installDropAndPaste(ed, $('#stage'));
   window.addEventListener('keydown', (e) => {
     const el = e.target as HTMLElement;
@@ -145,6 +147,7 @@ function buildMenu(ed: Editor) {
       ['Offset …', 'Alt+O', () => openOffsetDialog(ed)],
       ['Rasterarray …', 'Ctrl+Shift+A', () => openGridArrayDialog(ed)],
       ['Kreisarray …', '', () => openCircularArrayDialog(ed)],
+      ['Verbindung (Fingerzinken, Zapfen) …', '', () => ed.setTool('joint')],
       'sep',
       ['Bild anpassen …', '', () => openAdjustDialog(ed)],
       ['Bild nachzeichnen …', 'Alt+T', () => openTraceDialog(ed)],
@@ -566,7 +569,10 @@ function buildTools(ed: Editor) {
     iconBtn('gridArray', 'Rasterarray: Auswahl in Spalten und Zeilen kopieren (Ctrl+Shift+A)', () => openGridArrayDialog(ed)),
     iconBtn('circArray', 'Kreisarray: Auswahl im Kreis um einen Mittelpunkt kopieren', () => openCircularArrayDialog(ed)),
   ];
-  bar.append(...mods, boolOpts, off, ...arrays);
+  const joint = iconBtn('joint', 'Verbindung: Fingerzinken oder Schlitz und Zapfen auf gerade Kanten anwenden', () => ed.setTool('joint'));
+  joint.dataset.tool = 'joint';
+  btns.set('joint', joint);
+  bar.append(...mods, boolOpts, off, ...arrays, joint);
   const refresh = () => {
     btns.forEach((b, t) => b.classList.toggle('on', ed.tool === t));
     mods.forEach((b) => (b.disabled = ed.sel.length < 2));

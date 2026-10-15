@@ -10,13 +10,14 @@ import { traceGray, TraceOptions } from './trace';
 import { BoolBase, BoolOp, booleanOp, OffsetOptions, offsetOp, orderForBoolean } from './ops';
 import { loadFont, onFontLoaded, textToSubs } from './fonts';
 import { MAX_COPIES } from './arrays';
+import { computeJoint, EdgePick, isStraight, JointOptions } from './joints';
 import {
   bezierPt, Box, boundsOf, drawText, hitLeaf, invalidate, invalidateText, leafIntersectsBox, localPath, segments, shapeSubs, subsToPath2D,
   textOutline, worldPath,
 } from './geom';
 import { AlignGuide, alignBox, alignPoint, buildSnapSet, findSnap, SNAP_LABELS, SnapHit, SnapSet } from './snap';
 
-export type Tool = 'select' | 'node' | 'line' | 'rect' | 'ellipse' | 'polygon' | 'text';
+export type Tool = 'select' | 'node' | 'line' | 'rect' | 'ellipse' | 'polygon' | 'text' | 'joint';
 
 export const RULER = 22; // px
 
@@ -223,6 +224,9 @@ export class Editor {
     bumpIds(this.doc.objs);
     const ids = new Set<number>(st.sel ?? []);
     this.sel = this.doc.objs.filter((o) => ids.has(o.id));
+    // Gewählte Kanten zeigen auf die alten Objekte
+    this.jointPicks = [];
+    this.jointHover = null;
   }
   /** Vor jeder Änderung aufrufen. */
   snapshot() {
@@ -461,6 +465,8 @@ export class Editor {
     if (this.draft) this.finishLine();
     this.tool = t;
     this.nodeHover = this.segHover = null;
+    this.jointPicks = [];
+    this.jointHover = null;
     this.clearSnap();
     this.hint = TOOL_HINTS[t];
     this.canvas.style.cursor = t === 'select' ? 'default' : t === 'text' ? 'text' : 'crosshair';
@@ -725,6 +731,18 @@ export class Editor {
         this.textEditor?.(t, true);
         return;
       }
+      case 'joint': {
+        const h = this.jointHover;
+        if (!h) return;
+        const i = this.jointPicks.findIndex((p) => p.obj === h.obj && p.sub === h.sub && p.seg === h.seg);
+        if (i >= 0) this.jointPicks.splice(i, 1);
+        else this.jointPicks = [...this.jointPicks.slice(-1), h];
+        this.hint = this.jointPicks.length === 1 ? JOINT_HINT_SECOND : TOOL_HINTS.joint;
+        this.emit('tool');
+        this.redraw();
+        if (this.jointPicks.length === 2) this.onJointDialog?.();
+        return;
+      }
       case 'node': {
         const target = this.nodeTarget();
         const add = e.shiftKey || e.ctrlKey || e.metaKey;
@@ -832,6 +850,7 @@ export class Editor {
                 ? 'grab'
                 : 'default';
       } else if (this.tool === 'node') this.updateNodeHover(sx, sy);
+      else if (this.tool === 'joint') this.updateJointHover(sx, sy);
       return;
     }
     switch (d.type) {
@@ -1217,6 +1236,83 @@ export class Editor {
   }
 
   // ---------- Knotenbearbeitung ----------
+
+  // ---------- Verbindungen (Fingerzinken, Schlitz und Zapfen) ----------
+
+  /** Gewählte Kanten für eine Verbindung (höchstens zwei) und Kante unter dem Mauszeiger */
+  jointPicks: EdgePick[] = [];
+  jointHover: EdgePick | null = null;
+  /** Öffnet den Verbindungs-Dialog (ui.ts) */
+  onJointDialog: (() => void) | null = null;
+  /** Vorschau der Verbindung: neue Konturen der betroffenen Objekte (Welt) */
+  jointPreview: SubPath[] | null = null;
+
+  /** Nächste gerade Kante eines sichtbaren Objekts unter dem Mauszeiger */
+  private updateJointHover(sx: number, sy: number) {
+    const prev = this.jointHover;
+    let best = 7;
+    this.jointHover = null;
+    for (const [leaf, m] of leaves(this.doc.objs)) {
+      const k = leaf.shape.kind;
+      if (k === 'text' || k === 'image' || !this.layer(leaf.layer).show) continue;
+      shapeSubs(leaf.shape).forEach((sp, si) =>
+        segments(sp).forEach((sg, gi) => {
+          if (sg.curve) return;
+          const a = this.toScreen(apply(m, sg.a.x, sg.a.y)),
+            b = this.toScreen(apply(m, sg.b.x, sg.b.y));
+          const dx = b.x - a.x,
+            dy = b.y - a.y;
+          const l2 = dx * dx + dy * dy;
+          if (l2 < 1) return;
+          const t = Math.max(0, Math.min(1, ((sx - a.x) * dx + (sy - a.y) * dy) / l2));
+          const d = Math.hypot(a.x + dx * t - sx, a.y + dy * t - sy);
+          if (d < best) {
+            best = d;
+            this.jointHover = { obj: leaf, m, sub: si, seg: gi };
+          }
+        }),
+      );
+    }
+    // im forEach gesetzt: TypeScript sieht das nicht
+    const h = this.jointHover as EdgePick | null;
+    this.canvas.style.cursor = h ? 'pointer' : 'crosshair';
+    if (!h !== !prev || (h && prev && (h.obj !== prev.obj || h.sub !== prev.sub || h.seg !== prev.seg))) this.redraw();
+  }
+
+  /** Gewählte Kanten, die es im Dokument noch gibt */
+  validJointPicks(): EdgePick[] {
+    const alive = new Set([...leaves(this.doc.objs)].map(([o]) => o));
+    return this.jointPicks.filter((p) => alive.has(p.obj) && isStraight(p.obj, p.sub, p.seg));
+  }
+  clearJointPicks() {
+    this.jointPicks = [];
+    this.hint = this.tool === 'joint' ? TOOL_HINTS.joint : this.hint;
+    this.emit('tool');
+    this.redraw();
+  }
+  setJointPreview(subs: SubPath[] | null) {
+    this.jointPreview = subs;
+    this.redraw();
+  }
+  /** Verbindung auf die gewählten Kanten anwenden; die Objekte werden zu Pfaden. */
+  applyJoint(opt: JointOptions): boolean {
+    const r = computeJoint(this.validJointPicks(), opt);
+    if (r.error) {
+      this.hint = `Verbindung: ${r.error}`;
+      this.emit('tool');
+      return false;
+    }
+    this.snapshot();
+    for (const [obj, { m, subs }] of r.changes) {
+      obj.shape = { kind: 'path', subs: transformSubs(subs, inv(m)) };
+      invalidate(obj.shape);
+    }
+    this.jointPicks = [];
+    this.hint = `Verbindung angelegt: ${r.info}.`;
+    this.emit('doc');
+    this.emit('sel');
+    return true;
+  }
 
   private nodeTarget(): Obj | null {
     if (this.sel.length !== 1) return null;
@@ -2108,12 +2204,14 @@ export class Editor {
     if (k === 'escape')
       return run(() => {
         if (this.drag) return this.cancelDrag();
+        if (this.tool === 'joint' && this.jointPicks.length) return this.clearJointPicks();
         if (nodeMode && this.selectedNodes().length) return this.clearNodeSel();
         if (this.draft) this.finishLine();
         else if (this.tool !== 'select') this.setTool('select');
         else this.setSel([]);
       });
     if (k === 'enter' && this.draft) return run(() => this.finishLine());
+    if (k === 'enter' && this.tool === 'joint' && this.jointPicks.length) return run(() => this.onJointDialog?.());
     if (nodeMode && !ctrl && !e.altKey) {
       if (k === 'd' || k === 'delete' || k === 'backspace') return run(() => this.deleteNodes());
       if (k === 'i') return run(() => this.insertNode());
@@ -2318,6 +2416,53 @@ export class Editor {
       ctx.lineWidth = 1.5 * px;
       ctx.stroke(subsToPath2D(this.offsetPreview));
       ctx.setLineDash([]);
+    }
+
+    // Verbindungen: gewählte Kanten (nummeriert), Kante unter dem Mauszeiger und Vorschau
+    if (this.tool === 'joint') {
+      ctx.save();
+      const edge = (p: EdgePick) => {
+        const s = segments(shapeSubs(p.obj.shape)[p.sub])[p.seg];
+        return [apply(p.m, s.a.x, s.a.y), apply(p.m, s.b.x, s.b.y)];
+      };
+      ctx.lineCap = 'round';
+      if (this.jointHover) {
+        const [a, b] = edge(this.jointHover);
+        ctx.strokeStyle = SNAP_COLOR;
+        ctx.lineWidth = 4 * px;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+      this.validJointPicks().forEach((p, i) => {
+        const [a, b] = edge(p);
+        ctx.strokeStyle = '#ff6020';
+        ctx.lineWidth = 4 * px;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+        const mx = (a.x + b.x) / 2,
+          my = (a.y + b.y) / 2;
+        ctx.fillStyle = '#ff6020';
+        ctx.beginPath();
+        ctx.arc(mx, my, 8 * px, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `bold ${11 * px}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(i + 1), mx, my + 0.5 * px);
+      });
+      if (this.jointPreview) {
+        ctx.strokeStyle = '#ff6020';
+        ctx.setLineDash([4 * px, 2 * px]);
+        ctx.lineWidth = 1.5 * px;
+        ctx.stroke(subsToPath2D(this.jointPreview));
+        ctx.setLineDash([]);
+      }
+      ctx.restore();
     }
 
     // Array-Vorschau: Umrisse der Kopien
@@ -2737,4 +2882,8 @@ export const TOOL_HINTS: Record<Tool, string> = {
   ellipse: 'Ziehen zum Zeichnen. Shift: Kreis, Ctrl: von der Mitte.',
   polygon: 'Von der Mitte aus ziehen. Shift: nicht drehen.',
   text: 'Klicken, um Text zu setzen, oder vorhandenen Text anklicken.',
+  joint: 'Verbindung: erste gerade Kante anklicken (Zinken bzw. Zapfen). Esc hebt die Wahl auf.',
 };
+
+const JOINT_HINT_SECOND =
+  'Zweite Kante anklicken (Gegenstück bzw. Linie für die Schlitze) oder Enter für nur eine Kante. Erneuter Klick hebt die Wahl auf.';
