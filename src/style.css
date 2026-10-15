@@ -669,6 +669,12 @@ label.check {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+.offset-dialog.array-dialog {
+  margin: auto 330px 40px auto;
+}
+.array-dialog .form {
+  grid-template-columns: 190px 200px;
+}
 .trace-dialog .form {
   grid-template-columns: 150px 220px;
 }
