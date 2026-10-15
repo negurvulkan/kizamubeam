@@ -28,6 +28,7 @@ npm run tauri build    # Installationspaket
 - Verbindungen für gelaserte Bauteile (Werkzeug „Verbindung“): Fingerzinken und Schlitz und Zapfen auf gerade Kanten vorhandener Formen, mit Materialdicke, Kerf und Spiel (negativ = Press-Fit). Kante 1 bekommt Zinken bzw. Zapfen, Kante 2 das Gegenstück bzw. die Schlitze; eine einzelne gezeichnete Linie wird durch die Schlitze ersetzt. Das Ergebnis bleibt ein normaler, bearbeitbarer Pfad.
 - Überblattung (Kreuzverbindung) im selben Werkzeug: beide Kanten bekommen Schlitze in Materialdicke, die Tiefe ist ein Anteil der Plattenbreite (Kante 1 z. B. 50 %, Kante 2 den Rest). Mehrere Schlitze teilen die Kante in gleiche Fächer, etwa für Rastereinsätze und Flaschentrenner.
 - Schnapp- und Hakenverbindung im selben Werkzeug: Schnappzapfen mit zwei federnden Zungen und Rasthaken (Überstand, Hakenlänge und Federschlitz einstellbar) sowie L-förmige Hakenzapfen, deren Schlitz um die Hakenlänge verlängert ist (einstecken, dann schieben).
+- Keilzapfen und T-Slot mit Mutter im selben Werkzeug: Keilzapfen stehen durch die Gegenplatte und haben ein Keilloch; die passenden Keile werden gleich mit angelegt. Beim T-Slot sitzt zwischen je zwei Zapfen ein Schraubenschlitz mit Mutternfenster, die Gegenplatte bekommt die Bohrung (Schraube, Mutter und Schraubenlänge einstellbar).
 - Farbe ist der Layer: Klick auf eine Palettenfarbe ordnet die Auswahl zu. Layer-Tabelle mit Modus (Linie/Füllen), Speed, Leistung, Air Assist, Ausgabe, Sichtbarkeit und Schnellbearbeitung.
 - Layer-Einstellungen (Doppelklick auf einen Layer, wie der Cut Settings Editor in LightBurn): Kerf-Versatz, Haltestege (Anzahl oder Abstand, innere Formen auslassen), Scanwinkel, Kreuzschraffur, Bidirektional, Überfahrweg, Air Assist (M8 oder M7, aus mit M9; einstellbar in den Geräteeinstellungen). Die Einstellungen liegen als `CutSettings` im Layer (`src/model.ts`).
 - Helles und dunkles Design (Ansicht → Design oder Knopf ganz rechts in der Symbolleiste), Standard folgt dem System. Im dunklen Design werden sehr dunkle Layerfarben auf der Arbeitsfläche aufgehellt.
@@ -68,7 +69,7 @@ Verbindung per WebSocket, Lasern ab einem Punkt der Vorschau („Start Here“),
 | `src/layerdialog.ts` | Layer-Einstellungen (Kerf, Haltestege, Füllen, Air Assist) |
 | `src/fonts.ts` | Schriftdateien laden (Systemschriften über Rust, Ersatzschrift) und Text in Bézierpfade umwandeln (opentype.js) |
 | `src/ops.ts` | Boolesche Operationen und Offset (Clipper) |
-| `src/joints.ts`, `src/jointDialog.ts` | Verbindungen: Fingerzinken, Schlitz und Zapfen, Überblattung, Schnapp- und Hakenverbindung |
+| `src/joints.ts`, `src/jointDialog.ts` | Verbindungen: Fingerzinken, Schlitz und Zapfen, Überblattung, Schnapp-, Haken-, Keil- und T-Slot-Verbindung |
 | `src/images.ts` | Bilddaten (außerhalb von Undo, gesichert in IndexedDB), Bildverarbeitung und Dithering, Zwischenspeicher der Ergebnisse |
 | `src/trace.ts` | Bild nachzeichnen: Marching Squares, Vereinfachung, Kurveneinpassung |
 | `src/importers.ts` | SVG- und DXF-Import |
