@@ -26,6 +26,7 @@ npm run tauri build    # Installationspaket
 - Offset (Alt+O) nach außen, innen oder beides, mit runden, spitzen oder abgeschrägten Ecken und Live-Vorschau. Offene Linien bekommen eine geschlossene Kontur.
 - Ergebnisse von Booleschen Operationen und Offset sind wieder Bézierpfade: Ecken und gerade Strecken bleiben erhalten, Rundungen werden mit höchstens 0,02 mm Abweichung als Kurven eingepasst.
 - Verbindungen für gelaserte Bauteile (Werkzeug „Verbindung“): Fingerzinken und Schlitz und Zapfen auf gerade Kanten vorhandener Formen, mit Materialdicke, Kerf und Spiel (negativ = Press-Fit). Kante 1 bekommt Zinken bzw. Zapfen, Kante 2 das Gegenstück bzw. die Schlitze; eine einzelne gezeichnete Linie wird durch die Schlitze ersetzt. Das Ergebnis bleibt ein normaler, bearbeitbarer Pfad.
+- Überblattung (Kreuzverbindung) im selben Werkzeug: beide Kanten bekommen Schlitze in Materialdicke, die Tiefe ist ein Anteil der Plattenbreite (Kante 1 z. B. 50 %, Kante 2 den Rest). Mehrere Schlitze teilen die Kante in gleiche Fächer, etwa für Rastereinsätze und Flaschentrenner.
 - Farbe ist der Layer: Klick auf eine Palettenfarbe ordnet die Auswahl zu. Layer-Tabelle mit Modus (Linie/Füllen), Speed, Leistung, Air Assist, Ausgabe, Sichtbarkeit und Schnellbearbeitung.
 - Layer-Einstellungen (Doppelklick auf einen Layer, wie der Cut Settings Editor in LightBurn): Kerf-Versatz, Haltestege (Anzahl oder Abstand, innere Formen auslassen), Scanwinkel, Kreuzschraffur, Bidirektional, Überfahrweg, Air Assist (M8 oder M7, aus mit M9; einstellbar in den Geräteeinstellungen). Die Einstellungen liegen als `CutSettings` im Layer (`src/model.ts`).
 - Helles und dunkles Design (Ansicht → Design oder Knopf ganz rechts in der Symbolleiste), Standard folgt dem System. Im dunklen Design werden sehr dunkle Layerfarben auf der Arbeitsfläche aufgehellt.
@@ -66,7 +67,7 @@ Verbindung per WebSocket, Lasern ab einem Punkt der Vorschau („Start Here“),
 | `src/layerdialog.ts` | Layer-Einstellungen (Kerf, Haltestege, Füllen, Air Assist) |
 | `src/fonts.ts` | Schriftdateien laden (Systemschriften über Rust, Ersatzschrift) und Text in Bézierpfade umwandeln (opentype.js) |
 | `src/ops.ts` | Boolesche Operationen und Offset (Clipper) |
-| `src/joints.ts`, `src/jointDialog.ts` | Verbindungen: Fingerzinken, Schlitz und Zapfen |
+| `src/joints.ts`, `src/jointDialog.ts` | Verbindungen: Fingerzinken, Schlitz und Zapfen, Überblattung |
 | `src/images.ts` | Bilddaten (außerhalb von Undo, gesichert in IndexedDB), Bildverarbeitung und Dithering, Zwischenspeicher der Ergebnisse |
 | `src/trace.ts` | Bild nachzeichnen: Marching Squares, Vereinfachung, Kurveneinpassung |
 | `src/importers.ts` | SVG- und DXF-Import |
