@@ -1,0 +1,763 @@
+// Oberfläche: Menü, Leisten, Panels, Palette, Statusleiste.
+import { Editor, Tool } from './editor';
+import { ICONS } from './icons';
+import { Layer, layerLabel, PALETTE, TextShape } from './model';
+import { exportSvg, openProject, saveProject } from './files';
+
+const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
+
+function h<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  props: Record<string, unknown> = {},
+  ...children: (Node | string | null | undefined)[]
+): HTMLElementTagNameMap[K] {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (v === undefined || v === null || v === false) continue;
+    if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), v as EventListener);
+    else if (k === 'html') el.innerHTML = String(v);
+    else if (k === 'class') el.className = String(v);
+    else if (k in el && typeof v !== 'string') (el as unknown as Record<string, unknown>)[k] = v;
+    else el.setAttribute(k, v === true ? '' : String(v));
+  }
+  for (const c of children) if (c !== null && c !== undefined) el.append(c);
+  return el;
+}
+
+const iconBtn = (icon: string, title: string, onclick: () => void, id?: string) =>
+  h('button', { class: 'ib', title, html: ICONS[icon], onclick, id });
+
+const sep = () => h('div', { class: 'sep' });
+
+/** Zahlenfeld-Auswertung mit Einheiten und Grundrechenarten: „5in“, „100/3“, „2*(3+4)cm“. */
+export function evalExpr(src: string): number | null {
+  const s = src.replace(/,/g, '.').trim().toLowerCase();
+  let i = 0;
+  const peek = () => s[i];
+  const ws = () => {
+    while (s[i] === ' ') i++;
+  };
+  const unit = (v: number) => {
+    ws();
+    const m = /^(mm|cm|in|"|m)/.exec(s.slice(i));
+    if (!m) return v;
+    i += m[0].length;
+    return v * ({ mm: 1, cm: 10, in: 25.4, '"': 25.4, m: 1000 } as Record<string, number>)[m[0]];
+  };
+  const atom = (): number => {
+    ws();
+    if (peek() === '(') {
+      i++;
+      const v = sum();
+      ws();
+      if (peek() !== ')') throw 0;
+      i++;
+      return unit(v);
+    }
+    if (peek() === '-') {
+      i++;
+      return -atom();
+    }
+    const m = /^\d*\.?\d+(e[-+]?\d+)?/.exec(s.slice(i));
+    if (!m) throw 0;
+    i += m[0].length;
+    return unit(parseFloat(m[0]));
+  };
+  const prod = (): number => {
+    let v = atom();
+    for (;;) {
+      ws();
+      if (peek() === '*') (i++, (v *= atom()));
+      else if (peek() === '/') (i++, (v /= atom()));
+      else return v;
+    }
+  };
+  const sum = (): number => {
+    let v = prod();
+    for (;;) {
+      ws();
+      if (peek() === '+') (i++, (v += prod()));
+      else if (peek() === '-') (i++, (v -= prod()));
+      else return v;
+    }
+  };
+  try {
+    const v = sum();
+    ws();
+    return i === s.length && isFinite(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+const f2 = (v: number) => (Math.round(v * 1000) / 1000).toFixed(Math.abs(v) >= 1000 ? 1 : 2);
+
+/** Eingabefeld, das bei Enter/Verlassen einen Ausdruck auswertet. */
+function numInput(cls: string, onCommit: (v: number) => void, title?: string) {
+  const el = h('input', { type: 'text', class: cls, title }) as HTMLInputElement;
+  let before = '';
+  el.addEventListener('focus', () => {
+    before = el.value;
+    el.select();
+  });
+  const commit = () => {
+    if (el.value === before) return;
+    const v = evalExpr(el.value);
+    if (v === null) el.value = before;
+    else {
+      before = el.value;
+      onCommit(v);
+    }
+  };
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      commit();
+      el.blur();
+    } else if (e.key === 'Escape') {
+      el.value = before;
+      el.blur();
+    } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      const v = evalExpr(el.value) ?? 0;
+      const step = e.shiftKey ? 10 : e.altKey ? 0.1 : 1;
+      el.value = f2(v + (e.key === 'ArrowUp' ? step : -step));
+      commit();
+    }
+  });
+  el.addEventListener('blur', commit);
+  return el;
+}
+
+const setVal = (el: HTMLInputElement, v: string) => {
+  if (document.activeElement !== el) el.value = v;
+};
+
+const FONT_CANDIDATES = [
+  'Arial', 'Helvetica', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Segoe UI', 'Calibri', 'Times New Roman', 'Georgia',
+  'Garamond', 'Courier New', 'Consolas', 'Impact', 'Comic Sans MS', 'DejaVu Sans', 'DejaVu Serif', 'DejaVu Sans Mono',
+  'Liberation Sans', 'Liberation Serif', 'Liberation Mono', 'Noto Sans', 'Noto Serif', 'Ubuntu', 'Cantarell',
+  'Roboto', 'Open Sans', 'Helvetica Neue', 'Menlo', 'Monaco', 'Avenir', 'Futura', 'Gill Sans',
+];
+
+function availableFonts(): string[] {
+  const c = document.createElement('canvas').getContext('2d')!;
+  const sample = 'abcdefghijklmnopqrstuvwxyzWMI0123456789';
+  const widths = (fb: string) => {
+    c.font = `40px ${fb}`;
+    return c.measureText(sample).width;
+  };
+  const base = { monospace: widths('monospace'), serif: widths('serif'), 'sans-serif': widths('sans-serif') };
+  const found = FONT_CANDIDATES.filter((f) =>
+    (Object.keys(base) as (keyof typeof base)[]).some((fb) => {
+      c.font = `40px "${f}", ${fb}`;
+      return c.measureText(sample).width !== base[fb];
+    }),
+  );
+  return [...found, 'sans-serif', 'serif', 'monospace'];
+}
+
+// ======================================================================
+
+export function buildUI(ed: Editor) {
+  buildMenu(ed);
+  buildToolbar(ed);
+  buildNumbar(ed);
+  buildTools(ed);
+  buildLayers(ed);
+  buildLaser(ed);
+  buildPalette(ed);
+  buildStatus(ed);
+  buildTextEditor(ed);
+}
+
+// ---------- Menü ----------
+
+type MenuItem = [label: string, key: string, action: () => void] | 'sep';
+
+function buildMenu(ed: Editor) {
+  const menus: [string, MenuItem[]][] = [
+    ['Datei', [
+      ['Neu', '', () => ed.newDocument()],
+      ['Öffnen …', '', () => openProject(ed)],
+      ['Speichern …', '', () => saveProject(ed)],
+      'sep',
+      ['Als SVG exportieren …', '', () => exportSvg(ed)],
+    ]],
+    ['Bearbeiten', [
+      ['Rückgängig', 'Ctrl+Z', () => ed.doUndo()],
+      ['Wiederholen', 'Ctrl+Y', () => ed.doRedo()],
+      'sep',
+      ['Ausschneiden', 'Ctrl+X', () => ed.cut()],
+      ['Kopieren', 'Ctrl+C', () => ed.copy()],
+      ['Einfügen', 'Ctrl+V', () => ed.paste()],
+      ['Duplizieren', 'Ctrl+D', () => ed.duplicate()],
+      ['Löschen', 'Entf', () => ed.deleteSel()],
+      'sep',
+      ['Alles auswählen', 'Ctrl+A', () => ed.selectAll()],
+      ['In Pfad umwandeln', 'Ctrl+Shift+C', () => ed.convertSelToPath()],
+    ]],
+    ['Werkzeuge', [
+      ['Auswählen', 'Esc', () => ed.setTool('select')],
+      ['Knoten bearbeiten', 'Ctrl+`', () => ed.setTool('node')],
+      ['Linien zeichnen', 'Ctrl+L', () => ed.setTool('line')],
+      ['Rechteck', 'Ctrl+R', () => ed.setTool('rect')],
+      ['Ellipse', 'Ctrl+E', () => ed.setTool('ellipse')],
+      ['Polygon', '', () => ed.setTool('polygon')],
+      ['Text', 'Ctrl+T', () => ed.setTool('text')],
+    ]],
+    ['Anordnen', [
+      ['Gruppieren', 'Ctrl+G', () => ed.group()],
+      ['Gruppierung aufheben', 'Ctrl+U', () => ed.ungroup()],
+      'sep',
+      ['Horizontal spiegeln', 'Ctrl+Shift+H', () => ed.mirror(true)],
+      ['Vertikal spiegeln', 'Ctrl+Shift+V', () => ed.mirror(false)],
+      ['90° im Uhrzeigersinn', '.', () => ed.rotateBy(-90)],
+      ['90° gegen Uhrzeigersinn', ',', () => ed.rotateBy(90)],
+      'sep',
+      ['Links ausrichten', 'L', () => ed.align('left')],
+      ['Rechts ausrichten', 'R', () => ed.align('right')],
+      ['Oben ausrichten', 'T', () => ed.align('top')],
+      ['Unten ausrichten', 'B', () => ed.align('bottom')],
+      ['Mitten horizontal', 'C', () => ed.align('hcenter')],
+      ['Mitten vertikal', 'E', () => ed.align('vcenter')],
+      ['Horizontal verteilen', '', () => ed.distribute(true)],
+      ['Vertikal verteilen', '', () => ed.distribute(false)],
+    ]],
+    ['Ansicht', [
+      ['Ganze Seite', 'Ctrl+0', () => ed.zoomPage()],
+      ['Auf Auswahl zoomen', '', () => ed.zoomSelection()],
+      ['Vergrößern', '+', () => ed.zoomAt(1.25)],
+      ['Verkleinern', '-', () => ed.zoomAt(0.8)],
+      'sep',
+      ['Drahtgitter / Gefüllt', 'Alt+W', () => ((ed.filled = !ed.filled), ed.emit('view'))],
+    ]],
+    ['Hilfe', [['Tastenkürzel', 'F1', () => showHelp()]]],
+  ];
+  const bar = $('#menubar');
+  let openMenu: HTMLElement | null = null;
+  const close = () => {
+    openMenu?.classList.remove('open');
+    openMenu = null;
+  };
+  for (const [title, items] of menus) {
+    const box = h('div', { class: 'menu' });
+    const btn = h('button', {}, title);
+    const list = h('div', { class: 'menu-items' });
+    for (const it of items) {
+      if (it === 'sep') list.append(h('hr'));
+      else
+        list.append(
+          h('button', { onclick: () => (close(), it[2]()) }, h('span', {}, it[0]), it[1] ? h('kbd', {}, it[1]) : null),
+        );
+    }
+    btn.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+      if (openMenu === box) return close();
+      close();
+      box.classList.add('open');
+      openMenu = box;
+    });
+    btn.addEventListener('mouseenter', () => {
+      if (openMenu && openMenu !== box) {
+        close();
+        box.classList.add('open');
+        openMenu = box;
+      }
+    });
+    box.append(btn, list);
+    bar.append(box);
+  }
+  document.addEventListener('mousedown', (e) => {
+    if (openMenu && !openMenu.contains(e.target as Node)) close();
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'F1') {
+      e.preventDefault();
+      showHelp();
+    }
+  });
+}
+
+function showHelp() {
+  const rows: [string, string][] = [
+    ['Esc', 'Auswahlwerkzeug / Auswahl aufheben'],
+    ['Ctrl+L / R / E / T', 'Linie / Rechteck / Ellipse / Text'],
+    ['Ctrl+`', 'Knoten bearbeiten'],
+    ['Klick auf Auswahl', 'Zwischen Skalieren und Drehen wechseln'],
+    ['Shift / Ctrl beim Ziehen', 'Proportional bzw. frei / von der Mitte'],
+    ['Pfeiltasten', '1 mm verschieben (Shift 10 mm, Alt 0,1 mm)'],
+    ['. und ,', '90° drehen'],
+    ['L R T B C E', 'Ausrichten (mehrere Objekte gewählt)'],
+    ['Leertaste + Ziehen, Mitteltaste', 'Ansicht verschieben'],
+    ['Mausrad', 'Zoomen'],
+    ['Knoten: D I C S', 'Löschen, Einfügen, Ecke, Glatt'],
+    ['Alt+W', 'Drahtgitter / Gefüllt'],
+    ['Palette', 'Farbe anklicken = Auswahl diesem Layer zuordnen'],
+  ];
+  const dlg = h(
+    'dialog',
+    {},
+    h('h3', {}, 'Tastenkürzel'),
+    h('table', {}, ...rows.map(([k, d]) => h('tr', {}, h('td', {}, h('kbd', {}, k)), h('td', {}, d)))),
+    h('p', {}, h('button', { class: 'btn', onclick: () => dlg.close() }, 'Schließen')),
+  );
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg);
+  dlg.showModal();
+}
+
+// ---------- Hauptleiste ----------
+
+function buildToolbar(ed: Editor) {
+  const bar = $('#toolbar');
+  const needSel: HTMLButtonElement[] = [];
+  const needMulti: HTMLButtonElement[] = [];
+  const needThree: HTMLButtonElement[] = [];
+  const add = (list: HTMLButtonElement[] | null, ...args: Parameters<typeof iconBtn>) => {
+    const b = iconBtn(...args);
+    list?.push(b);
+    bar.append(b);
+    return b;
+  };
+  add(null, 'new', 'Neu (rückgängig machbar)', () => ed.newDocument());
+  add(null, 'open', 'Öffnen', () => openProject(ed));
+  add(null, 'save', 'Speichern', () => saveProject(ed));
+  add(null, 'export', 'Als SVG exportieren', () => exportSvg(ed));
+  bar.append(sep());
+  add(null, 'undo', 'Rückgängig (Ctrl+Z)', () => ed.doUndo());
+  add(null, 'redo', 'Wiederholen (Ctrl+Y)', () => ed.doRedo());
+  bar.append(sep());
+  add(needSel, 'cut', 'Ausschneiden (Ctrl+X)', () => ed.cut());
+  add(needSel, 'copy', 'Kopieren (Ctrl+C)', () => ed.copy());
+  add(null, 'paste', 'Einfügen (Ctrl+V)', () => ed.paste());
+  add(needSel, 'delete', 'Löschen (Entf)', () => ed.deleteSel());
+  bar.append(sep());
+  add(null, 'zoomin', 'Vergrößern (+)', () => ed.zoomAt(1.25));
+  add(null, 'zoomout', 'Verkleinern (-)', () => ed.zoomAt(0.8));
+  add(null, 'zoompage', 'Ganze Seite (Ctrl+0)', () => ed.zoomPage());
+  add(needSel, 'zoomsel', 'Auf Auswahl zoomen', () => ed.zoomSelection());
+  bar.append(sep());
+  add(needMulti, 'group', 'Gruppieren (Ctrl+G)', () => ed.group());
+  add(needSel, 'ungroup', 'Gruppierung aufheben (Ctrl+U)', () => ed.ungroup());
+  add(needSel, 'mirrorh', 'Horizontal spiegeln (Ctrl+Shift+H)', () => ed.mirror(true));
+  add(needSel, 'mirrorv', 'Vertikal spiegeln (Ctrl+Shift+V)', () => ed.mirror(false));
+  add(needSel, 'rotccw', '90° gegen Uhrzeigersinn (,)', () => ed.rotateBy(90));
+  add(needSel, 'rotcw', '90° im Uhrzeigersinn (.)', () => ed.rotateBy(-90));
+  add(needSel, 'tolines', 'In Pfad umwandeln (Ctrl+Shift+C)', () => ed.convertSelToPath());
+  bar.append(sep());
+  add(needMulti, 'alignl', 'Links ausrichten (L)', () => ed.align('left'));
+  add(needMulti, 'alignhc', 'Mitten horizontal ausrichten (C)', () => ed.align('hcenter'));
+  add(needMulti, 'alignr', 'Rechts ausrichten (R)', () => ed.align('right'));
+  add(needMulti, 'alignt', 'Oben ausrichten (T)', () => ed.align('top'));
+  add(needMulti, 'alignvc', 'Mitten vertikal ausrichten (E)', () => ed.align('vcenter'));
+  add(needMulti, 'alignb', 'Unten ausrichten (B)', () => ed.align('bottom'));
+  add(needThree, 'disth', 'Horizontal verteilen', () => ed.distribute(true));
+  add(needThree, 'distv', 'Vertikal verteilen', () => ed.distribute(false));
+  const refresh = () => {
+    const n = ed.sel.length;
+    needSel.forEach((b) => (b.disabled = n < 1));
+    needMulti.forEach((b) => (b.disabled = n < 2));
+    needThree.forEach((b) => (b.disabled = n < 3));
+  };
+  ed.on((w) => (w === 'sel' || w === 'doc') && refresh());
+  refresh();
+}
+
+// ---------- Numerik-, Form- und Textleiste ----------
+
+function buildNumbar(ed: Editor) {
+  const bar = $('#numbar');
+  let ax = 0.5,
+    ay = 0.5,
+    lock = true;
+  const bed = () => ed.doc.bed;
+  const fx = numInput('num', (v) => ed.setSelBox({ x: v }, ax, ay, lock), 'X-Position (mm)');
+  const fy = numInput('num', (v) => ed.setSelBox({ y: bed().h - v }, ax, ay, lock), 'Y-Position (mm, Ursprung unten links)');
+  const fw = numInput('num', (v) => ed.setSelBox({ w: v }, ax, ay, lock), 'Breite (mm)');
+  const fh = numInput('num', (v) => ed.setSelBox({ h: v }, ax, ay, lock), 'Höhe (mm)');
+  const fwp = numInput('small', (v) => {
+    const b = ed.selBounds();
+    if (b) ed.setSelBox({ w: (b.w * v) / 100 }, ax, ay, lock);
+  }, 'Breite in %');
+  const fhp = numInput('small', (v) => {
+    const b = ed.selBounds();
+    if (b) ed.setSelBox({ h: (b.h * v) / 100 }, ax, ay, lock);
+  }, 'Höhe in %');
+  const currentRot = () => {
+    if (ed.sel.length !== 1) return 0;
+    const m = ed.sel[0].m;
+    return (-Math.atan2(m[1], m[0]) * 180) / Math.PI;
+  };
+  const fr = numInput('small', (v) => {
+    const b = ed.selBounds();
+    if (!b) return;
+    ed.rotateBy(v - currentRot(), { x: b.x + ax * b.w, y: b.y + ay * b.h });
+  }, 'Drehung in Grad (gegen den Uhrzeigersinn)');
+  const lockBtn = h('button', { class: 'ib on', title: 'Seitenverhältnis sperren', html: ICONS.lock });
+  lockBtn.addEventListener('click', () => {
+    lock = !lock;
+    lockBtn.classList.toggle('on', lock);
+    lockBtn.innerHTML = lock ? ICONS.lock : ICONS.unlock;
+  });
+  const anchor = h('div', { class: 'anchor', title: 'Bezugspunkt' });
+  const anchorBtns: HTMLButtonElement[] = [];
+  for (let r = 0; r < 3; r++)
+    for (let c = 0; c < 3; c++) {
+      const b = h('button', {
+        onclick: () => {
+          ax = c / 2;
+          ay = r / 2;
+          anchorBtns.forEach((x) => x.classList.remove('on'));
+          b.classList.add('on');
+          refresh();
+        },
+      });
+      if (r === 1 && c === 1) b.classList.add('on');
+      anchorBtns.push(b);
+      anchor.append(b);
+    }
+  const geo = h(
+    'div',
+    { class: 'field' },
+    h('label', {}, 'X', fx), h('label', {}, 'Y', fy), anchor,
+    h('label', {}, 'B', fw), h('label', {}, 'H', fh), lockBtn,
+    h('label', {}, fwp, '%'), h('label', {}, fhp, '%'),
+    h('label', {}, '↻', fr, '°'), h('span', { class: 'toggle', title: 'Einheit' }, 'mm'),
+  );
+
+  // Formeigenschaften
+  const fRad = numInput('small', (v) => ed.updateShapes('rect', { r: Math.max(0, v) }), 'Eckenradius (mm)');
+  const fSides = numInput('small', (v) => ed.updateShapes('polygon', { sides: Math.max(3, Math.min(64, Math.round(v))) }), 'Anzahl Ecken');
+  const starBtn = h('button', { class: 'toggle', title: 'Stern' }, 'Stern');
+  starBtn.addEventListener('click', () => ed.updateShapes('polygon', { star: !starBtn.classList.contains('on') }));
+  const rectProps = h('label', {}, 'Radius', fRad);
+  const polyProps = h('span', { class: 'field' }, h('label', {}, 'Ecken', fSides), starBtn);
+
+  // Text
+  const fontSel = h('select', { title: 'Schriftart' }) as HTMLSelectElement;
+  for (const f of availableFonts()) fontSel.append(h('option', { value: f }, f));
+  fontSel.addEventListener('change', () => ed.updateTexts({ font: fontSel.value }));
+  const fSize = numInput('small', (v) => v > 0 && ed.updateTexts({ size: v }), 'Schriftgröße (mm)');
+  const fHs = numInput('small', (v) => ed.updateTexts({ hSpace: v }), 'Zeichenabstand (mm)');
+  const fVs = numInput('small', (v) => ed.updateTexts({ vSpace: v }), 'Zeilenabstand (mm)');
+  const tog = (label: string, key: 'bold' | 'italic' | 'upper', title: string) => {
+    const b = h('button', { class: 'toggle', title }, label);
+    b.addEventListener('click', () => ed.updateTexts({ [key]: !b.classList.contains('on') } as Partial<TextShape>));
+    return b;
+  };
+  const bBold = tog('F', 'bold', 'Fett');
+  bBold.style.fontWeight = '700';
+  const bItal = tog('K', 'italic', 'Kursiv');
+  bItal.style.fontStyle = 'italic';
+  const bUp = tog('AB', 'upper', 'Großbuchstaben');
+  const alignBtns = (['left', 'center', 'right'] as const).map((a) => {
+    const b = iconBtn(a === 'left' ? 'alignTextL' : a === 'center' ? 'alignTextC' : 'alignTextR', `Ausrichtung ${a === 'left' ? 'links' : a === 'center' ? 'mittig' : 'rechts'}`, () => ed.updateTexts({ align: a }));
+    b.style.width = b.style.height = '24px';
+    b.dataset.align = a;
+    return b;
+  });
+  const textProps = h(
+    'div',
+    { class: 'field' },
+    h('label', {}, 'Schrift', fontSel), h('label', {}, 'Höhe', fSize),
+    h('label', {}, 'Abst. H', fHs), h('label', {}, 'V', fVs), ...alignBtns, bBold, bItal, bUp,
+  );
+
+  const sepShape = sep();
+  bar.append(geo, sepShape, rectProps, polyProps, sep(), textProps);
+
+  const refresh = () => {
+    const b = ed.selBounds();
+    geo.classList.toggle('group-disabled', !b);
+    if (b) {
+      setVal(fx, f2(b.x + ax * b.w));
+      setVal(fy, f2(bed().h - (b.y + ay * b.h)));
+      setVal(fw, f2(b.w));
+      setVal(fh, f2(b.h));
+      setVal(fwp, '100');
+      setVal(fhp, '100');
+      setVal(fr, f2(currentRot()));
+    } else [fx, fy, fw, fh, fwp, fhp, fr].forEach((f) => setVal(f, ''));
+
+    const rect = ed.sel.find((o) => o.shape.kind === 'rect');
+    const poly = ed.sel.find((o) => o.shape.kind === 'polygon');
+    rectProps.hidden = !(rect || ed.tool === 'rect');
+    polyProps.hidden = !(poly || ed.tool === 'polygon');
+    sepShape.hidden = rectProps.hidden && polyProps.hidden;
+    setVal(fRad, f2(rect && rect.shape.kind === 'rect' ? rect.shape.r : ed.rectRadius));
+    const pv = poly && poly.shape.kind === 'polygon' ? poly.shape : { sides: ed.polySides, star: ed.polyStar };
+    setVal(fSides, String(pv.sides));
+    starBtn.classList.toggle('on', pv.star);
+
+    const ts = ed.selTexts();
+    const t = ts.length ? (ts[0].shape as TextShape) : ed.textDefaults;
+    textProps.classList.toggle('group-disabled', !ts.length && ed.tool !== 'text');
+    if (![...fontSel.options].some((o) => o.value === t.font)) fontSel.append(h('option', { value: t.font }, t.font));
+    if (document.activeElement !== fontSel) fontSel.value = t.font;
+    setVal(fSize, f2(t.size));
+    setVal(fHs, f2(t.hSpace));
+    setVal(fVs, f2(t.vSpace));
+    bBold.classList.toggle('on', t.bold);
+    bItal.classList.toggle('on', t.italic);
+    bUp.classList.toggle('on', t.upper);
+    alignBtns.forEach((b) => b.classList.toggle('on', b.dataset.align === t.align));
+  };
+  ed.on((w) => w !== 'view' && refresh());
+  refresh();
+}
+
+// ---------- Werkzeugleiste links ----------
+
+function buildTools(ed: Editor) {
+  const bar = $('#tools');
+  const tools: [Tool, string, string][] = [
+    ['select', 'select', 'Auswählen (Esc)'],
+    ['node', 'node', 'Knoten bearbeiten (Ctrl+`)'],
+    ['line', 'line', 'Linien zeichnen (Ctrl+L)'],
+    ['rect', 'rect', 'Rechteck (Ctrl+R)'],
+    ['ellipse', 'ellipse', 'Ellipse (Ctrl+E)'],
+    ['polygon', 'polygon', 'Polygon'],
+    ['text', 'text', 'Text (Ctrl+T)'],
+  ];
+  const btns = new Map<Tool, HTMLButtonElement>();
+  tools.forEach(([t, icon, title], i) => {
+    if (i === 2) bar.append(sep());
+    const b = iconBtn(icon, title, () => ed.setTool(t));
+    b.dataset.tool = t;
+    btns.set(t, b);
+    bar.append(b);
+  });
+  const refresh = () => btns.forEach((b, t) => b.classList.toggle('on', ed.tool === t));
+  ed.on((w) => w === 'tool' && refresh());
+  refresh();
+}
+
+// ---------- Layer-Panel ----------
+
+function buildLayers(ed: Editor) {
+  const root = $('#layers');
+  const render = () => {
+    const used = ed.layerOrder();
+    if (ed.activeLayer === null || !used.includes(ed.activeLayer)) ed.activeLayer = used[0] ?? null;
+    root.replaceChildren();
+    if (!used.length) {
+      root.append(h('div', { class: 'empty' }, 'Noch keine Objekte. Zeichne links eine Form oder einen Text. Die Farbe unten bestimmt den Layer.'));
+      return;
+    }
+    const table = h(
+      'table',
+      { class: 'layers' },
+      h('tr', {}, ...['Nr.', 'Layer', 'Modus', 'Speed', 'Leist.', 'Aus', 'Zeig.'].map((t) => h('th', {}, t))),
+    );
+    for (const i of used) {
+      const L = ed.layer(i);
+      const mode = h('select', { onchange: (e: Event) => ed.updateLayer(i, { mode: (e.target as HTMLSelectElement).value as Layer['mode'] }) },
+        h('option', { value: 'line', selected: L.mode === 'line' }, 'Linie'),
+        h('option', { value: 'fill', selected: L.mode === 'fill' }, 'Füllen'),
+      );
+      const out = h('input', { type: 'checkbox', checked: L.output, onchange: (e: Event) => ed.updateLayer(i, { output: (e.target as HTMLInputElement).checked }) });
+      const show = h('input', { type: 'checkbox', checked: L.show, onchange: (e: Event) => ed.updateLayer(i, { show: (e.target as HTMLInputElement).checked }) });
+      const row = h(
+        'tr',
+        { class: ed.activeLayer === i ? 'active' : '', title: 'Doppelklick: alle Formen dieses Layers auswählen' },
+        h('td', {}, h('span', { class: 'swatch', style: `background:${PALETTE[i]}` }, layerLabel(i))),
+        h('td', {}, L.name),
+        h('td', {}, mode),
+        h('td', {}, String(L.speed)),
+        h('td', {}, `${L.power}%`),
+        h('td', {}, out),
+        h('td', {}, show),
+      );
+      row.addEventListener('click', (e) => {
+        if ((e.target as HTMLElement).closest('select,input')) return;
+        ed.activeLayer = i;
+        ed.currentLayer = i;
+        render();
+        ed.emit('tool');
+      });
+      row.addEventListener('dblclick', () => ed.selectLayer(i));
+      table.append(row);
+    }
+    root.append(table);
+    const a = ed.activeLayer!;
+    root.append(
+      h(
+        'div',
+        { class: 'layer-tools' },
+        h('button', { title: 'Nach oben (früher ausgeben)', onclick: () => ed.moveLayer(a, -1), html: '▲' }),
+        h('button', { title: 'Nach unten (später ausgeben)', onclick: () => ed.moveLayer(a, 1), html: '▼' }),
+        h('button', { onclick: () => ed.selectLayer(a) }, 'Formen auswählen'),
+      ),
+    );
+    const L = ed.layer(a);
+    const num = (key: 'speed' | 'power' | 'minPower' | 'passes' | 'interval', min: number, max: number, int = false) => {
+      const el = numInput('', (v) => {
+        const c = Math.max(min, Math.min(max, int ? Math.round(v) : v));
+        ed.updateLayer(a, { [key]: c } as Partial<Layer>);
+      });
+      el.value = String(L[key]);
+      return el;
+    };
+    const name = h('input', { type: 'text', value: L.name, onchange: (e: Event) => ed.updateLayer(a, { name: (e.target as HTMLInputElement).value }) });
+    root.append(
+      h(
+        'div',
+        { class: 'form' },
+        h('label', {}, h('span', { class: 'swatch', style: `background:${PALETTE[a]}` }, layerLabel(a)), ' Name'), name,
+        h('label', {}, 'Geschwindigkeit (mm/min)'), num('speed', 1, 100000),
+        h('label', {}, 'Max. Leistung (%)'), num('power', 0, 100),
+        h('label', {}, 'Min. Leistung (%)'), num('minPower', 0, 100),
+        h('label', {}, 'Durchgänge'), num('passes', 1, 100, true),
+        ...(L.mode === 'fill' ? [h('label', {}, 'Zeilenabstand (mm)'), num('interval', 0.01, 5)] : []),
+      ),
+    );
+  };
+  ed.on((w) => (w === 'doc' || w === 'sel') && schedule());
+  let pending = false;
+  // Während eines Ziehvorgangs nicht bei jeder Bewegung neu aufbauen
+  const schedule = () => {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(() => {
+      pending = false;
+      if (!root.contains(document.activeElement)) render();
+    });
+  };
+  root.addEventListener('focusout', () => setTimeout(schedule, 0));
+  render();
+}
+
+// ---------- Laser-Panel ----------
+
+function buildLaser(ed: Editor) {
+  const root = $('#laser');
+  const btn = (icon: string, label: string) =>
+    h('button', { class: 'btn', disabled: true, title: 'Kommt mit der Maschinenanbindung' }, h('span', { html: ICONS[icon] }), label);
+  const bw = numInput('', (v) => v > 0 && ((ed.doc.bed.w = v), ed.emit('doc'), ed.zoomPage()), 'Breite des Arbeitsbereichs');
+  const bh = numInput('', (v) => v > 0 && ((ed.doc.bed.h = v), ed.emit('doc'), ed.zoomPage()), 'Höhe des Arbeitsbereichs');
+  bw.style.width = bh.style.width = '46px';
+  root.append(
+    h('div', { class: 'laser-status' }, h('span', {}, h('span', { class: 'dot' }), 'Nicht verbunden'), h('span', { style: 'color:var(--muted)' }, 'Swiitol E6 Pro · FluidNC')),
+    h(
+      'div',
+      { class: 'laser-grid' },
+      btn('play', 'Start'), btn('pause', 'Pause'), btn('stop', 'Stopp'),
+      btn('frame', 'Rahmen'), btn('home', 'Home'), btn('origin', 'Ursprung'),
+    ),
+    h(
+      'div',
+      { class: 'form' },
+      h('label', {}, 'Arbeitsbereich (mm)'), h('span', { class: 'field' }, bw, '×', bh),
+      h('label', {}, 'Starten ab'), h('select', { disabled: true }, h('option', {}, 'Absolute Koordinaten')),
+    ),
+    h('div', { class: 'note' }, 'Senden, Rahmen und G-Code folgen im Schritt „Maschinenausgabe“.'),
+  );
+  const refresh = () => {
+    setVal(bw, String(ed.doc.bed.w));
+    setVal(bh, String(ed.doc.bed.h));
+  };
+  ed.on((w) => w === 'doc' && refresh());
+  refresh();
+}
+
+// ---------- Palette ----------
+
+function buildPalette(ed: Editor) {
+  const root = $('#palette');
+  const btns: HTMLButtonElement[] = [];
+  PALETTE.forEach((c, i) => {
+    const b = h('button', {
+      class: i >= 30 ? 'tool' : '',
+      style: `background:${c}`,
+      title: i >= 30 ? `Werkzeug-Layer ${layerLabel(i)} (wird nicht gelasert)` : `Layer ${layerLabel(i)}: Auswahl zuordnen`,
+      onclick: () => ed.assignLayer(i),
+    }, layerLabel(i));
+    btns.push(b);
+    root.append(b);
+  });
+  const refresh = () => btns.forEach((b, i) => b.classList.toggle('cur', i === ed.currentLayer));
+  ed.on((w) => (w === 'sel' || w === 'tool') && refresh());
+  refresh();
+}
+
+// ---------- Statusleiste ----------
+
+function buildStatus(ed: Editor) {
+  const root = $('#status');
+  const coords = h('span', { class: 'coords' });
+  const selInfo = h('span', {});
+  const hint = h('span', { class: 'hint' });
+  const snap = h('input', { type: 'checkbox', onchange: (e: Event) => ((ed.snapGrid = (e.target as HTMLInputElement).checked), ed.emit('view')) }) as HTMLInputElement;
+  const step = numInput('', (v) => v > 0 && (ed.gridStep = v), 'Rasterweite (mm)');
+  step.style.width = '40px';
+  step.value = String(ed.gridStep);
+  const filled = h('input', { type: 'checkbox', checked: ed.filled, onchange: (e: Event) => ((ed.filled = (e.target as HTMLInputElement).checked), ed.emit('view')) }) as HTMLInputElement;
+  const zoom = h('span', {});
+  root.append(
+    coords, selInfo, hint,
+    h('label', { title: 'Am Raster fangen' }, snap, 'Raster', step, 'mm'),
+    h('label', { title: 'Füll-Layer gefüllt anzeigen (Alt+W)' }, filled, 'Gefüllt'),
+    zoom,
+  );
+  const refresh = () => {
+    const m = ed.toMachine(ed.cursor);
+    coords.textContent = `x ${m.x.toFixed(2)}  y ${m.y.toFixed(2)} mm`;
+    const b = ed.selBounds();
+    selInfo.textContent = b ? `${ed.sel.length} Objekt${ed.sel.length > 1 ? 'e' : ''} · ${b.w.toFixed(2)} × ${b.h.toFixed(2)} mm` : `${ed.doc.objs.length} Objekte`;
+    hint.textContent = ed.hint;
+    snap.checked = ed.snapGrid;
+    filled.checked = ed.filled;
+    zoom.textContent = `${Math.round(ed.view.zoom * 100) / 100} px/mm`;
+  };
+  ed.on(refresh);
+  refresh();
+}
+
+// ---------- Texteingabe ----------
+
+function buildTextEditor(ed: Editor) {
+  const box = $('#texteditor');
+  const ta = box.querySelector('textarea')!;
+  let target: import('./model').Obj | null = null;
+  let snapDone = false;
+  const close = () => {
+    if (!target) return;
+    const t = target;
+    target = null;
+    box.hidden = true;
+    ed.removeIfEmptyText(t);
+    ed.canvas.focus();
+  };
+  ed.textEditor = (o, isNew) => {
+    close();
+    target = o;
+    snapDone = isNew; // neuer Text: Snapshot wurde schon beim Anlegen erstellt
+    ta.value = o.shape.kind === 'text' ? o.shape.text : '';
+    const stage = $('#stage').getBoundingClientRect();
+    const p = ed.toScreen({ x: o.m[4], y: o.m[5] });
+    box.style.left = `${Math.max(4, Math.min(stage.width - 290, p.x))}px`;
+    box.style.top = `${Math.max(4, Math.min(stage.height - 110, p.y + 12))}px`;
+    box.hidden = false;
+    ta.focus();
+    setTimeout(() => ta.focus(), 0);
+  };
+  ta.addEventListener('input', () => {
+    if (!target) return;
+    if (!snapDone) {
+      ed.snapshot();
+      snapDone = true;
+    }
+    ed.setText(target, ta.value);
+  });
+  ta.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) {
+      e.preventDefault();
+      close();
+    }
+    e.stopPropagation();
+  });
+  ed.canvas.addEventListener('pointerdown', () => {
+    if (target && ed.tool !== 'text') close();
+  }, true);
+  ta.addEventListener('blur', () => setTimeout(() => document.activeElement !== ta && close(), 0));
+}
