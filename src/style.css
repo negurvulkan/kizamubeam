@@ -1309,3 +1309,57 @@ table.layers td:nth-child(2) {
 .agent-log .time {
   color: var(--muted);
 }
+.agent-status.machine {
+  border-color: #d07020;
+  color: #d07020;
+}
+.agent-machine-note {
+  margin: 0;
+  word-break: break-word;
+}
+.agent-confirm {
+  width: min(500px, 95vw);
+  max-height: 92vh;
+  overflow: auto;
+  border-top: 4px solid #d07020;
+}
+.agent-confirm-who {
+  font-weight: 600;
+  color: #d07020;
+}
+.agent-confirm-preview {
+  display: block;
+  margin: 0 auto 8px;
+  max-width: 100%;
+  background: var(--surface-2);
+  border-radius: 4px;
+}
+.agent-confirm-layers {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 6px 0;
+  font-size: 12px;
+}
+.agent-confirm-layers th,
+.agent-confirm-layers td {
+  text-align: left;
+  padding: 2px 6px 2px 0;
+}
+.agent-confirm-layers .swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+.agent-confirm-note {
+  margin: 6px 0;
+  padding: 6px 8px;
+  border-left: 3px solid var(--line);
+  background: var(--surface-2);
+  white-space: pre-wrap;
+}
+.note.error {
+  color: #d03030;
+}

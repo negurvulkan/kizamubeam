@@ -201,7 +201,8 @@ pub fn run() {
             agent::agent_configure,
             agent::agent_new_token,
             agent::agent_respond,
-            agent::agent_write_file
+            agent::agent_write_file,
+            agent::agent_machine_log
         ])
         .run(tauri::generate_context!())
         .expect("Fehler beim Start der Anwendung");

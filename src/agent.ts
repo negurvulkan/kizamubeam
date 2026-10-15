@@ -8,25 +8,11 @@ import { library } from './materials';
 import { systemFonts } from './fonts';
 import { isTauri, machine } from './machine';
 import { deviceList, jobInfo } from './laser';
-import { Args, describe, findObj, json, layerInfo, machineBox, r3, Tier, ToolDef, ToolError } from './agentutil';
+import { agentLog, Args, describe, findObj, json, layerInfo, log, machineBox, onAgentLog, r3, Tier, ToolDef, ToolError } from './agentutil';
 import { EDIT_TOOLS } from './agentedit';
+import { GCODE_TOOLS, MACHINE_TOOLS, requestState } from './agentmachine';
 
-// ---------- Protokoll der Aufrufe ----------
-
-export interface LogEntry {
-  time: Date;
-  tool: string;
-  summary: string;
-  ok: boolean;
-}
-export const agentLog: LogEntry[] = [];
-const logListeners = new Set<() => void>();
-export const onAgentLog = (f: () => void) => (logListeners.add(f), () => logListeners.delete(f));
-function log(e: LogEntry) {
-  agentLog.push(e);
-  if (agentLog.length > 200) agentLog.shift();
-  logListeners.forEach((f) => f());
-}
+export { agentLog, onAgentLog };
 
 
 // ---------- Werkzeuge ----------
@@ -103,6 +89,7 @@ const READ_TOOLS: ToolDef[] = [
         devices: devices.map((d) => ({
           id: d.id, name: d.name, firmware: d.fw, bed: { w: d.bedW, h: d.bedH }, connection: d.conn,
           startFrom: d.startFrom, jobOrigin: d.jobOrigin, cutSelectedOnly: d.cutSelected, airAssistCommand: d.airCmd,
+          agentLimits: { maxPowerPercent: d.agentMaxPower, minSpeedMmPerMin: d.agentMinSpeed },
         })),
       });
     },
@@ -174,7 +161,7 @@ const READ_TOOLS: ToolDef[] = [
   {
     name: 'machine_status',
     title: 'Maschinenstatus',
-    description: 'Ob ein Laser verbunden ist, sein Zustand (Idle, Run, Hold, Alarm …), Position und ob gerade ein Job läuft. Nur lesend.',
+    description: 'Ob ein Laser verbunden ist, sein Zustand (Idle, Run, Hold, Alarm …), Position, ob gerade ein Job läuft und wie die letzte Anfrage eines Agenten (Job, Rahmen, Referenzfahrt) entschieden wurde. Nur lesend.',
     tier: Tier.Read,
     inputSchema: { type: 'object', properties: {} },
     run: () => {
@@ -189,12 +176,13 @@ const READ_TOOLS: ToolDef[] = [
         jobRunning: machine.busy,
         progress: p ? { acked: p.acked, total: p.total, errors: p.errors } : null,
         remainingSeconds: machine.remaining(),
+        request: requestState(),
       });
     },
   },
 ];
 
-const TOOLS: ToolDef[] = [...READ_TOOLS, ...EDIT_TOOLS];
+const TOOLS: ToolDef[] = [...READ_TOOLS, ...EDIT_TOOLS, ...GCODE_TOOLS, ...MACHINE_TOOLS];
 
 // ---------- Anbindung an den Rust-Teil ----------
 
@@ -218,7 +206,7 @@ async function handle(ed: Editor, req: RpcRequest): Promise<object> {
           title: d.title,
           description: d.description,
           inputSchema: d.inputSchema,
-          annotations: { title: d.title, readOnlyHint: d.tier === Tier.Read, destructiveHint: false, openWorldHint: false },
+          annotations: { title: d.title, readOnlyHint: d.tier === Tier.Read || d.name === 'generate_gcode', destructiveHint: false, openWorldHint: d.tier === Tier.Machine },
           _tier: d.tier,
         })),
       },
@@ -231,9 +219,9 @@ async function handle(ed: Editor, req: RpcRequest): Promise<object> {
     if (!def) return { error: { code: -32602, message: `Unbekanntes Werkzeug: ${name}` } };
     try {
       // Meldungen des Editors gehören zum jeweiligen Aufruf
-      if (def.tier !== Tier.Read) ed.hint = '';
-      // Änderungen eines Aufrufs bilden genau einen Undo-Schritt
-      const r = def.tier === Tier.Read || def.ownUndo ? await def.run(ed, args) : await ed.batch(() => def.run(ed, args));
+      if (def.tier === Tier.Edit) ed.hint = '';
+      // Änderungen eines Aufrufs bilden genau einen Undo-Schritt; die übrigen Stufen ändern das Dokument nicht
+      const r = def.tier !== Tier.Edit || def.ownUndo ? await def.run(ed, args) : await ed.batch(() => def.run(ed, args));
       log({ time: new Date(), tool: name, summary: summarize(args), ok: true });
       return { result: { content: Array.isArray(r) ? r : json(r) } };
     } catch (e) {

@@ -29,7 +29,9 @@ const MAX_BODY: usize = 16 * 1024 * 1024;
 const CALL_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Stufen: 1 Lesen, 2 Entwerfen, 3 G-Code, 4 Maschine
-const MAX_LEVEL: u8 = 3;
+const MAX_LEVEL: u8 = 4;
+/// Höchste Stufe, die gespeichert wird: Die Maschinenstufe gilt nur bis zum Beenden der App
+const MAX_SAVED_LEVEL: u8 = 3;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Settings {
@@ -55,7 +57,7 @@ fn load_settings() -> Settings {
         .and_then(|t| serde_json::from_str::<Settings>(&t).ok());
     match s {
         Some(mut s) => {
-            s.level = s.level.clamp(1, MAX_LEVEL);
+            s.level = s.level.clamp(1, MAX_SAVED_LEVEL);
             if s.token.len() < 32 {
                 s.token = new_token();
             }
@@ -70,7 +72,8 @@ fn save_settings(s: &Settings) -> Result<(), String> {
     if let Some(dir) = p.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    std::fs::write(&p, serde_json::to_string_pretty(s).unwrap()).map_err(|e| e.to_string())?;
+    let saved = Settings { level: s.level.min(MAX_SAVED_LEVEL), ..s.clone() };
+    std::fs::write(&p, serde_json::to_string_pretty(&saved).unwrap()).map_err(|e| e.to_string())?;
     // Das Token ist ein Schlüssel: Datei nur für den eigenen Benutzer lesbar
     #[cfg(unix)]
     {
@@ -124,6 +127,8 @@ pub struct AgentInfo {
     exe: String,
     running: bool,
     error: Option<String>,
+    /// Protokolldatei der Maschinenaktionen
+    machine_log: String,
 }
 
 fn info(sh: &Shared) -> AgentInfo {
@@ -139,6 +144,7 @@ fn info(sh: &Shared) -> AgentInfo {
         exe: std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default(),
         running: s.enabled && error.is_none(),
         error,
+        machine_log: machine_log_path().map(|p| p.display().to_string()).unwrap_or_default(),
     }
 }
 
@@ -248,13 +254,28 @@ pub fn agent_write_file(path: String, contents: String, overwrite: bool) -> Resu
         return Err(format!("{path}: Pfad muss absolut sein"));
     }
     let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    if !matches!(ext.as_str(), "lwk" | "svg") {
-        return Err(format!("{path}: nur .lwk oder .svg"));
+    if !matches!(ext.as_str(), "lwk" | "svg" | "gcode" | "nc") {
+        return Err(format!("{path}: nur .lwk, .svg, .gcode oder .nc"));
     }
     if p.exists() && !overwrite {
         return Err(format!("{path}: Datei gibt es schon (overwrite setzen, um sie zu ersetzen)"));
     }
     std::fs::write(&p, contents).map_err(|e| format!("{path}: {e}"))
+}
+
+fn machine_log_path() -> Option<PathBuf> {
+    dirs::config_dir().map(|d| d.join(APP_ID).join("agent-machine.log"))
+}
+
+/// Maschinenaktionen von Agenten (Anfragen, Entscheidungen, Stopp) dauerhaft protokollieren
+#[tauri::command]
+pub fn agent_machine_log(line: String) -> Result<(), String> {
+    let p = machine_log_path().ok_or("Kein Ordner für Einstellungen")?;
+    if let Some(dir) = p.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&p).map_err(|e| e.to_string())?;
+    writeln!(f, "{}", line.replace(['\r', '\n'], " ")).map_err(|e| e.to_string())
 }
 
 // ---------- HTTP ----------
@@ -372,7 +393,9 @@ fn rpc_error(id: Value, code: i64, message: &str) -> Value {
 const INSTRUCTIONS: &str = "Laserwerk ist eine Laser-Software (wie LightBurn). Einheiten sind Millimeter. \
 Koordinaten sind Maschinenkoordinaten wie in der Oberfläche: Ursprung unten links auf dem Bett, x nach rechts, y nach oben. \
 Objekte haben eine Nummer (id) und liegen auf einem Layer (0–29, je Layer eigene Laser-Einstellungen). \
-Mit render_preview siehst du die Arbeitsfläche als Bild. Die Person sieht alle Änderungen live in der App.";
+Mit render_preview siehst du die Arbeitsfläche als Bild. Die Person sieht alle Änderungen live in der App. \
+Den Laser startest du nie selbst: request_job, machine_frame und machine_home fragen die Person in der App, \
+und nur ihr Klick startet die Aktion. machine_stop ist immer erlaubt.";
 
 /// Antwort auf eine Nachricht, None bei Benachrichtigungen
 fn handle_message(msg: Value, app: &AppHandle, sh: &Arc<Shared>) -> Option<Value> {

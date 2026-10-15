@@ -191,7 +191,8 @@ class Machine {
     this.log(why ? `${line}  (${why})` : line, isErr ? 'error' : 'in');
   }
 
-  async connect(d: Device) {
+  /** Verbinden; `home` = danach referenzieren (Standard: Einstellung des Geräts) */
+  async connect(d: Device, home = d.homeOnConnect) {
     if (!isTauri()) {
       this.log(t('Die Maschinenanbindung gibt es nur in der Desktop-App.'), 'error');
       return;
@@ -213,7 +214,7 @@ class Machine {
       this.connected = true;
       this.where = where;
       this.log(t('Verbunden mit {where}.', { where }));
-      if (d.homeOnConnect) await this.send(fw.home);
+      if (home) await this.send(fw.home);
     } catch (e) {
       this.log(t('Verbindung fehlgeschlagen: {error}', { error: tBackend(String(e)) }), 'error');
     } finally {

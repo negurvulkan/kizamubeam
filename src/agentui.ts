@@ -16,12 +16,14 @@ interface AgentInfo {
   exe: string;
   running: boolean;
   error: string | null;
+  machine_log: string;
 }
 
 const LEVELS: [Tier, string][] = [
   [Tier.Read, t('Nur lesen (Dokument, Layer, Vorschau, Schätzung)')],
   [Tier.Edit, t('Lesen und entwerfen (Änderungen lassen sich rückgängig machen)')],
   [Tier.GCode, t('Zusätzlich G-Code erzeugen (ohne Senden an die Maschine)')],
+  [Tier.Machine, t('Zusätzlich Laser bedienen (nur nach deiner Bestätigung, bis zum Beenden der App)')],
 ];
 
 const stateListeners = new Set<(i: AgentInfo) => void>();
@@ -38,6 +40,9 @@ export function agentStatus(ed: Editor): HTMLElement {
   stateListeners.add((i) => {
     el.hidden = !i.enabled;
     el.classList.toggle('error', !!i.error);
+    el.classList.toggle('machine', i.level >= Tier.Machine);
+    el.textContent = i.level >= Tier.Machine ? t('KI-Agenten an · Laser') : t('KI-Agenten an');
+    el.title = i.level >= Tier.Machine ? t('KI-Agenten dürfen den Laser bedienen (jede Fahrt und jeder Job nur nach deiner Bestätigung)') : t('Zugang für KI-Agenten ist eingeschaltet');
   });
   let timer = 0;
   onAgentLog(() => {
@@ -63,6 +68,7 @@ export async function openAgentDialog(_ed: Editor) {
   const token = h('input', { type: 'password', readOnly: true, class: 'agent-token' }) as HTMLInputElement;
   const configs = h('div', { class: 'agent-configs' });
   const logBox = h('div', { class: 'agent-log' });
+  const machineNote = h('p', { class: 'note agent-machine-note' });
 
   const apply = async () => {
     try {
@@ -92,6 +98,8 @@ export async function openAgentDialog(_ed: Editor) {
   const fill = () => {
     enabled.checked = info.enabled;
     level.value = String(info.level);
+    machineNote.hidden = info.level < Tier.Machine;
+    machineNote.textContent = t('Laser-Stufe: Der Agent kann verbinden, Stopp und Pause auslösen und Job, Rahmen und Referenzfahrt anfordern. Jede Anfrage zeigt dir einen Dialog, nur dein Klick startet sie. Grenzen für Leistung und Geschwindigkeit stellst du je Gerät in den Geräteeinstellungen ein. Beim nächsten Start der App ist die Stufe wieder auf „G-Code“. Protokoll: {path}', { path: info.machine_log });
     port.value = String(info.port);
     token.value = info.token;
     state.textContent = info.error
@@ -125,7 +133,7 @@ export async function openAgentDialog(_ed: Editor) {
   const tools = toolOverview();
   const dlg = h('dialog', { class: 'agent-dialog' },
     h('h3', {}, t('KI-Agenten (MCP)')),
-    h('p', { class: 'note' }, t('KI-Werkzeuge wie Claude oder Codex können Laserwerk über das Model Context Protocol bedienen. Du siehst jede Änderung live. Den Laser starten kann ein Agent nicht.')),
+    h('p', { class: 'note' }, t('KI-Werkzeuge wie Claude oder Codex können Laserwerk über das Model Context Protocol bedienen. Du siehst jede Änderung live. Den Laser startet ein Agent nie selbst: Jeden Job, jeden Rahmen und jede Referenzfahrt bestätigst du in Laserwerk.')),
     h('label', { class: 'check' }, enabled, t('Zugang für KI-Agenten einschalten')),
     state,
     h('div', { class: 'form' },
@@ -140,6 +148,7 @@ export async function openAgentDialog(_ed: Editor) {
           fill();
         } }, t('Neu'))),
     ),
+    machineNote,
     h('p', { class: 'note' }, t('Werkzeuge: {list}', { list: tools.map((x) => x.name).join(', ') })),
     h('h3', {}, t('Einrichten')),
     h('p', { class: 'note' }, t('Die Clients starten Laserwerk als Brücke (--mcp-stdio); die App muss dazu laufen und der Zugang eingeschaltet sein. Das Token liest die Brücke selbst.')),
