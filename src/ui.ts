@@ -525,8 +525,23 @@ function buildNumbar(ed: Editor) {
     h('label', {}, 'Abst. H', fHs), h('label', {}, 'V', fVs), ...alignBtns, bBold, bItal, bUp,
   );
 
+  // Knotenbearbeitung
+  const nodeBtn = (label: string, title: string, f: () => void) => h('button', { class: 'toggle', title, onclick: f }, label);
+  const nodeInfo = h('span', { class: 'muted' });
+  const nodeProps = h(
+    'div',
+    { class: 'field' },
+    nodeInfo,
+    nodeBtn('Gerade', 'Segmente zwischen den ausgewählten Knoten in Geraden umwandeln (L)', () => ed.setSegmentType(false)),
+    nodeBtn('Kurve', 'Segmente zwischen den ausgewählten Knoten in Kurven umwandeln (C)', () => ed.setSegmentType(true)),
+    nodeBtn('Ecke', 'Ausgewählte Knoten zu Ecken machen, Anfasser entfernen (E)', () => ed.setNodeType(false)),
+    nodeBtn('Glatt', 'Ausgewählte Knoten glätten (S)', () => ed.setNodeType(true)),
+    nodeBtn('Löschen', 'Ausgewählte Knoten löschen (Entf)', () => ed.deleteNodes()),
+  );
+  const sepNode = sep();
+
   const sepShape = sep();
-  bar.append(geo, sepShape, rectProps, polyProps, sep(), textProps);
+  bar.append(geo, sepNode, nodeProps, sepShape, rectProps, polyProps, sep(), textProps);
 
   const refresh = () => {
     const b = ed.selBounds();
@@ -540,6 +555,11 @@ function buildNumbar(ed: Editor) {
       setVal(fhp, '100');
       setVal(fr, f2(currentRot()));
     } else [fx, fy, fw, fh, fwp, fhp, fr].forEach((f) => setVal(f, ''));
+
+    nodeProps.hidden = sepNode.hidden = ed.tool !== 'node';
+    const nn = ed.nodeSelCount;
+    nodeInfo.textContent = nn ? `${nn} Knoten` : 'Knoten';
+    nodeProps.classList.toggle('group-disabled', ed.tool === 'node' && !ed.sel.length);
 
     const rect = ed.sel.find((o) => o.shape.kind === 'rect');
     const poly = ed.sel.find((o) => o.shape.kind === 'polygon');

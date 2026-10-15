@@ -590,3 +590,7 @@ dialog {
   background: var(--surface);
   color: var(--text);
 }
+#numbar .muted {
+  color: var(--muted);
+  min-width: 64px;
+}

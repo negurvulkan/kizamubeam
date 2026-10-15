@@ -40,7 +40,12 @@ type Drag =
   | { type: 'marquee'; start: Pt; end: Pt; base: Obj[]; mode: 'set' | 'add' | 'toggle' | 'remove' }
   | { type: 'create'; start: Pt; obj: Obj | null }
   | { type: 'linenode'; node: Node }
-  | { type: 'node'; obj: Obj; sub: number; idx: number; which: 'p' | 'cin' | 'cout'; start: Pt; orig: Node; moved: boolean };
+  | {
+      type: 'node'; obj: Obj; sub: number; idx: number; which: 'p' | 'cin' | 'cout'; start: Pt; orig: Node; moved: boolean;
+      /** Beim Ziehen eines Knotens: alle ausgewählten Knoten mit Ausgangslage */
+      group: { sub: number; idx: number; orig: Node }[];
+    }
+  | { type: 'nodebox'; start: Pt; end: Pt; obj: Obj; base: Set<string>; mode: 'set' | 'add' | 'toggle'; onTarget: boolean };
 
 interface NodeHover {
   sub: number;
@@ -82,6 +87,9 @@ export class Editor {
   draft: SubPath | null = null;
   nodeHover: NodeHover | null = null;
   segHover: SegHover | null = null;
+  /** Ausgewählte Knoten des Knotenziels als "Unterpfad:Index" */
+  private nodeSel = new Set<string>();
+  private nodeSelObj: Obj | null = null;
   hint = '';
 
   private undo: string[] = [];
@@ -103,6 +111,11 @@ export class Editor {
     canvas.addEventListener('pointerdown', (e) => this.onDown(e));
     canvas.addEventListener('pointermove', (e) => this.onMove(e));
     canvas.addEventListener('pointerup', (e) => this.onUp(e));
+    canvas.addEventListener('pointerleave', () => {
+      if (this.drag || (!this.nodeHover && !this.segHover)) return;
+      this.nodeHover = this.segHover = null;
+      this.redraw();
+    });
     canvas.addEventListener('dblclick', (e) => this.onDouble(e));
     canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -487,14 +500,51 @@ export class Editor {
       }
       case 'node': {
         const target = this.nodeTarget();
+        const add = e.shiftKey || e.ctrlKey || e.metaKey;
         if (target && this.nodeHover) {
+          const h = this.nodeHover;
           if (target.shape.kind !== 'path') this.convertObjToPath(target);
-          const sp = (target.shape as { subs: SubPath[] }).subs[this.nodeHover.sub];
-          const n = sp.nodes[this.nodeHover.idx];
+          const subs = (target.shape as { subs: SubPath[] }).subs;
+          const sel = this.nodeSelection(target);
+          const key = `${h.sub}:${h.idx}`;
+          if (h.which === 'p') {
+            if (add) {
+              if (sel.has(key)) {
+                sel.delete(key);
+                this.emit('sel');
+                return;
+              }
+              sel.add(key);
+            } else if (!sel.has(key)) {
+              sel.clear();
+              sel.add(key);
+            }
+            this.emit('sel');
+          }
+          const group = h.which === 'p' ? this.selectedNodes(target).map(({ sub, idx }) => ({ sub, idx, orig: clone(subs[sub].nodes[idx]) })) : [];
           this.snapshot();
           this.drag = {
-            type: 'node', obj: target, sub: this.nodeHover.sub, idx: this.nodeHover.idx,
-            which: this.nodeHover.which, start: wp, orig: clone(n), moved: false,
+            type: 'node', obj: target, sub: h.sub, idx: h.idx,
+            which: h.which, start: wp, orig: clone(subs[h.sub].nodes[h.idx]), moved: false, group,
+          };
+          return;
+        }
+        if (target && this.segHover) {
+          // Klick auf eine Kante wählt ihre beiden Endknoten
+          const sg = segments(shapeSubs(target.shape)[this.segHover.sub])[this.segHover.seg];
+          const sel = this.nodeSelection(target);
+          if (!add) sel.clear();
+          sel.add(`${this.segHover.sub}:${sg.ia}`);
+          sel.add(`${this.segHover.sub}:${sg.ib}`);
+          this.emit('sel');
+          return;
+        }
+        const hit = this.hitTest(wp);
+        if (target && (!hit || hit === target)) {
+          // Rahmen zum Auswählen von Knoten
+          this.drag = {
+            type: 'nodebox', start: wp, end: wp, obj: target, base: new Set(this.nodeSelection(target)),
+            mode: e.shiftKey ? 'add' : e.ctrlKey || e.metaKey ? 'toggle' : 'set', onTarget: hit === target,
           };
           return;
         }
@@ -590,7 +640,9 @@ export class Editor {
         return;
       }
       case 'marquee':
+      case 'nodebox':
         d.end = wp;
+        if (d.type === 'nodebox') this.redraw();
         return;
       case 'pivot':
         this.pivot = this.snap(wp);
@@ -660,9 +712,20 @@ export class Editor {
         const dx = b.x - a.x,
           dy = b.y - a.y;
         d.moved = true;
-        const n = (o.shape as { subs: SubPath[] }).subs[d.sub].nodes[d.idx];
+        const subs = (o.shape as { subs: SubPath[] }).subs;
+        const n = subs[d.sub].nodes[d.idx];
         const sh = (p?: Pt) => (p ? { x: p.x + dx, y: p.y + dy } : undefined);
-        if (d.which === 'p') {
+        if (d.which === 'p' && d.group.length) {
+          for (const g of d.group) {
+            const m = subs[g.sub].nodes[g.idx];
+            m.x = g.orig.x + dx;
+            m.y = g.orig.y + dy;
+            m.cin = sh(g.orig.cin);
+            m.cout = sh(g.orig.cout);
+            if (!m.cin) delete m.cin;
+            if (!m.cout) delete m.cout;
+          }
+        } else if (d.which === 'p') {
           n.x = d.orig.x + dx;
           n.y = d.orig.y + dy;
           n.cin = sh(d.orig.cin);
@@ -747,6 +810,33 @@ export class Editor {
         if (!d.moved) this.dropSnapshot();
         this.emit('doc');
         return;
+      case 'nodebox': {
+        const r = normBox(d.start, d.end);
+        const sel = this.nodeSelection(d.obj);
+        if (r.w * this.view.zoom < 3 && r.h * this.view.zoom < 3) {
+          // einfacher Klick: Knotenauswahl aufheben, im Leeren auch das Objekt abwählen
+          if (d.mode === 'set') {
+            if (!sel.size && !d.onTarget) this.setSel([]);
+            sel.clear();
+          }
+          this.emit('sel');
+          return;
+        }
+        const hits: string[] = [];
+        shapeSubs(d.obj.shape).forEach((sp, si) =>
+          sp.nodes.forEach((n, ni) => {
+            const p = apply(d.obj.m, n.x, n.y);
+            if (p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h) hits.push(`${si}:${ni}`);
+          }),
+        );
+        if (d.mode === 'set') sel.clear();
+        for (const k of hits) {
+          if (d.mode === 'toggle' && d.base.has(k)) sel.delete(k);
+          else sel.add(k);
+        }
+        this.emit('sel');
+        return;
+      }
     }
     void e;
   }
@@ -823,7 +913,14 @@ export class Editor {
       this.dropSnapshot();
       this.setSel([]);
     } else if (d.type === 'node') {
-      Object.assign((d.obj.shape as { subs: SubPath[] }).subs[d.sub].nodes[d.idx], d.orig);
+      const subs = (d.obj.shape as { subs: SubPath[] }).subs;
+      const restore = (n: Node, orig: Node) => {
+        delete n.cin;
+        delete n.cout;
+        Object.assign(n, clone(orig));
+      };
+      restore(subs[d.sub].nodes[d.idx], d.orig);
+      for (const g of d.group) restore(subs[g.sub].nodes[g.idx], g.orig);
       this.touch(d.obj.shape);
       this.dropSnapshot();
     }
@@ -881,7 +978,7 @@ export class Editor {
         );
       }
     }
-    this.canvas.style.cursor = this.nodeHover ? 'move' : this.segHover ? 'copy' : 'crosshair';
+    this.canvas.style.cursor = this.nodeHover ? 'move' : this.segHover ? 'pointer' : 'crosshair';
     if (prevN !== JSON.stringify(this.nodeHover) || prevS !== JSON.stringify(this.segHover)) this.redraw();
   }
 
@@ -992,24 +1089,105 @@ export class Editor {
     return (o.shape as { subs: SubPath[] }).subs;
   }
 
-  deleteNode() {
+  /** Knotenauswahl des Ziels; wechselt das Ziel, beginnt sie leer. */
+  private nodeSelection(o: Obj | null): Set<string> {
+    if (o !== this.nodeSelObj) {
+      this.nodeSel = new Set();
+      this.nodeSelObj = o;
+    }
+    return this.nodeSel;
+  }
+
+  /** Ausgewählte Knoten (nur gültige Indizes) */
+  selectedNodes(o: Obj | null = this.nodeTarget()): { sub: number; idx: number }[] {
+    if (!o) return [];
+    const subs = shapeSubs(o.shape);
+    return [...this.nodeSelection(o)]
+      .map((k) => k.split(':').map(Number))
+      .filter(([s, i]) => subs[s] && i < subs[s].nodes.length)
+      .map(([sub, idx]) => ({ sub, idx }));
+  }
+
+  /** Anzahl ausgewählter Knoten für die Oberfläche */
+  get nodeSelCount() {
+    return this.tool === 'node' ? this.selectedNodes().length : 0;
+  }
+
+  selectAllNodes() {
     const o = this.nodeTarget();
-    if (!o || !this.nodeHover) return;
+    if (!o) return;
+    const sel = this.nodeSelection(o);
+    shapeSubs(o.shape).forEach((sp, si) => sp.nodes.forEach((_, ni) => sel.add(`${si}:${ni}`)));
+    this.emit('sel');
+  }
+
+  clearNodeSel() {
+    this.nodeSel.clear();
+    this.emit('sel');
+  }
+
+  /** Knoten, auf die ein Knotenbefehl wirkt: Auswahl, sonst der Knoten unter dem Mauszeiger */
+  private nodesToEdit(o: Obj): { sub: number; idx: number }[] {
+    const sel = this.selectedNodes(o);
+    if (sel.length) return sel;
+    return this.nodeHover && this.nodeHover.which === 'p' ? [{ sub: this.nodeHover.sub, idx: this.nodeHover.idx }] : [];
+  }
+
+  /** Segmente, auf die ein Segmentbefehl wirkt: zwischen zwei ausgewählten Knoten, sonst die Kante unter dem Mauszeiger */
+  private segmentsToEdit(o: Obj) {
+    const subs = shapeSubs(o.shape);
+    const sel = this.nodeSelection(o);
+    const out: { sub: number; seg: number; curve: boolean }[] = [];
+    if (sel.size >= 2)
+      subs.forEach((sp, si) =>
+        segments(sp).forEach((sg, gi) => {
+          if (sel.has(`${si}:${sg.ia}`) && sel.has(`${si}:${sg.ib}`)) out.push({ sub: si, seg: gi, curve: sg.curve });
+        }),
+      );
+    if (!out.length && this.segHover) {
+      const { sub, seg } = this.segHover;
+      out.push({ sub, seg, curve: segments(subs[sub])[seg].curve });
+    }
+    return out;
+  }
+
+  /** Ausgewählte Knoten löschen (oder den Knoten/Anfasser unter dem Mauszeiger) */
+  deleteNodes() {
+    const o = this.nodeTarget();
+    if (!o) return;
+    const h = this.nodeHover;
+    const handle = !this.selectedNodes(o).length && h && h.which !== 'p' ? h : null;
+    const targets = handle ? [] : this.nodesToEdit(o);
+    if (!handle && !targets.length) {
+      this.hint = 'Erst Knoten auswählen (Klick, Shift+Klick oder Rahmen).';
+      this.emit('tool');
+      return;
+    }
     this.snapshot();
     const subs = this.pathTarget()!;
-    const sp = subs[this.nodeHover.sub];
-    const n = sp.nodes[this.nodeHover.idx];
-    if (this.nodeHover.which !== 'p') delete n[this.nodeHover.which], (n.smooth = false);
-    else sp.nodes.splice(this.nodeHover.idx, 1);
-    if (sp.nodes.length < 2) subs.splice(this.nodeHover.sub, 1);
-    if (sp.closed && sp.nodes.length < 3) sp.closed = false;
-    this.nodeHover = null;
+    if (handle) {
+      const n = subs[handle.sub].nodes[handle.idx];
+      delete n[handle.which as 'cin' | 'cout'];
+      n.smooth = false;
+    } else {
+      // von hinten nach vorn entfernen, damit die Indizes gültig bleiben
+      targets.sort((a, b) => b.sub - a.sub || b.idx - a.idx);
+      for (const t of targets) subs[t.sub].nodes.splice(t.idx, 1);
+      for (let i = subs.length - 1; i >= 0; i--) {
+        const sp = subs[i];
+        if (sp.nodes.length < 2) subs.splice(i, 1);
+        else if (sp.closed && sp.nodes.length < 3) sp.closed = false;
+      }
+    }
+    this.nodeSel.clear();
+    this.nodeHover = this.segHover = null;
     if (!subs.length) {
       this.doc.objs = this.doc.objs.filter((x) => x !== o);
       this.setSel([]);
     }
     this.touch(o.shape);
     this.emit('doc');
+    this.emit('sel');
   }
 
   insertNode() {
@@ -1031,22 +1209,71 @@ export class Editor {
     } else n = lerp(sg.a, sg.b);
     sp.nodes.splice(sg.ia + 1, 0, n);
     this.segHover = null;
+    // Indizes haben sich verschoben: der neue Knoten ist ausgewählt
+    const sel = this.nodeSelection(o);
+    sel.clear();
+    sel.add(`${h.sub}:${sg.ia + 1}`);
     this.touch(o.shape);
     this.emit('doc');
+    this.emit('sel');
   }
 
+  /** Segmente in Geraden (curve = false) oder Kurven umwandeln */
+  setSegmentType(curve: boolean) {
+    const o = this.nodeTarget();
+    if (!o) return;
+    const segs = this.segmentsToEdit(o).filter((sg) => sg.curve !== curve);
+    if (!segs.length) {
+      this.hint = this.segmentsToEdit(o).length
+        ? curve ? 'Segment ist schon eine Kurve.' : 'Segment ist schon eine Gerade.'
+        : 'Zwei benachbarte Knoten auswählen oder auf eine Kante zeigen.';
+      this.emit('tool');
+      return;
+    }
+    this.snapshot();
+    // Umwandeln in einen Pfad erhält die Reihenfolge der Knoten, die Indizes bleiben gültig
+    const subs = this.pathTarget()!;
+    for (const s of segs) {
+      const sg = segments(subs[s.sub])[s.seg];
+      if (curve) {
+        const dx = (sg.b.x - sg.a.x) / 3,
+          dy = (sg.b.y - sg.a.y) / 3;
+        sg.a.cout = { x: sg.a.x + dx, y: sg.a.y + dy };
+        sg.b.cin = { x: sg.b.x - dx, y: sg.b.y - dy };
+      } else {
+        delete sg.a.cout;
+        delete sg.b.cin;
+      }
+      sg.a.smooth = false;
+      sg.b.smooth = false;
+    }
+    this.hint = `${segs.length} Segment${segs.length > 1 ? 'e' : ''} in ${curve ? 'Kurve' : 'Gerade'} umgewandelt.`;
+    this.touch(o.shape);
+    this.emit('doc');
+    this.emit('tool');
+  }
+
+  /** Knoten zu Ecke (ohne Anfasser) oder glattem Knoten machen */
   setNodeType(smooth: boolean) {
     const o = this.nodeTarget();
-    const h = this.nodeHover;
-    if (!o || !h) return;
+    if (!o) return;
+    const targets = this.nodesToEdit(o);
+    if (!targets.length) {
+      this.hint = 'Erst Knoten auswählen (Klick, Shift+Klick oder Rahmen).';
+      this.emit('tool');
+      return;
+    }
     this.snapshot();
-    const sp = this.pathTarget()![h.sub];
-    const n = sp.nodes[h.idx];
-    if (!smooth) {
-      delete n.cin;
-      delete n.cout;
-      n.smooth = false;
-    } else {
+    const subs = this.pathTarget()!;
+    for (const h of targets) {
+      const sp = subs[h.sub];
+      const n = sp.nodes[h.idx];
+      if (!smooth) {
+        delete n.cin;
+        delete n.cout;
+        n.smooth = false;
+        continue;
+      }
       const N = sp.nodes.length;
       const prev = h.idx > 0 ? sp.nodes[h.idx - 1] : sp.closed ? sp.nodes[N - 1] : null;
       const next = h.idx < N - 1 ? sp.nodes[h.idx + 1] : sp.closed ? sp.nodes[0] : null;
@@ -1069,6 +1296,31 @@ export class Editor {
     }
     this.touch(o.shape);
     this.emit('doc');
+  }
+
+  /** Ausgewählte Knoten mit den Pfeiltasten verschieben (Weltabstand in mm) */
+  private nudgeNodes(dx: number, dy: number) {
+    const o = this.nodeTarget();
+    const targets = o ? this.selectedNodes(o) : [];
+    if (!o || !targets.length) return false;
+    this.snapshot();
+    const subs = this.pathTarget()!;
+    const im = inv(o.m);
+    const p0 = apply(im, 0, 0),
+      p1 = apply(im, dx, dy);
+    const lx = p1.x - p0.x,
+      ly = p1.y - p0.y;
+    const sh = (p?: Pt) => p && ((p.x += lx), (p.y += ly));
+    for (const t of targets) {
+      const n = subs[t.sub].nodes[t.idx];
+      n.x += lx;
+      n.y += ly;
+      sh(n.cin);
+      sh(n.cout);
+    }
+    this.touch(o.shape);
+    this.emit('doc');
+    return true;
   }
 
   // ---------- Befehle ----------
@@ -1319,6 +1571,8 @@ export class Editor {
       if (k === 'z') return run(() => this.doRedo());
       if (k === 'c') return run(() => this.convertSelToPath());
     }
+    const nodeMode = this.tool === 'node' && !!this.nodeTarget();
+    if (ctrl && !e.shiftKey && k === 'a' && nodeMode) return run(() => this.selectAllNodes());
     if (ctrl) {
       if (k === 'z') return run(() => this.doUndo());
       if (k === 'y') return run(() => this.doRedo());
@@ -1341,16 +1595,22 @@ export class Editor {
     if (k === 'escape')
       return run(() => {
         if (this.drag) return this.cancelDrag();
+        if (nodeMode && this.selectedNodes().length) return this.clearNodeSel();
         if (this.draft) this.finishLine();
         else if (this.tool !== 'select') this.setTool('select');
         else this.setSel([]);
       });
     if (k === 'enter' && this.draft) return run(() => this.finishLine());
-    if (this.tool === 'node' && this.nodeTarget()) {
-      if (k === 'd' || k === 'delete') return run(() => this.deleteNode());
+    if (nodeMode && !ctrl && !e.altKey) {
+      if (k === 'd' || k === 'delete' || k === 'backspace') return run(() => this.deleteNodes());
       if (k === 'i') return run(() => this.insertNode());
-      if (k === 'c') return run(() => this.setNodeType(false));
+      if (k === 'l') return run(() => this.setSegmentType(false));
+      if (k === 'c') return run(() => this.setSegmentType(true));
+      if (k === 'e') return run(() => this.setNodeType(false));
       if (k === 's') return run(() => this.setNodeType(true));
+      const st = e.shiftKey ? 10 : 1;
+      const arrows: Record<string, [number, number]> = { arrowleft: [-st, 0], arrowright: [st, 0], arrowup: [0, -st], arrowdown: [0, st] };
+      if (arrows[k] && this.selectedNodes().length) return run(() => this.nudgeNodes(...arrows[k]));
     }
     if (k === 'delete' || k === 'backspace') return run(() => this.deleteSel());
     const step = e.shiftKey ? 10 : e.altKey ? 0.1 : 1;
@@ -1595,11 +1855,38 @@ export class Editor {
       ctx.strokeRect(a.x + 0.5, a.y + 0.5, c.x - a.x, c.y - a.y);
       ctx.setLineDash([]);
     }
+    if (d && d.type === 'nodebox') {
+      const a = this.toScreen(d.start),
+        c = this.toScreen(d.end);
+      ctx.strokeStyle = T.sel;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(a.x + 0.5, a.y + 0.5, c.x - a.x, c.y - a.y);
+      ctx.setLineDash([]);
+    }
     // Knoten
     const o = this.tool === 'node' ? this.nodeTarget() : null;
     if (o) {
       const scr = (p: Pt) => this.toScreen(apply(o.m, p.x, p.y));
-      shapeSubs(o.shape).forEach((sp, si) => {
+      const sel = this.nodeSelection(o);
+      const subsO = shapeSubs(o.shape);
+      // Segmente zwischen ausgewählten Knoten hervorheben (Ziel für Gerade/Kurve)
+      if (sel.size >= 2) {
+        ctx.strokeStyle = '#ff6020';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        subsO.forEach((sp, si) =>
+          segments(sp).forEach((sg) => {
+            if (!sel.has(`${si}:${sg.ia}`) || !sel.has(`${si}:${sg.ib}`)) return;
+            const a = scr(sg.a), c1 = scr(sg.c1), c2 = scr(sg.c2), b = scr(sg.b);
+            ctx.moveTo(a.x, a.y);
+            if (sg.curve) ctx.bezierCurveTo(c1.x, c1.y, c2.x, c2.y, b.x, b.y);
+            else ctx.lineTo(b.x, b.y);
+          }),
+        );
+        ctx.stroke();
+      }
+      subsO.forEach((sp, si) => {
         sp.nodes.forEach((n, ni) => {
           const q = scr(n);
           for (const which of ['cin', 'cout'] as const) {
@@ -1620,8 +1907,15 @@ export class Editor {
             ctx.stroke();
           }
           const hot = this.nodeHover?.sub === si && this.nodeHover.idx === ni && this.nodeHover.which === 'p';
-          ctx.fillStyle = hot ? '#ff6020' : ni === 0 ? '#20a040' : T.sel;
-          ctx.fillRect(q.x - 4, q.y - 4, 8, 8);
+          const picked = sel.has(`${si}:${ni}`);
+          const col = ni === 0 ? '#20a040' : T.sel;
+          // ausgewählt: gefüllt, sonst hohl
+          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = hot ? '#ff6020' : col;
+          ctx.fillStyle = hot ? '#ff6020' : picked ? col : T.handleFill;
+          const r = picked ? 4.5 : 3.5;
+          ctx.fillRect(q.x - r, q.y - r, 2 * r, 2 * r);
+          ctx.strokeRect(q.x - r, q.y - r, 2 * r, 2 * r);
         });
       });
       if (this.segHover) {
@@ -1760,7 +2054,7 @@ function normBox(a: Pt, b: Pt): Box {
 
 export const TOOL_HINTS: Record<Tool, string> = {
   select: 'Drehen: knapp außerhalb einer Ecke ziehen oder Auswahl nochmals anklicken. Rahmen nach rechts: umschließend, nach links: kreuzend.',
-  node: 'Knoten ziehen. Über Knoten/Kante: D löschen, I einfügen, C Ecke, S glatt. Doppelklick auf Kante fügt ein.',
+  node: 'Klick/Rahmen wählt Knoten, Shift ergänzt. Entf löschen, L Gerade, C Kurve, E Ecke, S glatt, I einfügen (oder Doppelklick auf Kante).',
   line: 'Klicken für Ecken, Ziehen für Kurven. Startpunkt anklicken schließt, Doppelklick/Enter/Rechtsklick beendet.',
   rect: 'Ziehen zum Zeichnen. Shift: Quadrat, Ctrl: von der Mitte.',
   ellipse: 'Ziehen zum Zeichnen. Shift: Kreis, Ctrl: von der Mitte.',
