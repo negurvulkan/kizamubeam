@@ -135,22 +135,27 @@ function bytesToDataUrl(bytes: Uint8Array, mime: string): Promise<string> {
   });
 }
 
-/** Dateiinhalt anhand von Endung bzw. Dateikopf importieren */
-export async function importBytes(ed: Editor, name: string, bytes: Uint8Array) {
+/** Dateiinhalt anhand von Endung bzw. Dateikopf importieren; Fehler werden geworfen */
+export async function importBytesOrThrow(ed: Editor, name: string, bytes: Uint8Array) {
   const ext = (/\.([a-z0-9]+)$/i.exec(name)?.[1] ?? '').toLowerCase();
+  const head = new TextDecoder().decode(bytes.slice(0, 512)).trimStart();
+  if (ext === 'svg' || head.startsWith('<svg') || (head.startsWith('<?xml') && head.includes('<svg'))) {
+    await ed.importVectors(importSvg(new TextDecoder().decode(bytes)), name);
+    return;
+  }
+  if (ext === 'dxf' || /^\s*0\s*\r?\n\s*SECTION/.test(head)) {
+    await ed.importVectors(importDxf(new TextDecoder().decode(bytes)), name);
+    return;
+  }
+  const mime = MIME[ext] ?? sniffImage(bytes);
+  if (!mime) throw new Error(t('Dateiformat wird nicht unterstützt (SVG, DXF, PNG, JPG, BMP, GIF, WebP).'));
+  await ed.importImage(await bytesToDataUrl(bytes, mime), readDpi(bytes), name);
+}
+
+/** Dateiinhalt importieren, Fehler als Meldung */
+export async function importBytes(ed: Editor, name: string, bytes: Uint8Array) {
   try {
-    const head = new TextDecoder().decode(bytes.slice(0, 512)).trimStart();
-    if (ext === 'svg' || head.startsWith('<svg') || (head.startsWith('<?xml') && head.includes('<svg'))) {
-      await ed.importVectors(importSvg(new TextDecoder().decode(bytes)), name);
-      return;
-    }
-    if (ext === 'dxf' || /^\s*0\s*\r?\n\s*SECTION/.test(head)) {
-      await ed.importVectors(importDxf(new TextDecoder().decode(bytes)), name);
-      return;
-    }
-    const mime = MIME[ext] ?? sniffImage(bytes);
-    if (!mime) throw new Error(t('Dateiformat wird nicht unterstützt (SVG, DXF, PNG, JPG, BMP, GIF, WebP).'));
-    await ed.importImage(await bytesToDataUrl(bytes, mime), readDpi(bytes), name);
+    await importBytesOrThrow(ed, name, bytes);
   } catch (e) {
     alert(t('{name} konnte nicht importiert werden: {message}', { name, message: (e as Error).message }));
   }
