@@ -159,7 +159,45 @@ function availableFonts(): string[] {
 
 // ======================================================================
 
+// ---------- Design (hell/dunkel) ----------
+
+type ThemeMode = 'system' | 'light' | 'dark';
+const THEME_KEY = 'laserwerk.theme';
+let themeMode: ThemeMode = 'system';
+const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+const themeListeners = new Set<() => void>();
+
+export function isDark() {
+  return themeMode === 'dark' || (themeMode === 'system' && darkQuery.matches);
+}
+
+function applyTheme(ed: Editor, mode: ThemeMode) {
+  themeMode = mode;
+  const root = document.documentElement;
+  if (mode === 'system') delete root.dataset.theme;
+  else root.dataset.theme = mode;
+  try {
+    localStorage.setItem(THEME_KEY, mode);
+  } catch {
+    /* Speicher nicht verfügbar */
+  }
+  ed.setDark(isDark());
+  themeListeners.forEach((f) => f());
+}
+
+function initTheme(ed: Editor) {
+  let saved: string | null = null;
+  try {
+    saved = localStorage.getItem(THEME_KEY);
+  } catch {
+    saved = null;
+  }
+  applyTheme(ed, saved === 'light' || saved === 'dark' ? saved : 'system');
+  darkQuery.addEventListener('change', () => themeMode === 'system' && applyTheme(ed, 'system'));
+}
+
 export function buildUI(ed: Editor) {
+  initTheme(ed);
   buildMenu(ed);
   buildToolbar(ed);
   buildNumbar(ed);
@@ -236,6 +274,10 @@ function buildMenu(ed: Editor) {
       ['Verkleinern', '-', () => ed.zoomAt(0.8)],
       'sep',
       ['Drahtgitter / Gefüllt', 'Alt+W', () => ((ed.filled = !ed.filled), ed.emit('view'))],
+      'sep',
+      ['Design: wie System', '', () => applyTheme(ed, 'system')],
+      ['Design: hell', '', () => applyTheme(ed, 'light')],
+      ['Design: dunkel', '', () => applyTheme(ed, 'dark')],
     ]],
     ['Hilfe', [['Tastenkürzel', 'F1', () => showHelp()]]],
   ];
@@ -359,6 +401,14 @@ function buildToolbar(ed: Editor) {
   add(needMulti, 'alignb', 'Unten ausrichten (B)', () => ed.align('bottom'));
   add(needThree, 'disth', 'Horizontal verteilen', () => ed.distribute(true));
   add(needThree, 'distv', 'Vertikal verteilen', () => ed.distribute(false));
+  bar.append(sep());
+  const themeBtn = add(null, 'moon', '', () => applyTheme(ed, isDark() ? 'light' : 'dark'));
+  const refreshTheme = () => {
+    themeBtn.innerHTML = isDark() ? ICONS.sun : ICONS.moon;
+    themeBtn.title = isDark() ? 'Helles Design' : 'Dunkles Design';
+  };
+  themeListeners.add(refreshTheme);
+  refreshTheme();
   const refresh = () => {
     const n = ed.sel.length;
     needSel.forEach((b) => (b.disabled = n < 1));

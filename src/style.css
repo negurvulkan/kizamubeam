@@ -7,8 +7,69 @@
   --accent: #2f6fe8;
   --accent-soft: #dbe6fb;
   --field: #ffffff;
+  /* Flächen für Menüs, Tabellen, Knöpfe */
+  --surface: #ffffff;
+  --surface-2: #f0f1f3;
+  --title: #e3e6eb;
+  --row-line: #eceef1;
+  --icon: #2b3038;
+  --status-text: #3d434b;
+  --anchor-line: #8a9099;
+  --dot: #b0b4ba;
+  --shadow: rgba(0, 0, 0, 0.16);
+  --backdrop: rgba(20, 30, 50, 0.15);
+  color-scheme: light;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
   font-size: 12px;
+  color: var(--text);
+}
+/* Dunkles Design: ausdrücklich gewählt oder vom System vorgegeben */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #1b1e23;
+    --panel: #24282e;
+    --line: #3a4049;
+    --text: #e3e6ea;
+    --muted: #9aa2ad;
+    --accent: #5b93f5;
+    --accent-soft: #2a3a57;
+    --field: #1c1f24;
+    --surface: #2c3138;
+    --surface-2: #262a30;
+    --title: #2e333a;
+    --row-line: #30353c;
+    --icon: #d4d8de;
+    --status-text: #c3c8cf;
+    --anchor-line: #7a828d;
+    --dot: #6b727c;
+    --shadow: rgba(0, 0, 0, 0.5);
+    --backdrop: rgba(0, 0, 0, 0.35);
+    color-scheme: dark;
+  }
+}
+:root[data-theme='dark'] {
+  --bg: #1b1e23;
+  --panel: #24282e;
+  --line: #3a4049;
+  --text: #e3e6ea;
+  --muted: #9aa2ad;
+  --accent: #5b93f5;
+  --accent-soft: #2a3a57;
+  --field: #1c1f24;
+  --surface: #2c3138;
+  --surface-2: #262a30;
+  --title: #2e333a;
+  --row-line: #30353c;
+  --icon: #d4d8de;
+  --status-text: #c3c8cf;
+  --anchor-line: #7a828d;
+  --dot: #6b727c;
+  --shadow: rgba(0, 0, 0, 0.5);
+  --backdrop: rgba(0, 0, 0, 0.35);
+  color-scheme: dark;
+}
+body {
+  background: var(--bg);
   color: var(--text);
 }
 * {
@@ -74,9 +135,9 @@ body {
   top: 23px;
   left: 0;
   min-width: 240px;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 14px var(--shadow);
   padding: 4px 0;
 }
 .menu.open .menu-items {
@@ -117,12 +178,12 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #2b3038;
+  color: var(--icon);
   padding: 0;
   flex: none;
 }
 .ib:hover:not(:disabled) {
-  background: #fff;
+  background: var(--surface);
   border-color: var(--line);
 }
 .ib.on {
@@ -183,8 +244,8 @@ select:focus {
   width: 9px;
   height: 9px;
   padding: 0;
-  border: 1px solid #8a9099;
-  background: #fff;
+  border: 1px solid var(--anchor-line);
+  background: var(--surface);
   border-radius: 1px;
 }
 .anchor button.on {
@@ -193,7 +254,7 @@ select:focus {
 }
 .toggle {
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--surface);
   border-radius: 3px;
   height: 22px;
   min-width: 24px;
@@ -243,10 +304,10 @@ select:focus {
 #texteditor {
   position: absolute;
   z-index: 10;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--accent);
   border-radius: 4px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 4px 14px var(--shadow);
   padding: 4px;
 }
 #texteditor textarea {
@@ -285,7 +346,7 @@ select:focus {
   flex: 0 0 auto;
 }
 .panel-title {
-  background: #e3e6eb;
+  background: var(--title);
   border-bottom: 1px solid var(--line);
   padding: 4px 8px;
   font-weight: 600;
@@ -298,7 +359,7 @@ select:focus {
 table.layers {
   width: 100%;
   border-collapse: collapse;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
 }
 table.layers th {
@@ -307,11 +368,11 @@ table.layers th {
   text-align: left;
   padding: 3px 4px;
   border-bottom: 1px solid var(--line);
-  background: #f0f1f3;
+  background: var(--surface-2);
 }
 table.layers td {
   padding: 2px 4px;
-  border-bottom: 1px solid #eceef1;
+  border-bottom: 1px solid var(--row-line);
 }
 table.layers tr.active td {
   background: var(--accent-soft);
@@ -341,7 +402,7 @@ table.layers select {
 .btn {
   font: inherit;
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--surface);
   border-radius: 3px;
   padding: 3px 8px;
   color: var(--text);
@@ -378,7 +439,7 @@ table.layers select {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #b0b4ba;
+  background: var(--dot);
   margin-right: 6px;
 }
 .laser-grid {
@@ -438,9 +499,9 @@ table.layers select {
   align-items: center;
   gap: 16px;
   padding: 0 8px;
-  background: #e3e6eb;
+  background: var(--title);
   border-top: 1px solid var(--line);
-  color: #3d434b;
+  color: var(--status-text);
   white-space: nowrap;
   overflow: hidden;
 }
@@ -464,7 +525,7 @@ dialog {
   border-radius: 6px;
   padding: 14px 18px;
   font: inherit;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 8px 30px var(--shadow);
 }
 dialog h3 {
   margin: 0 0 8px;
@@ -474,7 +535,7 @@ dialog table td {
   padding: 2px 10px 2px 0;
 }
 dialog kbd {
-  background: #f0f1f3;
+  background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: 3px;
   padding: 0 4px;
@@ -520,8 +581,12 @@ dialog kbd {
   color: #fff;
 }
 dialog::backdrop {
-  background: rgba(20, 30, 50, 0.15);
+  background: var(--backdrop);
 }
 .offset-dialog {
   margin: 110px 330px auto auto;
+}
+dialog {
+  background: var(--surface);
+  color: var(--text);
 }

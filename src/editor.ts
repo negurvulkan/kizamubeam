@@ -13,6 +13,22 @@ import {
 export type Tool = 'select' | 'node' | 'line' | 'rect' | 'ellipse' | 'polygon' | 'text';
 
 export const RULER = 22; // px
+
+/** Farben der Arbeitsfläche je Design */
+const CANVAS_THEMES = {
+  light: {
+    outside: '#c9ccd2', bed: '#ffffff', grid1: '#f2f2f2', grid10: '#e0e0e0', grid100: '#c4c4c4', border: '#30343a',
+    sel: '#3070ff', handleFill: '#ffffff', nodeLine: '#8090a0',
+    ruler: '#eceef1', rulerLine: '#a8adb5', rulerText: '#4a5058', rulerCorner: '#d6d9de',
+    label: 'rgba(30,40,60,0.85)', labelText: '#ffffff',
+  },
+  dark: {
+    outside: '#15171b', bed: '#24272d', grid1: '#2a2e34', grid10: '#343940', grid100: '#4a5059', border: '#8a929c',
+    sel: '#5b93f5', handleFill: '#24272d', nodeLine: '#7d8894',
+    ruler: '#24282e', rulerLine: '#3a4049', rulerText: '#a3abb5', rulerCorner: '#2e333a',
+    label: 'rgba(230,235,245,0.92)', labelText: '#1b1e23',
+  },
+};
 const HANDLE_OFF = 9; // Abstand der Griffe vom Auswahlrahmen in px
 
 type Drag =
@@ -49,6 +65,8 @@ export class Editor {
   pivot: Pt | null = null;
   view = { zoom: 2, ox: 60, oy: 40 };
   filled = true;
+  /** Dunkles Design der Arbeitsfläche */
+  dark = false;
   snapGrid = false;
   gridStep = 1;
   currentLayer = 0;
@@ -1354,6 +1372,19 @@ export class Editor {
 
   // ---------- Zeichnen ----------
 
+  setDark(dark: boolean) {
+    this.dark = dark;
+    this.redraw();
+  }
+  private get colors() {
+    return this.dark ? CANVAS_THEMES.dark : CANVAS_THEMES.light;
+  }
+  /** Layerfarbe zum Zeichnen: Schwarz wird auf dunklem Grund hell dargestellt */
+  layerDrawColor(i: number): string {
+    const c = PALETTE[i] ?? '#000000';
+    return this.dark ? brightenForDark(c) : c;
+  }
+
   private render() {
     const ctx = this.ctx,
       dpr = this.dpr,
@@ -1362,13 +1393,14 @@ export class Editor {
       H = this.h;
     const bed = this.doc.bed;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = '#c9ccd2';
+    const T = this.colors;
+    ctx.fillStyle = T.outside;
     ctx.fillRect(0, 0, W, H);
 
     // Bett und Raster (in Bildschirmkoordinaten für scharfe Linien)
     const p0 = this.toScreen({ x: 0, y: 0 }),
       p1 = this.toScreen({ x: bed.w, y: bed.h });
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = T.bed;
     ctx.fillRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
     const grid = (step: number, color: string) => {
       if (step * z < 6) return;
@@ -1391,10 +1423,10 @@ export class Editor {
       ctx.lineWidth = 1;
       ctx.stroke();
     };
-    grid(1, '#f2f2f2');
-    grid(10, '#e0e0e0');
-    grid(100, '#c4c4c4');
-    ctx.strokeStyle = '#30343a';
+    grid(1, T.grid1);
+    grid(10, T.grid10);
+    grid(100, T.grid100);
+    ctx.strokeStyle = T.border;
     ctx.lineWidth = 1.5;
     ctx.strokeRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
     // Ursprungsmarker
@@ -1422,7 +1454,7 @@ export class Editor {
       }
       const key = `${o.layer}|${selected ? 1 : 0}`;
       let bt = batches.get(key);
-      if (!bt) batches.set(key, (bt = { color: PALETTE[o.layer] ?? '#000', fill, sel: selected, stroke: new Path2D(), fillPath: new Path2D() }));
+      if (!bt) batches.set(key, (bt = { color: this.layerDrawColor(o.layer), fill, sel: selected, stroke: new Path2D(), fillPath: new Path2D() }));
       const p = cachedWorldPath(o, m);
       bt.stroke.addPath(p);
       if (fill) {
@@ -1444,7 +1476,7 @@ export class Editor {
     }
     for (const [o, m, selected, fill] of texts) {
       const t = o.shape as TextShape;
-      ctx.strokeStyle = ctx.fillStyle = PALETTE[o.layer] ?? '#000';
+      ctx.strokeStyle = ctx.fillStyle = this.layerDrawColor(o.layer);
       ctx.setLineDash(selected ? [5 * px, 3 * px] : []);
       drawText(ctx, t, m, fill ? 'fill' : 'stroke', fill ? px : px * 1.2);
       if (selected) {
@@ -1452,7 +1484,7 @@ export class Editor {
         ctx.globalAlpha = 0.5;
         const b = boundsOf([o], mul(m, inv(o.m)))!;
         ctx.lineWidth = px;
-        ctx.strokeStyle = '#3070ff';
+        ctx.strokeStyle = this.colors.sel;
         ctx.strokeRect(b.x, b.y, b.w, b.h);
         ctx.globalAlpha = 1;
       }
@@ -1464,7 +1496,7 @@ export class Editor {
       const sp: SubPath = { nodes: [...this.draft.nodes], closed: false };
       if (!this.drag) sp.nodes.push({ x: this.cursor.x, y: this.cursor.y });
       const tmp: Obj = { id: 0, m: IDENT, layer: this.currentLayer, shape: { kind: 'path', subs: [sp] } };
-      ctx.strokeStyle = PALETTE[this.currentLayer];
+      ctx.strokeStyle = this.layerDrawColor(this.currentLayer);
       ctx.lineWidth = 1.2 * px;
       ctx.stroke(worldPath(tmp.shape, IDENT));
     }
@@ -1484,11 +1516,12 @@ export class Editor {
   }
 
   private renderOverlay(ctx: CanvasRenderingContext2D) {
+    const T = this.colors;
     // Auswahlrahmen
     const b = this.selBounds();
     if (b && this.tool !== 'node') {
       const hs = this.handlePoints(b);
-      ctx.strokeStyle = '#3070ff';
+      ctx.strokeStyle = T.sel;
       ctx.lineWidth = 1;
       ctx.setLineDash([4, 3]);
       ctx.strokeRect(hs[0].x + HANDLE_OFF, hs[0].y + HANDLE_OFF, hs[4].x - hs[0].x - 2 * HANDLE_OFF, hs[4].y - hs[0].y - 2 * HANDLE_OFF);
@@ -1501,13 +1534,13 @@ export class Editor {
           const a = Math.atan2(h.y - cy, h.x - cx);
           ctx.beginPath();
           ctx.arc(h.x, h.y, 6, a + Math.PI / 2 - 0.9, a + Math.PI / 2 + 0.9 + Math.PI);
-          ctx.strokeStyle = '#3070ff';
+          ctx.strokeStyle = T.sel;
           ctx.lineWidth = 2;
           ctx.stroke();
           return;
         }
-        ctx.fillStyle = '#ffffff';
-        ctx.strokeStyle = '#3070ff';
+        ctx.fillStyle = T.handleFill;
+        ctx.strokeStyle = T.sel;
         ctx.lineWidth = 1;
         ctx.fillRect(h.x - 4, h.y - 4, 8, 8);
         ctx.strokeRect(h.x - 4 + 0.5, h.y - 4 + 0.5, 7, 7);
@@ -1516,7 +1549,7 @@ export class Editor {
         const c = this.toScreen(this.rotationCenter()!);
         ctx.beginPath();
         ctx.arc(c.x, c.y, 5, 0, Math.PI * 2);
-        ctx.strokeStyle = '#3070ff';
+        ctx.strokeStyle = T.sel;
         ctx.lineWidth = 1;
         ctx.stroke();
         ctx.beginPath();
@@ -1524,7 +1557,7 @@ export class Editor {
         ctx.lineTo(c.x + 6, c.y);
         ctx.moveTo(c.x, c.y - 6);
         ctx.lineTo(c.x, c.y + 6);
-        ctx.strokeStyle = '#3070ff';
+        ctx.strokeStyle = T.sel;
         ctx.lineWidth = 1;
         ctx.stroke();
       }
@@ -1536,14 +1569,14 @@ export class Editor {
       const label = `${d.angle.toFixed(1)}°`;
       ctx.font = '12px system-ui, sans-serif';
       const w = ctx.measureText(label).width + 10;
-      ctx.fillStyle = 'rgba(30,40,60,0.85)';
+      ctx.fillStyle = T.label;
       ctx.fillRect(q.x + 14, q.y + 10, w, 18);
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = T.labelText;
       ctx.textBaseline = 'middle';
       ctx.fillText(label, q.x + 19, q.y + 19);
       const c = this.toScreen(d.center);
       ctx.setLineDash([3, 3]);
-      ctx.strokeStyle = '#3070ff';
+      ctx.strokeStyle = T.sel;
       ctx.beginPath();
       ctx.moveTo(c.x, c.y);
       ctx.lineTo(q.x, q.y);
@@ -1573,21 +1606,21 @@ export class Editor {
             const hp = n[which];
             if (!hp) continue;
             const hq = scr(hp);
-            ctx.strokeStyle = '#8090a0';
+            ctx.strokeStyle = T.nodeLine;
             ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.moveTo(q.x, q.y);
             ctx.lineTo(hq.x, hq.y);
             ctx.stroke();
             const hot = this.nodeHover?.sub === si && this.nodeHover.idx === ni && this.nodeHover.which === which;
-            ctx.fillStyle = hot ? '#ff6020' : '#ffffff';
+            ctx.fillStyle = hot ? '#ff6020' : T.handleFill;
             ctx.beginPath();
             ctx.arc(hq.x, hq.y, 3.5, 0, Math.PI * 2);
             ctx.fill();
             ctx.stroke();
           }
           const hot = this.nodeHover?.sub === si && this.nodeHover.idx === ni && this.nodeHover.which === 'p';
-          ctx.fillStyle = hot ? '#ff6020' : ni === 0 ? '#20a040' : '#3070ff';
+          ctx.fillStyle = hot ? '#ff6020' : ni === 0 ? '#20a040' : T.sel;
           ctx.fillRect(q.x - 4, q.y - 4, 8, 8);
         });
       });
@@ -1612,13 +1645,14 @@ export class Editor {
   }
 
   private renderRulers(ctx: CanvasRenderingContext2D) {
+    const T = this.colors;
     const W = this.w,
       H = this.h,
       z = this.view.zoom;
-    ctx.fillStyle = '#eceef1';
+    ctx.fillStyle = T.ruler;
     ctx.fillRect(0, 0, W, RULER);
     ctx.fillRect(0, 0, RULER, H);
-    ctx.strokeStyle = '#a8adb5';
+    ctx.strokeStyle = T.rulerLine;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, RULER + 0.5);
@@ -1629,7 +1663,7 @@ export class Editor {
     const steps = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
     const major = steps.find((s) => s * z >= 60) ?? 1000;
     const minor = major / (String(major).startsWith('2') ? 4 : 5);
-    ctx.fillStyle = '#4a5058';
+    ctx.fillStyle = T.rulerText;
     ctx.font = '10px system-ui, sans-serif';
     ctx.textBaseline = 'top';
     ctx.beginPath();
@@ -1672,7 +1706,7 @@ export class Editor {
     ctx.moveTo(0, c.y + 0.5);
     ctx.lineTo(RULER, c.y + 0.5);
     ctx.stroke();
-    ctx.fillStyle = '#d6d9de';
+    ctx.fillStyle = T.rulerCorner;
     ctx.fillRect(0, 0, RULER, RULER);
   }
 }
@@ -1695,6 +1729,22 @@ function closedPath(subs: SubPath[], m: Mat): Path2D {
   const p = new Path2D();
   p.addPath(subsToPath2D(subs.filter((sp) => sp.closed)), new DOMMatrix(m));
   return p;
+}
+
+/** Sehr dunkle Layerfarben auf dunklem Grund aufhellen (Farbton bleibt), Schwarz wird Hellgrau. */
+const darkColorCache = new Map<string, string>();
+function brightenForDark(hex: string): string {
+  let out = darkColorCache.get(hex);
+  if (out) return out;
+  const v = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const lum = (0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]) / 255;
+  if (lum < 0.02) out = '#e8e8e8';
+  else if (lum < 0.15) {
+    const mix = 0.45;
+    out = '#' + v.map((c) => Math.round(c + (255 - c) * mix).toString(16).padStart(2, '0')).join('');
+  } else out = hex;
+  darkColorCache.set(hex, out);
+  return out;
 }
 
 const ROTATE_CURSOR =
