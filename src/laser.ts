@@ -10,6 +10,7 @@ import {
 import { isTauri, machine, PortInfo } from './machine';
 import type { Doc, ImageLayer, Layer } from './model';
 import { materialTab } from './materialui';
+import { cameraTab } from './cameraui';
 
 const store = loadDevices();
 /** Das gewählte Gerät (live gebunden: wechselt mit der Auswahl) */
@@ -156,6 +157,7 @@ export function buildLaser(ed: Editor) {
     ['Verschieben', moveTab(ed)],
     ['Konsole', consoleTab()],
     ['Material', materialTab(ed)],
+    ['Kamera', cameraTab(ed)],
   ];
   title.textContent = '';
   title.classList.add('tabs');
