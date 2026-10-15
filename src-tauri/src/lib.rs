@@ -85,11 +85,93 @@ async fn open_text_file(
     Ok(Some((path.display().to_string(), text)))
 }
 
+/// Datei über einen nativen Öffnen-Dialog auswählen (mehrere Filter möglich). Gibt den Pfad zurück.
+#[tauri::command]
+async fn pick_file(app: tauri::AppHandle, filters: Vec<(String, Vec<String>)>) -> Option<String> {
+    let mut dlg = app.dialog().file();
+    for (name, exts) in &filters {
+        let e: Vec<&str> = exts.iter().map(|s| s.as_str()).collect();
+        dlg = dlg.add_filter(name, &e);
+    }
+    let path = dlg.blocking_pick_file()?;
+    path.into_path().ok().map(|p| p.display().to_string())
+}
+
+/// Inhalt einer Datei als Bytes (für Bilder und Importe).
+#[tauri::command]
+async fn read_file(path: String) -> Result<tauri::ipc::Response, String> {
+    std::fs::read(&path).map(tauri::ipc::Response::new).map_err(|e| e.to_string())
+}
+
+/// Speichert Binärdaten (Base64) über einen nativen Speichern-Dialog.
+#[tauri::command]
+async fn save_binary_file(
+    app: tauri::AppHandle,
+    default_name: String,
+    filter_name: String,
+    extensions: Vec<String>,
+    base64: String,
+) -> Result<Option<String>, String> {
+    let data = decode_base64(&base64).ok_or("Ungültige Daten")?;
+    let exts: Vec<&str> = extensions.iter().map(|s| s.as_str()).collect();
+    let picked = app
+        .dialog()
+        .file()
+        .set_file_name(&default_name)
+        .add_filter(&filter_name, &exts)
+        .blocking_save_file();
+    let Some(path) = picked else { return Ok(None) };
+    let path = path.into_path().map_err(|e| e.to_string())?;
+    std::fs::write(&path, data).map_err(|e| e.to_string())?;
+    Ok(Some(path.display().to_string()))
+}
+
+fn decode_base64(s: &str) -> Option<Vec<u8>> {
+    let val = |c: u8| -> Option<u32> {
+        Some(match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        } as u32)
+    };
+    let bytes: Vec<u8> = s.bytes().filter(|c| !c.is_ascii_whitespace() && *c != b'=').collect();
+    let mut out = Vec::with_capacity(bytes.len() * 3 / 4);
+    for chunk in bytes.chunks(4) {
+        let mut acc = 0u32;
+        for (i, &c) in chunk.iter().enumerate() {
+            acc |= val(c)? << (18 - 6 * i);
+        }
+        let n = chunk.len();
+        if n < 2 {
+            return None;
+        }
+        out.push((acc >> 16) as u8);
+        if n > 2 {
+            out.push((acc >> 8) as u8);
+        }
+        if n > 3 {
+            out.push(acc as u8);
+        }
+    }
+    Some(out)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![save_text_file, open_text_file, list_fonts, font_data])
+        .invoke_handler(tauri::generate_handler![
+            save_text_file,
+            open_text_file,
+            pick_file,
+            read_file,
+            save_binary_file,
+            list_fonts,
+            font_data
+        ])
         .run(tauri::generate_context!())
         .expect("Fehler beim Start der Anwendung");
 }

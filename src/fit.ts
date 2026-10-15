@@ -27,8 +27,11 @@ type Cubic = [V, V, V, V];
 /**
  * Linienzug in Bézier-Unterpfad umwandeln.
  * @param tol maximale Abweichung in mm
+ * @param opt lineMin: ab dieser Länge ist eine Strecke immer gerade; cornerDeg: Knickwinkel für Ecken
  */
-export function fitPolyline(input: Pt[], closed: boolean, tol: number): SubPath {
+export function fitPolyline(input: Pt[], closed: boolean, tol: number, opt: { lineMin?: number; cornerDeg?: number } = {}): SubPath {
+  const lineMin = opt.lineMin ?? LINE_MIN,
+    cornerDeg = opt.cornerDeg ?? CORNER_DEG;
   // doppelte Punkte entfernen
   const pts: V[] = [];
   for (const p of input) if (!pts.length || dist(p, pts[pts.length - 1]) > 1e-6) pts.push({ x: p.x, y: p.y });
@@ -43,7 +46,7 @@ export function fitPolyline(input: Pt[], closed: boolean, tol: number): SubPath 
   // Gerade Strecken erkennen
   const isLine: boolean[] = [];
   for (let i = 0; i < segCount; i++) {
-    isLine.push(segLen(i) >= LINE_MIN);
+    isLine.push(segLen(i) >= lineMin);
   }
   // Ecken und Bruchstellen mit vorgegebener Tangente
   const corner: boolean[] = [];
@@ -57,7 +60,7 @@ export function fitPolyline(input: Pt[], closed: boolean, tol: number): SubPath 
     const a = norm(sub(at(i), at(i - 1))),
       b = norm(sub(at(i + 1), at(i)));
     const ang = (Math.acos(Math.max(-1, Math.min(1, dot(a, b)))) * 180) / Math.PI;
-    const c = ang > CORNER_DEG;
+    const c = ang > cornerDeg;
     corner.push(c);
     const lineAdj = isLine[i] || isLine[(i - 1 + segCount) % segCount];
     brk.push(c || lineAdj);

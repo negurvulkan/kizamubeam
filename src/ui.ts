@@ -1,8 +1,9 @@
 // Oberfläche: Menü, Leisten, Panels, Palette, Statusleiste.
 import { Editor, Tool } from './editor';
 import { ICONS } from './icons';
-import { Layer, layerLabel, PALETTE, TextShape } from './model';
-import { exportSvg, openProject, saveProject } from './files';
+import { DITHER_MODES, DitherMode, ImageAdjust, ImageLayer, ImageShape, Layer, layerLabel, Obj, PALETTE, SubPath, TextShape } from './model';
+import { exportSvg, importFile, installDropAndPaste, openProject, saveProcessedBitmap, saveProject } from './files';
+import { assetImage, displayCanvas, outputGrid } from './images';
 import { systemFonts } from './fonts';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -207,6 +208,16 @@ export function buildUI(ed: Editor) {
   buildPalette(ed);
   buildStatus(ed);
   buildTextEditor(ed);
+  ed.onImport = () => importFile(ed);
+  installDropAndPaste(ed, $('#stage'));
+  window.addEventListener('keydown', (e) => {
+    const el = e.target as HTMLElement;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')) return;
+    if (e.altKey && !e.ctrlKey && e.key.toLowerCase() === 't' && ed.selImages().length) {
+      e.preventDefault();
+      openTraceDialog(ed);
+    }
+  });
 }
 
 // ---------- Menü ----------
@@ -220,7 +231,9 @@ function buildMenu(ed: Editor) {
       ['Öffnen …', '', () => openProject(ed)],
       ['Speichern …', '', () => saveProject(ed)],
       'sep',
+      ['Importieren …', 'Ctrl+I', () => importFile(ed)],
       ['Als SVG exportieren …', '', () => exportSvg(ed)],
+      ['Bearbeitetes Bild speichern …', '', () => saveProcessedBitmap(ed)],
     ]],
     ['Bearbeiten', [
       ['Rückgängig', 'Ctrl+Z', () => ed.doUndo()],
@@ -248,6 +261,9 @@ function buildMenu(ed: Editor) {
       ['Abziehen', '', () => ed.booleanSel('subtract')],
       ['Schnittmenge', '', () => ed.booleanSel('intersect')],
       ['Offset …', 'Alt+O', () => openOffsetDialog(ed)],
+      'sep',
+      ['Bild anpassen …', '', () => openAdjustDialog(ed)],
+      ['Bild nachzeichnen …', 'Alt+T', () => openTraceDialog(ed)],
     ]],
     ['Anordnen', [
       ['Gruppieren', 'Ctrl+G', () => ed.group()],
@@ -340,6 +356,8 @@ function showHelp() {
     ['Mausrad', 'Zoomen'],
     ['Knoten: D I C S', 'Löschen, Einfügen, Ecke, Glatt'],
     ['Alt+W', 'Drahtgitter / Gefüllt'],
+    ['Ctrl+I', 'Importieren (Bilder, SVG, DXF); Dateien auch auf die Arbeitsfläche ziehen oder mit Ctrl+V einfügen'],
+    ['Alt+T', 'Bild nachzeichnen'],
     ['Palette', 'Farbe anklicken = Auswahl diesem Layer zuordnen'],
   ];
   const dlg = h(
@@ -370,6 +388,7 @@ function buildToolbar(ed: Editor) {
   add(null, 'new', 'Neu (rückgängig machbar)', () => ed.newDocument());
   add(null, 'open', 'Öffnen', () => openProject(ed));
   add(null, 'save', 'Speichern', () => saveProject(ed));
+  add(null, 'import', 'Importieren: Bilder, SVG, DXF (Ctrl+I)', () => importFile(ed));
   add(null, 'export', 'Als SVG exportieren', () => exportSvg(ed));
   bar.append(sep());
   add(null, 'undo', 'Rückgängig (Ctrl+Z)', () => ed.doUndo());
@@ -540,8 +559,19 @@ function buildNumbar(ed: Editor) {
   );
   const sepNode = sep();
 
+  // Bilder
+  const imgInfo = h('span', { class: 'muted' });
+  const imgProps = h(
+    'div',
+    { class: 'field' },
+    h('span', { html: ICONS.image, class: 'muted icon-inline' }), imgInfo,
+    h('button', { class: 'toggle', title: 'Helligkeit, Kontrast, Gamma, Schärfen, Bildmodus', onclick: () => openAdjustDialog(ed) }, 'Anpassen …'),
+    h('button', { class: 'toggle', title: 'Bild in Vektoren umwandeln (Alt+T)', onclick: () => openTraceDialog(ed) }, 'Nachzeichnen …'),
+  );
+  const sepImg = sep();
+
   const sepShape = sep();
-  bar.append(geo, sepNode, nodeProps, sepShape, rectProps, polyProps, sep(), textProps);
+  bar.append(geo, sepNode, nodeProps, sepImg, imgProps, sepShape, rectProps, polyProps, sep(), textProps);
 
   const refresh = () => {
     const b = ed.selBounds();
@@ -557,6 +587,15 @@ function buildNumbar(ed: Editor) {
     } else [fx, fy, fw, fh, fwp, fhp, fr].forEach((f) => setVal(f, ''));
 
     nodeProps.hidden = sepNode.hidden = ed.tool !== 'node';
+    const imgs = ed.selImages();
+    imgProps.hidden = sepImg.hidden = !imgs.length;
+    if (imgs.length) {
+      const o = imgs[0],
+        s = o.shape as ImageShape;
+      const L = ed.imgLayer(o.layer);
+      const g = outputGrid(s, o.m, L.interval);
+      imgInfo.textContent = imgs.length > 1 ? `${imgs.length} Bilder` : `${s.pxW} × ${s.pxH} px → ${g.cols} × ${g.rows} Punkte (${Math.round(25.4 / L.interval)} DPI)`;
+    }
     const nn = ed.nodeSelCount;
     nodeInfo.textContent = nn ? `${nn} Knoten` : 'Knoten';
     nodeProps.classList.toggle('group-disabled', ed.tool === 'node' && !ed.sel.length);
@@ -702,12 +741,14 @@ function openOffsetDialog(ed: Editor) {
 
 function buildLayers(ed: Editor) {
   const root = $('#layers');
+  /** Gewählter Eintrag: Vektoren oder Bilder des aktiven Layers */
+  let part: 'vec' | 'img' = 'vec';
   const render = () => {
     const used = ed.layerOrder();
     if (ed.activeLayer === null || !used.includes(ed.activeLayer)) ed.activeLayer = used[0] ?? null;
     root.replaceChildren();
     if (!used.length) {
-      root.append(h('div', { class: 'empty' }, 'Noch keine Objekte. Zeichne links eine Form oder einen Text. Die Farbe unten bestimmt den Layer.'));
+      root.append(h('div', { class: 'empty' }, 'Noch keine Objekte. Zeichne links eine Form oder einen Text, oder importiere ein Bild (Ctrl+I). Die Farbe unten bestimmt den Layer.'));
       return;
     }
     const table = h(
@@ -715,34 +756,49 @@ function buildLayers(ed: Editor) {
       { class: 'layers' },
       h('tr', {}, ...['Nr.', 'Layer', 'Modus', 'Speed', 'Leist.', 'Aus', 'Zeig.'].map((t) => h('th', {}, t))),
     );
+    const partsOf = new Map(used.map((i) => [i, ed.layerParts(i)]));
+    const ap = partsOf.get(ed.activeLayer!)!;
+    if (part === 'img' && !ap.img) part = 'vec';
+    if (part === 'vec' && !ap.vec && ap.img) part = 'img';
     for (const i of used) {
       const L = ed.layer(i);
-      const mode = h('select', { onchange: (e: Event) => ed.updateLayer(i, { mode: (e.target as HTMLSelectElement).value as Layer['mode'] }) },
-        h('option', { value: 'line', selected: L.mode === 'line' }, 'Linie'),
-        h('option', { value: 'fill', selected: L.mode === 'fill' }, 'Füllen'),
-      );
-      const out = h('input', { type: 'checkbox', checked: L.output, onchange: (e: Event) => ed.updateLayer(i, { output: (e.target as HTMLInputElement).checked }) });
-      const show = h('input', { type: 'checkbox', checked: L.show, onchange: (e: Event) => ed.updateLayer(i, { show: (e.target as HTMLInputElement).checked }) });
-      const row = h(
-        'tr',
-        { class: ed.activeLayer === i ? 'active' : '', title: 'Doppelklick: alle Formen dieses Layers auswählen' },
-        h('td', {}, h('span', { class: 'swatch', style: `background:${PALETTE[i]}` }, layerLabel(i))),
-        h('td', {}, L.name),
-        h('td', {}, mode),
-        h('td', {}, String(L.speed)),
-        h('td', {}, `${L.power}%`),
-        h('td', {}, out),
-        h('td', {}, show),
-      );
-      row.addEventListener('click', (e) => {
-        if ((e.target as HTMLElement).closest('select,input')) return;
-        ed.activeLayer = i;
-        ed.currentLayer = i;
-        render();
-        ed.emit('tool');
-      });
-      row.addEventListener('dblclick', () => ed.selectLayer(i));
-      table.append(row);
+      const parts = partsOf.get(i)!;
+      const rows: ('vec' | 'img')[] = [];
+      if (parts.vec) rows.push('vec');
+      if (parts.img) rows.push('img');
+      for (const p of rows) {
+        const isImg = p === 'img';
+        const IL = isImg ? ed.imgLayer(i) : null;
+        const mode = isImg
+          ? h('span', { class: 'mode-img', title: 'Bilder dieses Layers' }, 'Bild')
+          : h('select', { onchange: (e: Event) => ed.updateLayer(i, { mode: (e.target as HTMLSelectElement).value as Layer['mode'] }) },
+              h('option', { value: 'line', selected: L.mode === 'line' }, 'Linie'),
+              h('option', { value: 'fill', selected: L.mode === 'fill' }, 'Füllen'),
+            );
+        const out = h('input', { type: 'checkbox', checked: L.output, onchange: (e: Event) => ed.updateLayer(i, { output: (e.target as HTMLInputElement).checked }) });
+        const show = h('input', { type: 'checkbox', checked: L.show, onchange: (e: Event) => ed.updateLayer(i, { show: (e.target as HTMLInputElement).checked }) });
+        const row = h(
+          'tr',
+          { class: ed.activeLayer === i && part === p ? 'active' : '', title: 'Doppelklick: alle Formen dieses Layers auswählen' },
+          h('td', {}, h('span', { class: 'swatch', style: `background:${PALETTE[i]}` }, layerLabel(i))),
+          h('td', {}, L.name),
+          h('td', {}, mode),
+          h('td', {}, String(IL ? IL.speed : L.speed)),
+          h('td', {}, `${IL ? IL.power : L.power}%`),
+          h('td', {}, out),
+          h('td', {}, show),
+        );
+        row.addEventListener('click', (e) => {
+          if ((e.target as HTMLElement).closest('select,input')) return;
+          ed.activeLayer = i;
+          ed.currentLayer = i;
+          part = p;
+          render();
+          ed.emit('tool');
+        });
+        row.addEventListener('dblclick', () => ed.selectLayer(i));
+        table.append(row);
+      }
     }
     root.append(table);
     const a = ed.activeLayer!;
@@ -756,6 +812,12 @@ function buildLayers(ed: Editor) {
       ),
     );
     const L = ed.layer(a);
+    const name = h('input', { type: 'text', value: L.name, onchange: (e: Event) => ed.updateLayer(a, { name: (e.target as HTMLInputElement).value }) });
+    const head = [h('label', {}, h('span', { class: 'swatch', style: `background:${PALETTE[a]}` }, layerLabel(a)), ' Name'), name];
+    if (part === 'img') {
+      root.append(imageLayerForm(ed, a, head));
+      return;
+    }
     const num = (key: 'speed' | 'power' | 'minPower' | 'passes' | 'interval', min: number, max: number, int = false) => {
       const el = numInput('', (v) => {
         const c = Math.max(min, Math.min(max, int ? Math.round(v) : v));
@@ -764,12 +826,11 @@ function buildLayers(ed: Editor) {
       el.value = String(L[key]);
       return el;
     };
-    const name = h('input', { type: 'text', value: L.name, onchange: (e: Event) => ed.updateLayer(a, { name: (e.target as HTMLInputElement).value }) });
     root.append(
       h(
         'div',
         { class: 'form' },
-        h('label', {}, h('span', { class: 'swatch', style: `background:${PALETTE[a]}` }, layerLabel(a)), ' Name'), name,
+        ...head,
         h('label', {}, 'Geschwindigkeit (mm/min)'), num('speed', 1, 100000),
         h('label', {}, 'Max. Leistung (%)'), num('power', 0, 100),
         h('label', {}, 'Min. Leistung (%)'), num('minPower', 0, 100),
@@ -791,6 +852,292 @@ function buildLayers(ed: Editor) {
   };
   root.addEventListener('focusout', () => setTimeout(schedule, 0));
   render();
+}
+
+/** Felder für die Bild-Einstellungen eines Layers (auch im Dialog „Bild anpassen“ verwendet) */
+function imageLayerFields(ed: Editor, i: number, live: boolean, onChange?: () => void): HTMLElement[] {
+  const IL = ed.imgLayer(i);
+  const set = (patch: Partial<ImageLayer>) => {
+    ed.updateImgLayer(i, patch, !live);
+    onChange?.();
+  };
+  const num = (key: 'speed' | 'power' | 'minPower' | 'passes' | 'overscan' | 'cells' | 'angle' | 'threshold', min: number, max: number, int = false) => {
+    const el = numInput('', (v) => set({ [key]: Math.max(min, Math.min(max, int ? Math.round(v) : v)) } as Partial<ImageLayer>));
+    el.value = String(IL[key]);
+    return el;
+  };
+  const interval = numInput('', (v) => {
+    const c = Math.max(0.01, Math.min(2, v));
+    set({ interval: c });
+    dpi.value = String(Math.round(25.4 / c));
+  }, 'Zeilenabstand in mm');
+  interval.value = String(IL.interval);
+  const dpi = numInput('', (v) => {
+    const c = Math.max(12.7, Math.min(2540, v));
+    set({ interval: Math.round((25.4 / c) * 10000) / 10000 });
+    interval.value = String(ed.imgLayer(i).interval);
+  }, 'Auflösung in Punkten pro Zoll');
+  dpi.value = String(Math.round(25.4 / IL.interval));
+  const modeSel = h('select', {}, ...DITHER_MODES.map(([v, t]) => h('option', { value: v, selected: IL.dither === v }, t))) as HTMLSelectElement;
+  const extra = h('div', { class: 'form sub' });
+  const renderExtra = () => {
+    const d = ed.imgLayer(i).dither;
+    extra.replaceChildren(
+      ...(d === 'threshold' ? [h('label', {}, 'Schwellwert (0–255)'), num('threshold', 0, 255, true)] : []),
+      ...(d === 'halftone' ? [h('label', {}, 'Zellen pro Zoll'), num('cells', 2, 300), h('label', {}, 'Rasterwinkel (°)'), num('angle', -90, 90)] : []),
+    );
+    extra.hidden = !extra.childElementCount;
+  };
+  modeSel.addEventListener('change', () => {
+    set({ dither: modeSel.value as DitherMode });
+    renderExtra();
+  });
+  renderExtra();
+  const check = (key: 'negative' | 'bidirectional', label: string) =>
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: IL[key], onchange: (e: Event) => set({ [key]: (e.target as HTMLInputElement).checked }) }), label);
+  return [
+    h('label', {}, 'Bildmodus'), modeSel,
+    extra,
+    h('label', {}, 'Zeilenabstand (mm)'), interval,
+    h('label', {}, 'DPI'), dpi,
+    h('span', { class: 'checks' }, check('negative', 'Negativ'), check('bidirectional', 'Bidirektional')),
+    ...(live ? [] : [
+      h('label', {}, 'Geschwindigkeit (mm/min)'), num('speed', 1, 100000),
+      h('label', {}, 'Max. Leistung (%)'), num('power', 0, 100),
+      h('label', {}, 'Min. Leistung (%)'), num('minPower', 0, 100),
+      h('label', {}, 'Durchgänge'), num('passes', 1, 100, true),
+      h('label', {}, 'Überfahrweg (%)'), num('overscan', 0, 50),
+    ]),
+  ];
+}
+
+function imageLayerForm(ed: Editor, i: number, head: HTMLElement[]) {
+  return h(
+    'div',
+    {},
+    h('div', { class: 'form' }, ...head, ...imageLayerFields(ed, i, false)),
+    h('div', { class: 'layer-tools' },
+      h('button', { onclick: () => openAdjustDialog(ed, i) }, 'Bild anpassen …'),
+    ),
+  );
+}
+
+// ---------- Bild anpassen ----------
+
+/** Schieberegler mit Zahlenanzeige */
+function slider(label: string, min: number, max: number, step: number, value: number, onInput: (v: number) => void) {
+  const out = h('span', { class: 'slider-val' }, fmtNum(value));
+  const inp = h('input', { type: 'range', min, max, step, value: String(value) }) as HTMLInputElement;
+  inp.addEventListener('input', () => {
+    out.textContent = fmtNum(+inp.value);
+    onInput(+inp.value);
+  });
+  const set = (v: number) => {
+    inp.value = String(v);
+    out.textContent = fmtNum(v);
+  };
+  return { el: [h('label', {}, label), h('span', { class: 'slider' }, inp, out)], set };
+}
+const fmtNum = (v: number) => String(Math.round(v * 100) / 100).replace('.', ',');
+
+function targetImages(ed: Editor, layer?: number): Obj[] {
+  const sel = ed.selImages();
+  if (sel.length) return sel;
+  if (layer === undefined) return [];
+  return ed.doc.objs.filter((o) => o.shape.kind === 'image' && o.layer === layer);
+}
+
+function openAdjustDialog(ed: Editor, layer?: number) {
+  const targets = targetImages(ed, layer);
+  if (!targets.length) {
+    ed.hint = 'Erst ein Bild auswählen.';
+    ed.emit('tool');
+    return;
+  }
+  const first = targets[0];
+  const shape = () => first.shape as ImageShape;
+  const li = first.layer;
+  const origAdj = targets.map((o) => ({ ...(o.shape as ImageShape).adjust }));
+  const origLayer = { ...ed.imgLayer(li) };
+  const adj: ImageAdjust = { ...shape().adjust };
+
+  const view = h('canvas', { class: 'adjust-preview', width: 420, height: 300 }) as HTMLCanvasElement;
+  let showOrig = false,
+    oneToOne = false;
+  let timer = 0;
+  const drawPreview = () => {
+    clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      const ctx = view.getContext('2d')!;
+      const dpr = window.devicePixelRatio || 1;
+      const W = view.clientWidth || 420,
+        H = view.clientHeight || 300;
+      view.width = Math.round(W * dpr);
+      view.height = Math.round(H * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, W, H);
+      const s = shape();
+      const src: CanvasImageSource | null = showOrig ? assetImageOf(s) : displayCanvas(s, first.m, ed.imgLayer(li), true);
+      if (!src) return;
+      const sw = (src as HTMLCanvasElement).width || (src as HTMLImageElement).naturalWidth,
+        sh = (src as HTMLCanvasElement).height || (src as HTMLImageElement).naturalHeight;
+      if (oneToOne && !showOrig) {
+        // Mitte des Bildes, ein Bildschirmpunkt je Laserpunkt
+        ctx.imageSmoothingEnabled = false;
+        const cw = W * dpr,
+          ch = H * dpr;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.drawImage(src, Math.max(0, (sw - cw) / 2), Math.max(0, (sh - ch) / 2), Math.min(sw, cw), Math.min(sh, ch), Math.max(0, (cw - sw) / 2), Math.max(0, (ch - sh) / 2), Math.min(sw, cw), Math.min(sh, ch));
+        return;
+      }
+      const k = Math.min(W / sw, H / sh);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(src, (W - sw * k) / 2, (H - sh * k) / 2, sw * k, sh * k);
+    }, 40);
+  };
+  const setAdj = (patch: Partial<ImageAdjust>) => {
+    Object.assign(adj, patch);
+    ed.setImageAdjust(targets, patch, false);
+    drawPreview();
+  };
+  const sB = slider('Helligkeit', -100, 100, 1, adj.brightness, (v) => setAdj({ brightness: v }));
+  const sC = slider('Kontrast', -100, 100, 1, adj.contrast, (v) => setAdj({ contrast: v }));
+  const sG = slider('Gamma', 0.1, 4, 0.01, adj.gamma, (v) => setAdj({ gamma: v }));
+  const sS = slider('Schärfen (%)', 0, 300, 1, adj.sharpen, (v) => setAdj({ sharpen: v }));
+  const sR = slider('Radius', 1, 10, 0.5, adj.sharpenRadius, (v) => setAdj({ sharpenRadius: v }));
+  const sD = slider('Entrauschen', 0, 50, 1, adj.denoise, (v) => setAdj({ denoise: v }));
+  const fields = imageLayerFields(ed, li, true, drawPreview);
+  const chk = (label: string, f: (v: boolean) => void) =>
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', onchange: (e: Event) => (f((e.target as HTMLInputElement).checked), drawPreview()) }), label);
+  let applied = false;
+  const dlg = h(
+    'dialog',
+    { class: 'adjust-dialog' },
+    h('h3', {}, targets.length > 1 ? `Bild anpassen (${targets.length} Bilder)` : 'Bild anpassen'),
+    h(
+      'div',
+      { class: 'adjust-body' },
+      h('div', { class: 'adjust-left' },
+        view,
+        h('div', { class: 'checks' }, chk('Original zeigen', (v) => (showOrig = v)), chk('Ausschnitt 1:1', (v) => (oneToOne = v))),
+      ),
+      h('div', { class: 'adjust-right' },
+        h('div', { class: 'form' }, ...sB.el, ...sC.el, ...sG.el),
+        h('div', { class: 'form-title' }, 'Schärfen'),
+        h('div', { class: 'form' }, ...sS.el, ...sR.el, ...sD.el),
+        h('div', { class: 'form-title' }, `Layer ${layerLabel(li)}: Bildausgabe`),
+        h('div', { class: 'form' }, ...fields),
+      ),
+    ),
+    h('div', { class: 'note' }, 'Die Arbeitsfläche zeigt das Ergebnis live. Bildmodus und Auflösung gelten für alle Bilder des Layers.'),
+    h(
+      'div',
+      { class: 'dialog-buttons' },
+      h('button', {
+        class: 'btn',
+        onclick: () => {
+          const d = { brightness: 0, contrast: 0, gamma: 1, sharpen: 0, sharpenRadius: 1, denoise: 0 };
+          sB.set(0), sC.set(0), sG.set(1), sS.set(0), sR.set(1), sD.set(0);
+          setAdj(d);
+        },
+      }, 'Zurücksetzen'),
+      h('span', { style: 'flex:1' }),
+      h('button', { class: 'btn', onclick: () => dlg.close() }, 'Abbrechen'),
+      h('button', {
+        class: 'btn primary',
+        onclick: () => {
+          applied = true;
+          dlg.close();
+        },
+      }, 'Übernehmen'),
+    ),
+  );
+  dlg.addEventListener('close', () => {
+    clearTimeout(timer);
+    const newAdj = targets.map((o) => ({ ...(o.shape as ImageShape).adjust }));
+    const newLayer = { ...ed.imgLayer(li) };
+    // Ausgangszustand herstellen; bei „Übernehmen“ die Änderung als ein Undo-Schritt wieder anwenden
+    targets.forEach((o, k) => ((o.shape as ImageShape).adjust = origAdj[k]));
+    Object.assign(ed.imgLayer(li), origLayer);
+    if (applied && (JSON.stringify(newAdj) !== JSON.stringify(origAdj) || JSON.stringify(newLayer) !== JSON.stringify(origLayer))) {
+      ed.snapshot();
+      targets.forEach((o, k) => ((o.shape as ImageShape).adjust = newAdj[k]));
+      Object.assign(ed.imgLayer(li), newLayer);
+    }
+    ed.emit('doc');
+    dlg.remove();
+  });
+  dlg.addEventListener('keydown', (e) => e.stopPropagation());
+  document.body.append(dlg);
+  dlg.showModal();
+  drawPreview();
+}
+
+function assetImageOf(s: ImageShape): HTMLImageElement | null {
+  return assetImage(s.asset);
+}
+
+// ---------- Bild nachzeichnen ----------
+
+let traceState = { threshold: 128, ignoreLess: 10, smooth: 0.3, deleteImage: false };
+
+function openTraceDialog(ed: Editor) {
+  const o = ed.selImages()[0];
+  if (!o) {
+    ed.hint = 'Erst ein Bild auswählen.';
+    ed.emit('tool');
+    return;
+  }
+  const st = { ...traceState };
+  const info = h('div', { class: 'note' }, ' ');
+  let subs: SubPath[] = [];
+  let timer = 0;
+  const preview = () => {
+    clearTimeout(timer);
+    info.textContent = 'Berechne …';
+    timer = window.setTimeout(() => {
+      const t0 = performance.now();
+      subs = ed.traceImage(o, st);
+      ed.setPreview(subs);
+      const nodes = subs.reduce((n, sp) => n + sp.nodes.length, 0);
+      info.textContent = `${subs.length} Konturen, ${nodes} Knoten (${Math.round(performance.now() - t0)} ms). Orange gestrichelt: Vorschau.`;
+    }, 120);
+  };
+  const sT = slider('Schwellwert', 0, 255, 1, st.threshold, (v) => ((st.threshold = v), preview()));
+  const sI = slider('Kleines ignorieren (px²)', 0, 500, 1, st.ignoreLess, (v) => ((st.ignoreLess = v), preview()));
+  const sS = slider('Glättung', 0, 1, 0.05, st.smooth, (v) => ((st.smooth = v), preview()));
+  const del = h('input', { type: 'checkbox', checked: st.deleteImage, onchange: (e: Event) => (st.deleteImage = (e.target as HTMLInputElement).checked) });
+  let applied = false;
+  const dlg = h(
+    'dialog',
+    { class: 'offset-dialog trace-dialog' },
+    h('h3', {}, 'Bild nachzeichnen'),
+    h('div', { class: 'form' }, ...sT.el, ...sI.el, ...sS.el, h('span', { class: 'checks' }, h('label', { class: 'check' }, del, 'Bild danach löschen'))),
+    h('div', { class: 'note' }, 'Dunkler als der Schwellwert wird zur Fläche. Helligkeit, Kontrast und Gamma aus „Bild anpassen“ wirken mit.'),
+    info,
+    h(
+      'div',
+      { class: 'dialog-buttons' },
+      h('button', { class: 'btn', onclick: () => dlg.close() }, 'Abbrechen'),
+      h('button', { class: 'btn primary', onclick: () => ((applied = true), dlg.close()) }, 'Übernehmen'),
+    ),
+  );
+  dlg.addEventListener('close', () => {
+    clearTimeout(timer);
+    ed.setPreview(null);
+    if (applied) {
+      traceState = st;
+      subs = ed.traceImage(o, st);
+      ed.commitTrace(o, subs, st.deleteImage);
+    }
+    dlg.remove();
+  });
+  dlg.addEventListener('keydown', (e) => e.stopPropagation());
+  document.body.append(dlg);
+  dlg.showModal();
+  preview();
 }
 
 // ---------- Laser-Panel ----------
