@@ -1240,3 +1240,72 @@ table.layers td:nth-child(2) {
 .hinge-dialog {
   width: min(440px, 95vw);
 }
+
+/* KI-Agenten */
+.agent-status {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.agent-status.busy {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.agent-status.error,
+.agent-state.error,
+.agent-log .error {
+  color: #d03030;
+}
+.agent-dialog {
+  width: min(640px, 92vw);
+  max-height: 88vh;
+}
+.agent-dialog .form {
+  grid-template-columns: 90px 1fr;
+}
+.agent-state {
+  margin: 4px 0 8px;
+}
+.agent-token-row {
+  display: flex;
+  gap: 4px;
+}
+.agent-token-row input {
+  flex: 1;
+  font-family: ui-monospace, monospace;
+}
+.agent-snippet {
+  margin-bottom: 8px;
+}
+.agent-snippet-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.agent-snippet-head .note {
+  flex: 1;
+  margin: 0;
+}
+.agent-snippet pre,
+.agent-log {
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font: 11px ui-monospace, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+}
+.agent-log {
+  max-height: 160px;
+  overflow: auto;
+}
+.agent-log .time {
+  color: var(--muted);
+}

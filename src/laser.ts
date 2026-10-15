@@ -148,6 +148,15 @@ export async function saveGCode(ed: Editor, src?: JobSource) {
   await saveText(src ? `${src.name.toLowerCase().replace(/[^a-z0-9äöüß]+/g, '-')}.gcode` : 'projekt.gcode', 'G-Code', 'gcode', 'text/plain', g.lines.join('\n') + '\n');
 }
 
+/** Job und Zeitschätzung des Dokuments ohne Ausgabe (für KI-Agenten) */
+export async function jobInfo(ed: Editor) {
+  const job = await makeJob(ed, true);
+  return { job, est: job.moves.n ? estimate(job.moves, device) : null, device };
+}
+
+/** Alle Geräte und die ID des gewählten */
+export const deviceList = () => ({ devices: store.devices, current: device.id });
+
 // ---------- Laser-Panel ----------
 
 export function buildLaser(ed: Editor) {

@@ -13,6 +13,8 @@ import { buildLaser, frameJob, openDeviceDialog, openDevicesDialog, openPreview,
 import { openLayerDialog } from './layerdialog';
 import { openMaterialTestDialog } from './materialtest';
 import { BoolBase } from './ops';
+import { agentStatus, openAgentDialog } from './agentui';
+import { startAgentBridge } from './agent';
 import { dec, LangPref, LANGUAGES, setLangPref, t, tn } from './i18n';
 
 const FONT_CANDIDATES = [
@@ -89,6 +91,7 @@ export function buildUI(ed: Editor) {
   buildLaser(ed);
   buildPalette(ed);
   buildStatus(ed);
+  startAgentBridge(ed);
   buildTextEditor(ed);
   ed.onImport = () => importFile(ed);
   ed.onGridArray = () => openGridArrayDialog(ed);
@@ -139,6 +142,8 @@ function buildMenu(ed: Editor) {
       [t('Importieren …'), 'Ctrl+I', () => importFile(ed)],
       [t('Als SVG exportieren …'), '', () => exportSvg(ed)],
       [t('Bearbeitetes Bild speichern …'), '', () => saveProcessedBitmap(ed)],
+      'sep',
+      [t('KI-Agenten (MCP) …'), '', () => openAgentDialog(ed)],
     ]],
     [t('Bearbeiten'), [
       [t('Rückgängig'), 'Ctrl+Z', () => ed.doUndo()],
@@ -1203,6 +1208,7 @@ function buildStatus(ed: Editor) {
     h('label', { title: t('Am Raster fangen') }, snap, t('Raster'), step, 'mm'),
     h('label', { title: t('Füll-Layer gefüllt anzeigen (Alt+W)') }, filled, t('Gefüllt')),
     zoom,
+    agentStatus(ed),
   );
   const refresh = () => {
     const m = ed.toMachine(ed.cursor);

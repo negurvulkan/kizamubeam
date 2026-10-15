@@ -74,6 +74,7 @@ const BACKEND_PATTERNS: [RegExp, string][] = [
   [/^Lesen fehlgeschlagen: (.*)$/s, 'Lesen fehlgeschlagen: {error}'],
   [/^Fertig nach (\d+:\d+) min, (\d+) Fehler$/, 'Fertig nach {time} min, {errors} Fehler'],
   [/^Fertig nach (\d+:\d+) min$/, 'Fertig nach {time} min'],
+  [/^Port (\d+) nicht verfügbar: (.*)$/s, 'Port {port} nicht verfügbar: {error}'],
 ];
 const BACKEND_MESSAGES = [
   'Ungültige Daten',
@@ -85,6 +86,7 @@ const BACKEND_MESSAGES = [
   'Die Gegenstelle hat die Verbindung beendet.',
   'Die Steuerung wurde neu gestartet',
   'Alarm, Job abgebrochen',
+  'Kein Ordner für Einstellungen',
 ];
 // i18n-keys-end
 
