@@ -6,7 +6,7 @@ import { bezierPt, segments, shapeSubs } from './geom';
 import { fitPolyline } from './fit';
 
 /** Clipper rechnet mit Ganzzahlen: 1 Einheit = 1 µm */
-const SCALE = 1000;
+export const SCALE = 1000;
 /** Maximale Abweichung beim Zerlegen von Kurven in mm */
 const FLATTEN_TOL = 0.01;
 /** Größter Punktabstand beim Zerlegen von Kurven (mm); längere Strecken erkennt die Kurvenrückführung als Gerade */
@@ -73,7 +73,7 @@ function execute(type: ClipperLib.ClipType, subj: Paths, clip: Paths, fill: Clip
 }
 
 /** Fläche eines Objekts: Löcher (z. B. in Buchstaben) nach Gerade-Ungerade-Regel. */
-function region(o: Obj): Paths {
+export function region(o: Obj): Paths {
   return execute(ClipType.ctUnion, objectPaths(o).closed, [], PolyFillType.pftEvenOdd);
 }
 
