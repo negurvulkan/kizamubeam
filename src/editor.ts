@@ -1,8 +1,12 @@
 // Editor: Zustand, Zeichnen auf der Arbeitsfläche, Werkzeuge und Befehle.
 import {
-  about, apply, bumpIds, clone, cloneObj, defaultLayer, Doc, IDENT, inv, Layer, leaves, Mat, mul, newDoc, newId,
-  Node, Obj, PALETTE, Pt, rotate, scale, setLayerDeep, Shape, SubPath, TextShape, translate,
+  about, apply, bumpIds, clone, cloneObj, DEFAULT_ADJUST, defaultImageLayer, defaultLayer, Doc, IDENT, ImageAdjust, ImageLayer,
+  ImageShape, inv, Layer, leaves, Mat, mul, newDoc, newId, Node, Obj, PALETTE, Pt, rotate, scale, setLayerDeep, Shape, SubPath,
+  TextShape, translate,
 } from './model';
+import { addAsset, adjustedGray, assetUrl, displayCanvas, onImageReady, registerAsset, restoreAssets, sourceSize } from './images';
+import { ImportResult, transformSubs } from './importers';
+import { traceGray, TraceOptions } from './trace';
 import { BoolOp, booleanOp, OffsetOptions, offsetOp } from './ops';
 import { loadFont, onFontLoaded, textToSubs } from './fonts';
 import {
@@ -103,12 +107,16 @@ export class Editor {
   private listeners = new Set<(what: 'doc' | 'sel' | 'view' | 'tool') => void>();
   private saveTimer = 0;
   textEditor: ((o: Obj, isNew: boolean) => void) | null = null;
+  /** Einfügen aus der System-Zwischenablage (Bilder, SVG); true = verarbeitet */
+  externalPaste: ((data: DataTransfer) => Promise<boolean>) | null = null;
+  private pasteTimer = 0;
 
   constructor(public canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
     this.restore();
     // Texte werden mit den Schriftkonturen gezeichnet; nach dem Laden einer Schrift neu zeichnen
     onFontLoaded(() => this.emit('sel'));
+    onImageReady(() => this.redraw());
     new ResizeObserver(() => this.resize()).observe(canvas);
     canvas.addEventListener('pointerdown', (e) => this.onDown(e));
     canvas.addEventListener('pointermove', (e) => this.onMove(e));
@@ -122,6 +130,7 @@ export class Editor {
     canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('keydown', (e) => this.onKey(e));
+    window.addEventListener('paste', (e) => this.onPaste(e));
     window.addEventListener('keyup', (e) => {
       if (e.code === 'Space') this.space = false;
     });
@@ -151,6 +160,21 @@ export class Editor {
 
   layer(i: number): Layer {
     return (this.doc.layers[i] ??= defaultLayer(i));
+  }
+  /** Bild-Einstellungen eines Layers */
+  imgLayer(i: number): ImageLayer {
+    return (this.layer(i).img ??= defaultImageLayer());
+  }
+  /** Welche Arten von Objekten liegen auf dem Layer? (Vektoren und Bilder sind getrennte Einträge) */
+  layerParts(i: number): { vec: boolean; img: boolean } {
+    let vec = false,
+      img = false;
+    for (const [o] of leaves(this.doc.objs)) {
+      if (o.layer !== i) continue;
+      if (o.shape.kind === 'image') img = true;
+      else vec = true;
+    }
+    return { vec, img };
   }
   usedLayers(): number[] {
     const set = new Set<number>();
@@ -209,17 +233,33 @@ export class Editor {
       if (s) {
         this.doc = JSON.parse(s);
         bumpIds(this.doc.objs);
+        restoreAssets(this.assetIds());
       }
     } catch {
       this.doc = newDoc();
     }
   }
+  /** IDs aller im Dokument verwendeten Bilder */
+  assetIds(objs: Obj[] = this.doc.objs): string[] {
+    const ids = new Set<string>();
+    for (const [o] of leaves(objs)) if (o.shape.kind === 'image') ids.add(o.shape.asset);
+    return [...ids];
+  }
+  /** Projektdatei: Dokument samt Bilddaten */
   serialize() {
-    return JSON.stringify(this.doc, null, 1);
+    const assets: Record<string, string> = {};
+    for (const id of this.assetIds()) {
+      const url = assetUrl(id);
+      if (url) assets[id] = url;
+    }
+    return JSON.stringify(Object.keys(assets).length ? { ...this.doc, assets } : this.doc, null, 1);
   }
   openDoc(json: string) {
     const d = JSON.parse(json) as Doc;
     if (!d || !Array.isArray(d.objs)) throw new Error('Keine gültige Projektdatei');
+    if (d.assets) for (const [id, url] of Object.entries(d.assets)) registerAsset(id, url);
+    delete d.assets;
+    restoreAssets(this.assetIds(d.objs));
     this.snapshot();
     this.doc = d;
     bumpIds(d.objs);
@@ -936,7 +976,7 @@ export class Editor {
   private nodeTarget(): Obj | null {
     if (this.sel.length !== 1) return null;
     const o = this.sel[0];
-    return o.shape.kind === 'group' || o.shape.kind === 'text' ? null : o;
+    return o.shape.kind === 'group' || o.shape.kind === 'text' || o.shape.kind === 'image' ? null : o;
   }
 
   private updateNodeHover(sx: number, sy: number) {
@@ -985,7 +1025,7 @@ export class Editor {
   }
 
   private convertObjToPath(o: Obj) {
-    if (o.shape.kind === 'text' || o.shape.kind === 'group' || o.shape.kind === 'path') return;
+    if (o.shape.kind === 'text' || o.shape.kind === 'group' || o.shape.kind === 'path' || o.shape.kind === 'image') return;
     o.shape = { kind: 'path', subs: clone(shapeSubs(o.shape)) };
   }
 
@@ -1035,12 +1075,13 @@ export class Editor {
 
   /** Boolesche Operation auf die Auswahl. Das zuerst gewählte Objekt ist die Basis. */
   async booleanSel(op: BoolOp) {
-    if (this.sel.length < 2) {
-      this.hint = 'Für Boolesche Operationen mindestens zwei Objekte auswählen.';
+    // Bilder nehmen nicht teil (sie haben keine Kontur)
+    const inputs = this.sel.filter((o) => o.shape.kind !== 'image');
+    if (inputs.length < 2) {
+      this.hint = 'Für Boolesche Operationen mindestens zwei Formen auswählen.';
       this.emit('tool');
       return;
     }
-    const inputs = this.sel;
     const subs = booleanOp(op, await this.withTextOutlines(inputs));
     this.snapshot();
     const idx = Math.min(...inputs.map((o) => this.doc.objs.indexOf(o)));
@@ -1059,8 +1100,8 @@ export class Editor {
 
   /** Offset: neue Konturen im Abstand zur Auswahl. */
   async offsetSel(opt: OffsetOptions, keepOriginal: boolean) {
-    if (!this.sel.length) return;
-    const inputs = this.sel;
+    const inputs = this.sel.filter((o) => o.shape.kind !== 'image');
+    if (!inputs.length) return;
     const subs = offsetOp(await this.withTextOutlines(inputs), opt);
     this.snapshot();
     if (!keepOriginal) this.doc.objs = this.doc.objs.filter((o) => !inputs.includes(o));
@@ -1342,7 +1383,20 @@ export class Editor {
   }
   copy() {
     this.clipboard = this.sel.map((o) => clone(o));
+    // System-Zwischenablage überschreiben, damit danach nicht ein älteres Bild aus einem anderen Programm eingefügt wird
+    navigator.clipboard?.writeText('').catch(() => undefined);
   }
+  private async onPaste(e: ClipboardEvent) {
+    const el = e.target as HTMLElement;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+    clearTimeout(this.pasteTimer);
+    e.preventDefault();
+    const data = e.clipboardData;
+    if (data && this.externalPaste && (await this.externalPaste(data))) return;
+    this.paste();
+  }
+  /** Datei > Importieren (von der Oberfläche gesetzt) */
+  onImport: (() => void) | null = null;
   cut() {
     this.copy();
     this.deleteSel();
@@ -1551,6 +1605,120 @@ export class Editor {
     this.transformSel(D);
   }
 
+  // ---------- Bilder und Import ----------
+
+  selImages(): Obj[] {
+    return this.sel.filter((o) => o.shape.kind === 'image');
+  }
+  /** Bild-Einstellungen eines Layers ändern (live ohne Undo-Schritt, wenn snapshot = false) */
+  updateImgLayer(i: number, patch: Partial<ImageLayer>, snapshot = true) {
+    if (snapshot) this.snapshot();
+    Object.assign(this.imgLayer(i), patch);
+    this.emit('doc');
+  }
+  /** Bildanpassungen setzen (live ohne Undo-Schritt, wenn snapshot = false) */
+  setImageAdjust(objs: Obj[], patch: Partial<ImageAdjust>, snapshot = true) {
+    if (!objs.length) return;
+    if (snapshot) this.snapshot();
+    for (const o of objs) if (o.shape.kind === 'image') o.shape.adjust = { ...o.shape.adjust, ...patch };
+    this.emit('doc');
+  }
+
+  /** Objekte einfügen: liegen sie außerhalb des Betts, werden sie mittig platziert. Mehrere werden gruppiert. */
+  private placeNew(objs: Obj[], label: string) {
+    if (!objs.length) return;
+    let o: Obj = objs[0];
+    if (objs.length > 1) o = { id: newId(), m: IDENT, layer: objs[0].layer, shape: { kind: 'group', children: objs } };
+    const b = boundsOf([o]);
+    const bed = this.doc.bed;
+    if (b && (b.x < -1e-6 || b.y < -1e-6 || b.x + b.w > bed.w + 1e-6 || b.y + b.h > bed.h + 1e-6))
+      o.m = mul(translate(bed.w / 2 - (b.x + b.w / 2), bed.h / 2 - (b.y + b.h / 2)), o.m);
+    this.snapshot();
+    this.doc.objs.push(o);
+    this.setTool('select');
+    this.setSel([o]);
+    this.hint = label;
+    this.emit('doc');
+  }
+
+  /**
+   * Rasterbild einfügen. Größe aus der Auflösung der Datei (sonst 254 DPI = ein Bildpunkt je 0,1-mm-Zeile);
+   * zu große Bilder werden auf das Bett verkleinert. Das Bild kommt auf den aktuellen Layer.
+   */
+  async importImage(dataUrl: string, dpi: number | null, name?: string) {
+    const a = await addAsset(dataUrl);
+    const res = dpi && dpi > 10 && dpi < 5000 ? dpi : 254;
+    let w = (a.w / res) * 25.4,
+      h = (a.h / res) * 25.4;
+    const bed = this.doc.bed;
+    const f = Math.min(1, (bed.w * 0.9) / w, (bed.h * 0.9) / h);
+    w *= f;
+    h *= f;
+    const shape: ImageShape = { kind: 'image', asset: a.id, w, h, pxW: a.w, pxH: a.h, name, adjust: { ...DEFAULT_ADJUST } };
+    const o: Obj = { id: newId(), m: translate((bed.w - w) / 2, (bed.h - h) / 2), layer: this.currentLayer, shape };
+    this.imgLayer(this.currentLayer);
+    this.placeNew([o], `Bild importiert: ${a.w} × ${a.h} Pixel, ${w.toFixed(1)} × ${h.toFixed(1)} mm${f < 1 ? ' (auf das Bett verkleinert)' : ''}.`);
+  }
+
+  /** Ergebnis eines Vektor-Imports (SVG/DXF) einfügen */
+  async importVectors(res: ImportResult, name: string) {
+    const objs: Obj[] = [];
+    const flip: Mat = res.yUp ? [1, 0, 0, -1, 0, this.doc.bed.h] : IDENT;
+    for (const it of res.items) {
+      if (it.kind === 'path') {
+        objs.push({ id: newId(), m: IDENT, layer: it.layer, shape: { kind: 'path', subs: transformSubs(it.subs, flip) } });
+        continue;
+      }
+      try {
+        const a = await addAsset(it.href);
+        const shape: ImageShape = { kind: 'image', asset: a.id, w: 1, h: 1, pxW: a.w, pxH: a.h, adjust: { ...DEFAULT_ADJUST } };
+        objs.push({ id: newId(), m: mul(flip, it.m), layer: it.layer, shape });
+      } catch {
+        res.notes.push('Ein eingebettetes Bild ließ sich nicht lesen.');
+      }
+    }
+    if (!objs.length) {
+      this.hint = `${name}: keine verwertbaren Formen gefunden. ${res.notes.join(' ')}`;
+      this.emit('tool');
+      return;
+    }
+    const layers = new Set(objs.map((o) => o.layer));
+    this.placeNew(objs, `${name}: ${objs.length} Objekt${objs.length > 1 ? 'e' : ''} auf ${layers.size} Layer${layers.size > 1 ? 'n' : ''}. ${res.notes.join(' ')}`.trim());
+  }
+
+  /** Konturen eines Bildes in Weltkoordinaten (für Vorschau und Übernahme) */
+  traceImage(o: Obj, opt: TraceOptions): SubPath[] {
+    if (o.shape.kind !== 'image') return [];
+    const s = o.shape;
+    const src = sourceSize(s.asset);
+    if (!src) return [];
+    // Auflösung des Originals, höchstens etwa 4 Megapixel
+    const f = Math.min(1, Math.sqrt(4e6 / (src.w * src.h)));
+    const cols = Math.max(2, Math.round(src.w * f)),
+      rows = Math.max(2, Math.round(src.h * f));
+    const g = adjustedGray(s, cols, rows);
+    if (!g) return [];
+    // Bildpunkte → lokale mm → Welt
+    const subs = traceGray(g, cols, rows, opt);
+    return transformSubs(subs, mul(o.m, [s.w / cols, 0, 0, s.h / rows, 0, 0]));
+  }
+  /** Vorschau-Konturen (orange gestrichelt) setzen oder entfernen */
+  setPreview(subs: SubPath[] | null) {
+    this.offsetPreview = subs;
+    this.redraw();
+  }
+  /** Nachgezeichnete Konturen als neues Objekt über dem Bild einfügen */
+  commitTrace(o: Obj, subs: SubPath[], deleteImage: boolean) {
+    if (!subs.length) return;
+    this.snapshot();
+    const res: Obj = { id: newId(), m: IDENT, layer: o.layer, shape: { kind: 'path', subs } };
+    if (deleteImage) this.doc.objs = this.doc.objs.filter((x) => x !== o);
+    this.doc.objs.push(res);
+    this.setSel([res]);
+    this.hint = `${subs.length} Kontur${subs.length > 1 ? 'en' : ''} nachgezeichnet.`;
+    this.emit('doc');
+  }
+
   // ---------- Tastatur ----------
 
   private onKey(e: KeyboardEvent) {
@@ -1580,7 +1748,14 @@ export class Editor {
       if (k === 'y') return run(() => this.doRedo());
       if (k === 'c') return run(() => this.copy());
       if (k === 'x') return run(() => this.cut());
-      if (k === 'v') return run(() => this.paste());
+      if (k === 'v') {
+        // Kein preventDefault: das paste-Ereignis bringt Bilder und SVG aus anderen Programmen.
+        // Kommt es nicht (manche Webviews), wird die interne Zwischenablage eingefügt.
+        clearTimeout(this.pasteTimer);
+        this.pasteTimer = window.setTimeout(() => this.paste(), 80);
+        return;
+      }
+      if (k === 'i') return run(() => this.onImport?.());
       if (k === 'd') return run(() => this.duplicate());
       if (k === 'a') return run(() => this.selectAll());
       if (k === 'g') return run(() => this.group());
@@ -1705,11 +1880,16 @@ export class Editor {
     // Pfade je Layer sammeln und gebündelt zeichnen (deutlich schneller als einzeln)
     const batches = new Map<string, { color: string; fill: boolean; sel: boolean; stroke: Path2D; fillPath: Path2D }>();
     const texts: [Obj, Mat, boolean, boolean][] = [];
+    const images: [Obj, Mat, boolean][] = [];
     for (const [o, m] of leaves(this.doc.objs)) {
       const ly = this.layer(o.layer);
       if (!ly.show) continue;
       const selected = selSet.has(o);
       const fill = this.filled && ly.mode === 'fill';
+      if (o.shape.kind === 'image') {
+        images.push([o, m, selected]);
+        continue;
+      }
       if (o.shape.kind === 'text') {
         texts.push([o, m, selected, fill]);
         continue;
@@ -1724,6 +1904,29 @@ export class Editor {
         const s = o.shape;
         bt.fillPath.addPath(s.kind !== 'path' || s.subs.every((sp) => sp.closed) ? p : closedPath(s.subs, m));
       }
+    }
+    // Bilder liegen unter den Vektoren und zeigen das Ergebnis der Bildverarbeitung
+    for (const [o, m, selected] of images) {
+      const s = o.shape as ImageShape;
+      const cv = displayCanvas(s, m, this.imgLayer(o.layer));
+      ctx.save();
+      ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
+      if (cv) {
+        // Vergrößert scharfe Punkte zeigen, verkleinert glätten
+        const scr = (z * Math.hypot(m[0], m[1]) * s.w) / cv.width;
+        ctx.imageSmoothingEnabled = scr < 1.5;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(cv, 0, 0, s.w, s.h);
+      } else {
+        ctx.fillStyle = 'rgba(128,128,128,0.25)';
+        ctx.fillRect(0, 0, s.w, s.h);
+      }
+      const k = 1 / Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]) || 1);
+      ctx.strokeStyle = this.layerDrawColor(o.layer);
+      ctx.lineWidth = (selected ? 1.5 : 1) * px * k;
+      ctx.setLineDash(selected ? [5 * px * k, 3 * px * k] : []);
+      ctx.strokeRect(0, 0, s.w, s.h);
+      ctx.restore();
     }
     for (const bt of batches.values()) {
       ctx.strokeStyle = ctx.fillStyle = bt.color;

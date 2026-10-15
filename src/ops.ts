@@ -54,7 +54,7 @@ export function objectPaths(o: Obj): { closed: Paths; open: Paths } {
   const closed: Paths = [],
     open: Paths = [];
   for (const [leaf, m] of leaves([o])) {
-    if (leaf.shape.kind === 'text') continue;
+    if (leaf.shape.kind === 'text' || leaf.shape.kind === 'image') continue;
     for (const sp of shapeSubs(leaf.shape)) {
       if (sp.nodes.length < 2) continue;
       (sp.closed ? closed : open).push(flattenSub(sp, m));

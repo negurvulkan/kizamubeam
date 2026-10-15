@@ -66,7 +66,79 @@ export type Shape =
   | { kind: 'polygon'; sides: number; r: number; star: boolean; inner: number }
   | { kind: 'path'; subs: SubPath[] }
   | TextShape
+  | ImageShape
   | { kind: 'group'; children: Obj[] };
+
+/** Bildanpassungen je Bild (wie „Adjust Image“ in LightBurn) */
+export interface ImageAdjust {
+  /** -100 … 100 */
+  brightness: number;
+  /** -100 … 100 */
+  contrast: number;
+  /** 0,1 … 5, 1 = unverändert */
+  gamma: number;
+  /** Schärfen (Unscharfmaskierung): Stärke 0 … 300 % */
+  sharpen: number;
+  /** Radius der Unscharfmaskierung in Bildpunkten der Ausgabe */
+  sharpenRadius: number;
+  /** Unterschiede unter diesem Wert (0 … 50) werden nicht geschärft */
+  denoise: number;
+}
+
+export const DEFAULT_ADJUST: ImageAdjust = { brightness: 0, contrast: 0, gamma: 1, sharpen: 0, sharpenRadius: 1, denoise: 0 };
+
+/** Rasterbild. Lokale Fläche 0..w × 0..h in mm; die Bilddaten liegen im Asset-Speicher (images.ts). */
+export interface ImageShape {
+  kind: 'image';
+  asset: string;
+  w: number;
+  h: number;
+  /** Pixelmaße des Originals */
+  pxW: number;
+  pxH: number;
+  name?: string;
+  adjust: ImageAdjust;
+}
+
+export type DitherMode = 'threshold' | 'ordered' | 'atkinson' | 'floyd' | 'stucki' | 'jarvis' | 'halftone' | 'grayscale';
+
+export const DITHER_MODES: [DitherMode, string][] = [
+  ['threshold', 'Schwellwert'],
+  ['ordered', 'Geordnet'],
+  ['atkinson', 'Atkinson'],
+  ['floyd', 'Dither (Floyd-Steinberg)'],
+  ['stucki', 'Stucki'],
+  ['jarvis', 'Jarvis'],
+  ['halftone', 'Halbton'],
+  ['grayscale', 'Graustufen'],
+];
+
+/** Einstellungen für Bilder auf einem Layer (eigener Eintrag „Bild“ in der Layer-Tabelle) */
+export interface ImageLayer {
+  speed: number;
+  power: number;
+  minPower: number;
+  passes: number;
+  /** Zeilenabstand in mm (DPI = 25,4 / interval) */
+  interval: number;
+  dither: DitherMode;
+  negative: boolean;
+  bidirectional: boolean;
+  /** Überfahrweg in % der Geschwindigkeit */
+  overscan: number;
+  /** Halbton: Zellen pro Zoll und Rasterwinkel */
+  cells: number;
+  angle: number;
+  /** Schwellwert-Verfahren: Grenze 0 … 255 */
+  threshold: number;
+}
+
+export function defaultImageLayer(): ImageLayer {
+  return {
+    speed: 3000, power: 30, minPower: 0, passes: 1, interval: 0.1, dither: 'jarvis', negative: false,
+    bidirectional: true, overscan: 2.5, cells: 50, angle: 45, threshold: 128,
+  };
+}
 
 export interface TextShape {
   kind: 'text';
@@ -110,6 +182,8 @@ export interface Layer {
   show: boolean;
   /** Ausgabereihenfolge (kleiner = früher) */
   priority?: number;
+  /** Einstellungen für die Bilder dieses Layers */
+  img?: ImageLayer;
 }
 
 export interface Doc {
@@ -117,6 +191,8 @@ export interface Doc {
   bed: { w: number; h: number };
   objs: Obj[];
   layers: Record<number, Layer>;
+  /** Nur in Projektdateien: Bilddaten (Asset-ID → data:-URL) */
+  assets?: Record<string, string>;
 }
 
 // Farbpalette 00–29 plus T1/T2 (Werkzeug-Layer), angelehnt an die gewohnte Reihenfolge.

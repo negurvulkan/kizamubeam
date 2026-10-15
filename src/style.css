@@ -594,3 +594,83 @@ dialog {
   color: var(--muted);
   min-width: 64px;
 }
+
+/* Bilder */
+.form .sub {
+  grid-column: 1 / -1;
+  margin-top: 0;
+}
+.form .checks {
+  grid-column: 1 / -1;
+}
+.checks {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+label.check {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  color: var(--text);
+}
+.form label.check input {
+  width: auto;
+}
+.mode-img {
+  color: var(--muted);
+  font-style: italic;
+}
+.icon-inline svg {
+  width: 16px;
+  height: 16px;
+  vertical-align: middle;
+}
+.adjust-dialog {
+  width: min(860px, 96vw);
+}
+.adjust-body {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 330px;
+  gap: 16px;
+}
+.adjust-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.adjust-preview {
+  width: 100%;
+  height: 320px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+.adjust-right .form {
+  grid-template-columns: 120px 1fr;
+}
+.form-title {
+  margin-top: 10px;
+  font-weight: 600;
+}
+.slider {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.form .slider input {
+  flex: 1;
+  width: auto;
+}
+.slider-val {
+  min-width: 34px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.trace-dialog .form {
+  grid-template-columns: 150px 220px;
+}
+@media (max-width: 760px) {
+  .adjust-body {
+    grid-template-columns: 1fr;
+  }
+}

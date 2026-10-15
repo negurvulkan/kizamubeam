@@ -16,6 +16,9 @@ export function shapeSubs(s: Shape): SubPath[] {
   switch (s.kind) {
     case 'path':
       return s.subs;
+    case 'image':
+      // Umriss des Bildes (für Begrenzung, Auswahl und Rahmen)
+      return [{ closed: true, nodes: [{ x: 0, y: 0 }, { x: s.w, y: 0 }, { x: s.w, y: s.h }, { x: 0, y: s.h }] }];
     case 'rect': {
       const { w, h } = s;
       const r = Math.max(0, Math.min(s.r, Math.abs(w) / 2, Math.abs(h) / 2));
@@ -320,6 +323,11 @@ export function hitLeaf(o: Obj, m: Mat, p: Pt, tol: number, inside: boolean): bo
     const b = textLayout(s).box;
     const t = tol / Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]) || 1);
     return q.x >= b.x - t && q.x <= b.x + b.w + t && q.y >= b.y - t && q.y <= b.y + b.h + t;
+  }
+  if (s.kind === 'image') {
+    const q = apply(inv(m), p.x, p.y);
+    const t = tol / Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]) || 1);
+    return q.x >= -t && q.x <= s.w + t && q.y >= -t && q.y <= s.h + t;
   }
   const ctx = hitCtx();
   const wp = worldPath(s, m);

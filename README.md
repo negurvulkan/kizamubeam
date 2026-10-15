@@ -27,11 +27,19 @@ npm run tauri build    # Installationspaket
 - Ergebnisse von Booleschen Operationen und Offset sind wieder Bézierpfade: Ecken und gerade Strecken bleiben erhalten, Rundungen werden mit höchstens 0,02 mm Abweichung als Kurven eingepasst.
 - Farbe ist der Layer: Klick auf eine Palettenfarbe ordnet die Auswahl zu. Layer-Tabelle mit Modus (Linie/Füllen), Speed, Leistung, Ausgabe, Sichtbarkeit und Schnellbearbeitung.
 - Helles und dunkles Design (Ansicht → Design oder Knopf ganz rechts in der Symbolleiste), Standard folgt dem System. Im dunklen Design werden sehr dunkle Layerfarben auf der Arbeitsfläche aufgehellt.
-- Projekt speichern und öffnen (`.lwk`, JSON), SVG-Export, automatisches Zwischenspeichern.
+- Import (Ctrl+I, Ziehen aus dem Dateimanager oder Ctrl+V aus anderen Programmen): Bilder (PNG, JPG, BMP, GIF, WebP), SVG und DXF.
+  - Bilder bekommen ihre Größe aus der Auflösung der Datei (ohne Angabe 254 DPI, zu große werden aufs Bett verkleinert).
+  - SVG: Pfade inkl. Bögen, Rechtecke, Kreise, Ellipsen, Linien, Polygone, `use`, Transformationen, CSS-Klassen, eingebettete Bilder; Einheiten über `width`/`height` und `viewBox`. Texte werden übersprungen.
+  - DXF: LINE, LWPOLYLINE/POLYLINE mit Bögen, CIRCLE, ARC, ELLIPSE, SPLINE, INSERT (Blöcke), Einheit aus `$INSUNITS`. Einzellinien werden zu zusammenhängenden Pfaden verbunden.
+  - Farben werden auf die nächste Palettenfarbe (= Layer) abgebildet, mehrere Objekte als Gruppe eingefügt.
+- Bildbearbeitung wie in LightBurn: Bilder sind ein eigener Eintrag „Bild“ in der Layer-Tabelle mit Bildmodus (Schwellwert, Geordnet, Atkinson, Floyd-Steinberg, Stucki, Jarvis, Halbton, Graustufen), Zeilenabstand/DPI, Negativ, Bidirektional, Überfahrweg, Speed und Leistung. „Bild anpassen“ (Helligkeit, Kontrast, Gamma, Schärfen mit Radius und Entrauschen) mit Vorschau, Original-Vergleich und 1:1-Ausschnitt. Die Arbeitsfläche zeigt das gerasterte Ergebnis in Laserauflösung.
+- Bild nachzeichnen (Alt+T): Schwellwert, kleine Flecken ignorieren, Glättung, Live-Vorschau. Ergebnis sind Bézierpfade mit erhaltenen Ecken.
+- Bearbeitetes Bild speichern (das geditherte Bild als PNG, so wie es gelasert würde).
+- Projekt speichern und öffnen (`.lwk`, JSON, Bilder eingebettet), SVG-Export (mit Bildern), automatisches Zwischenspeichern (Bilddaten in IndexedDB).
 
 ## Noch nicht enthalten
 
-Maschinenanbindung (FluidNC), G-Code, Vorschau, Bildgravur, Import (SVG/DXF), Text auf Pfad, Schweißen von Buchstaben.
+Maschinenanbindung (FluidNC), G-Code (auch für Bilder), Vorschau, Text auf Pfad, Schweißen von Buchstaben. Bei Bildern fehlen noch Zuschneiden/Maske, TIFF, die Verfahren Newsprint und Sketch sowie Bild-Presets.
 
 ## Aufbau
 
@@ -43,8 +51,11 @@ Maschinenanbindung (FluidNC), G-Code, Vorschau, Bildgravur, Import (SVG/DXF), Te
 | `src/ui.ts` | Menü, Leisten, Layer- und Laser-Panel, Palette, Statusleiste, Texteingabe |
 | `src/fonts.ts` | Schriftdateien laden (Systemschriften über Rust, Ersatzschrift) und Text in Bézierpfade umwandeln (opentype.js) |
 | `src/ops.ts` | Boolesche Operationen und Offset (Clipper) |
+| `src/images.ts` | Bilddaten (außerhalb von Undo, gesichert in IndexedDB), Bildverarbeitung und Dithering, Zwischenspeicher der Ergebnisse |
+| `src/trace.ts` | Bild nachzeichnen: Marching Squares, Vereinfachung, Kurveneinpassung |
+| `src/importers.ts` | SVG- und DXF-Import |
 | `src/fit.ts` | Kurvenrückführung: Linienzüge in Bézierpfade (Ecken erkennen, Schneider-Verfahren) |
-| `src/files.ts` | Öffnen/Speichern (Tauri-Dialoge oder Browser), SVG-Export |
-| `src-tauri/` | Rust-Hülle: native Dateidialoge, Liste und Dateien der Systemschriften (fontdb) |
+| `src/files.ts` | Öffnen/Speichern/Importieren (Tauri-Dialoge oder Browser), Ziehen und Einfügen, SVG-Export, bearbeitetes Bild speichern |
+| `src-tauri/` | Rust-Hülle: native Dateidialoge, Dateien lesen/schreiben, Liste und Dateien der Systemschriften (fontdb) |
 
 Intern rechnet der Editor in mm mit y nach unten; angezeigt wird in Maschinenkoordinaten (Ursprung unten links).
