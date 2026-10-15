@@ -76,21 +76,26 @@ function describe(ed: Editor, o: Obj, parent: Mat, detail: boolean): Record<stri
   };
   const rot = rotationOf(m);
   if (rot) out.rotation = rot;
+  // Maße werden nach der Skalierung angegeben, also so groß, wie das Objekt auf dem Bett ist
+  const sx = Math.hypot(m[0], m[1]),
+    sy = Math.hypot(m[2], m[3]);
+  if (Math.abs(sx - 1) > 1e-6 || Math.abs(sy - 1) > 1e-6) out.scale = { x: r3(sx), y: r3(sy) };
   switch (s.kind) {
     case 'rect':
-      Object.assign(out, { width: r3(s.w), height: r3(s.h), cornerRadius: r3(s.r) });
+      Object.assign(out, { width: r3(s.w * sx), height: r3(s.h * sy), cornerRadius: r3(s.r * Math.min(sx, sy)) });
       break;
     case 'ellipse':
-      Object.assign(out, { rx: r3(s.rx), ry: r3(s.ry) });
+      Object.assign(out, { rx: r3(s.rx * sx), ry: r3(s.ry * sy) });
       break;
     case 'polygon':
-      Object.assign(out, { sides: s.sides, radius: r3(s.r), star: s.star, ...(s.star ? { innerRatio: s.inner } : {}) });
+      // Bei ungleichmäßiger Skalierung gilt der Radius vor der Skalierung (siehe scale)
+      Object.assign(out, { sides: s.sides, radius: r3(Math.abs(sx - sy) < 1e-6 ? s.r * sx : s.r), star: s.star, ...(s.star ? { innerRatio: s.inner } : {}) });
       break;
     case 'path':
       Object.assign(out, { subpaths: s.subs.length, nodes: s.subs.reduce((n, sp) => n + sp.nodes.length, 0), closed: s.subs.every((sp) => sp.closed) });
       break;
     case 'text':
-      Object.assign(out, { text: s.text, font: s.font, size: s.size, bold: s.bold, italic: s.italic, align: s.align });
+      Object.assign(out, { text: s.text, font: s.font, size: r3(s.size * sy), bold: s.bold, italic: s.italic, align: s.align });
       break;
     case 'image':
       Object.assign(out, { name: s.name ?? null, pixels: `${s.pxW}×${s.pxH}` });
