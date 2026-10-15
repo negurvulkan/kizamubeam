@@ -2301,6 +2301,37 @@ export class Editor {
     return this.dark ? brightenForDark(c) : c;
   }
 
+  /**
+   * Arbeitsfläche als PNG (data:-URL) für KI-Agenten: Ausschnitt `box` in Weltkoordinaten, längere Seite
+   * etwa `size` Pixel, mit Linealen, ohne Auswahl und Hilfslinien. Die Ansicht der Person bleibt unverändert.
+   */
+  renderImage(box: Box, size: number): string {
+    const pad = 12;
+    const z = (size - RULER - pad * 2) / Math.max(box.w, box.h, 1);
+    const off = document.createElement('canvas');
+    off.width = Math.round(RULER + pad * 2 + box.w * z);
+    off.height = Math.round(RULER + pad * 2 + box.h * z);
+    const saved = {
+      canvas: this.canvas, ctx: this.ctx, dpr: this.dpr, view: this.view, sel: this.sel,
+      nodeHover: this.nodeHover, segHover: this.segHover, snapHit: this.snapHit, alignGuides: this.alignGuides, draft: this.draft,
+    };
+    try {
+      this.canvas = off;
+      this.ctx = off.getContext('2d')!;
+      this.dpr = 1;
+      this.view = { zoom: z, ox: RULER + pad - box.x * z, oy: RULER + pad - box.y * z };
+      this.sel = [];
+      this.nodeHover = this.segHover = this.snapHit = null;
+      this.alignGuides = [];
+      this.draft = null;
+      this.render();
+      return off.toDataURL('image/png');
+    } finally {
+      Object.assign(this, saved);
+      this.dirty = true;
+    }
+  }
+
   private render() {
     const ctx = this.ctx,
       dpr = this.dpr,

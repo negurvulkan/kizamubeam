@@ -1,3 +1,4 @@
+pub mod agent;
 mod machine;
 mod stream;
 
@@ -173,6 +174,12 @@ pub fn run() {
             _ => tauri::webview::PermissionResponse::Default,
         })
         .manage(machine::Machine::default())
+        .manage(agent::Agent::default())
+        .setup(|app| {
+            use tauri::Manager;
+            agent::start(app.handle(), &app.state::<agent::Agent>());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             save_text_file,
             open_text_file,
@@ -189,7 +196,11 @@ pub fn run() {
             machine::machine_job,
             machine::machine_pause,
             machine::machine_resume,
-            machine::machine_stop
+            machine::machine_stop,
+            agent::agent_info,
+            agent::agent_configure,
+            agent::agent_new_token,
+            agent::agent_respond
         ])
         .run(tauri::generate_context!())
         .expect("Fehler beim Start der Anwendung");
