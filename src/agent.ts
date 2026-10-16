@@ -22,7 +22,7 @@ const READ_TOOLS: ToolDef[] = [
     name: 'get_document',
     title: 'Dokument lesen',
     description:
-      'Überblick über das geöffnete Dokument: Bettgröße, alle Objekte (id, Typ, Layer, Rahmen in mm, Drehung, Text usw.), die Auswahl der Person und die benutzten Layer mit ihren Laser-Einstellungen. Rahmen: x/y = linke untere Ecke in Maschinenkoordinaten.',
+      'Überblick über das geöffnete Dokument: Bettgröße, alle Objekte (id, Typ, Layer, Rahmen in mm, Drehung, Text, Name aus dem Objekte-Fenster, hidden/locked usw.), die Auswahl der Person und die benutzten Layer mit ihren Laser-Einstellungen. Rahmen: x/y = linke untere Ecke in Maschinenkoordinaten.',
     tier: Tier.Read,
     inputSchema: {
       type: 'object',

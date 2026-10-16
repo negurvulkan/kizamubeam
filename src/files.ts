@@ -1,6 +1,6 @@
 // Dateien öffnen/speichern: in Tauri über native Dialoge, im Browser per Download/Dateiauswahl.
 import type { Editor } from './editor';
-import { leaves, PALETTE } from './model';
+import { visibleLeaves, PALETTE } from './model';
 import { subsToD, shapeSubs, textLayout, textOutline } from './geom';
 import { assetUrl, processedPng, readDpi } from './images';
 import { importDxf, importSvg } from './importers';
@@ -73,7 +73,7 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 export function buildSvg(ed: Editor): string {
   const { w, h } = ed.doc.bed;
   const parts: string[] = [];
-  for (const [o, m] of leaves(ed.doc.objs)) {
+  for (const [o, m] of visibleLeaves(ed.doc.objs)) {
     const L = ed.layer(o.layer);
     if (!L.show) continue;
     const color = PALETTE[o.layer];

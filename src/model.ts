@@ -163,6 +163,12 @@ export interface Obj {
   /** Layer-/Paletten-Index 0..31 */
   layer: number;
   shape: Shape;
+  /** Eigener Name aus dem Objekte-Fenster (sonst wird er aus der Form abgeleitet) */
+  name?: string;
+  /** Ausgeblendet: nicht gezeichnet, nicht gelasert, nicht exportiert */
+  hidden?: boolean;
+  /** Gesperrt: auf der Arbeitsfläche nicht auswählbar (nur oberste Ebene) */
+  locked?: boolean;
 }
 
 export type LayerMode = 'line' | 'fill';
@@ -254,6 +260,8 @@ export interface Layer extends CutSettings {
   img?: ImageLayer;
   /** ID des Eintrags der Material-Bibliothek, aus dem die Einstellungen stammen */
   material?: string;
+  /** Objekte dieses Layers sind auf der Arbeitsfläche nicht auswählbar */
+  locked?: boolean;
 }
 
 /** Ältere Dateien kennen nicht alle Einstellungen: fehlende mit Standardwerten auffüllen */
@@ -330,6 +338,23 @@ export function* leaves(objs: Obj[], parent: Mat = IDENT): Generator<[Obj, Mat]>
     if (o.shape.kind === 'group') yield* leaves(o.shape.children, m);
     else yield [o, m];
   }
+}
+
+/** Wie leaves(), aber ohne ausgeblendete Objekte (samt dem Inhalt ausgeblendeter Gruppen). */
+export function* visibleLeaves(objs: Obj[], parent: Mat = IDENT): Generator<[Obj, Mat]> {
+  for (const o of objs) {
+    if (o.hidden) continue;
+    const m = mul(parent, o.m);
+    if (o.shape.kind === 'group') yield* visibleLeaves(o.shape.children, m);
+    else yield [o, m];
+  }
+}
+
+/** Layer, unter dem ein Objekt im Objekte-Fenster steht: bei Gruppen der Layer des ersten Teils */
+export function homeLayer(o: Obj): number {
+  if (o.shape.kind !== 'group') return o.layer;
+  for (const [l] of leaves([o])) return l.layer;
+  return o.layer;
 }
 
 export function setLayerDeep(o: Obj, layer: number) {

@@ -1,7 +1,7 @@
 // Maschinenausgabe: aus dem Dokument einen Job berechnen (Linien, Füllen, Bilder), G-Code schreiben,
 // Laufzeit schätzen und Rahmenfahrten erzeugen. Alles in Maschinenkoordinaten (mm, Ursprung unten links, y nach oben).
 import ClipperLib from 'clipper-lib';
-import { apply, Doc, ImageLayer, ImageShape, inv, Layer, leaves, Mat, mul, normalizeLayer, Obj, Pt, SubPath, TabSettings } from './model';
+import { apply, Doc, ImageLayer, ImageShape, inv, Layer, visibleLeaves, Mat, mul, normalizeLayer, Obj, Pt, SubPath, TabSettings } from './model';
 import { bezierPt, segments, shapeSubs } from './geom';
 import { loadFont, textToSubs } from './fonts';
 import { outputGrid, processImage } from './images';
@@ -707,7 +707,7 @@ export async function buildJob(inp: JobInput): Promise<Job> {
   };
   const bounds = emptyBox();
   let skippedOpen = 0;
-  for (const [o, world] of leaves(roots)) {
+  for (const [o, world] of visibleLeaves(roots)) {
     const L = layerOf(o.layer);
     if (!L.output) continue;
     const s = o.shape;

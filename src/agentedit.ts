@@ -100,7 +100,7 @@ const obj = (properties: Record<string, unknown>, required: string[] = []) => ({
 const LAYER_KEYS: Record<string, string> = {
   name: 'string', output: 'boolean', visible: 'boolean', mode: 'line|fill', speed: 'number', power: 'number', minPower: 'number',
   passes: 'integer', airAssist: 'boolean', kerf: 'number', interval: 'number', angle: 'number', crossHatch: 'boolean',
-  bidirectional: 'boolean', overscan: 'number',
+  bidirectional: 'boolean', overscan: 'number', locked: 'boolean',
 };
 
 const HINGE_KEYS = ['thickness', 'cutLength', 'bridge', 'spacing', 'margin', 'angle', 'waveAmp', 'waveLength', 'diamondAngle'] as const;
@@ -199,10 +199,10 @@ export const EDIT_TOOLS: ToolDef[] = [
     name: 'edit_object',
     title: 'Objekt ändern',
     description:
-      'Ändert Eigenschaften eines Objekts. Text: text, font, size (mm auf dem Bett), bold, italic, upper, align, letterSpacing, lineSpacing. Rechteck: cornerRadius. Vieleck: sides, star, innerRatio. Lage und Größe ändert transform.',
+      'Ändert Eigenschaften eines Objekts (auch in Gruppen). Alle Typen: name (leer = Standardname), hidden (ausgeblendet: nicht gezeichnet und nicht gelasert), locked (auf der Arbeitsfläche nicht auswählbar; nur oberste Ebene). Text: text, font, size (mm auf dem Bett), bold, italic, upper, align, letterSpacing, lineSpacing. Rechteck: cornerRadius. Vieleck: sides, star, innerRatio. Lage und Größe ändert transform.',
     tier: Tier.Edit,
     inputSchema: obj({
-      id: { type: 'integer' }, text: { type: 'string' }, font: { type: 'string' }, size: { type: 'number' }, bold: { type: 'boolean' },
+      id: { type: 'integer' }, name: { type: 'string' }, hidden: { type: 'boolean' }, locked: { type: 'boolean' }, text: { type: 'string' }, font: { type: 'string' }, size: { type: 'number' }, bold: { type: 'boolean' },
       italic: { type: 'boolean' }, upper: { type: 'boolean' }, align: { type: 'string', enum: ['left', 'center', 'right'] },
       letterSpacing: { type: 'number' }, lineSpacing: { type: 'number' }, cornerRadius: { type: 'number' },
       sides: { type: 'integer', minimum: 3, maximum: 200 }, star: { type: 'boolean' }, innerRatio: { type: 'number' },
@@ -213,6 +213,20 @@ export const EDIT_TOOLS: ToolDef[] = [
       const [o, parent] = hit;
       const m = mul(parent, o.m);
       const s = o.shape;
+      const props: { name?: string; hidden?: boolean; locked?: boolean } = {};
+      if (typeof a.name === 'string') props.name = a.name;
+      if (a.hidden !== undefined) props.hidden = a.hidden === true;
+      if (a.locked !== undefined) {
+        if (!ed.doc.objs.includes(o)) throw new ToolError('Sperren geht nur bei Objekten der obersten Ebene (nicht in Gruppen)');
+        props.locked = a.locked === true;
+      }
+      const SHAPE_KEYS = ['text', 'font', 'size', 'bold', 'italic', 'upper', 'align', 'letterSpacing', 'lineSpacing', 'cornerRadius', 'sides', 'star', 'innerRatio'];
+      const shapeChange = SHAPE_KEYS.some((k) => a[k] !== undefined);
+      if (Object.keys(props).length) ed.setObjProps([o], props);
+      if (!shapeChange) {
+        if (!Object.keys(props).length) throw new ToolError('Keine Eigenschaft angegeben');
+        return { object: describe(ed, o, parent, false) };
+      }
       if (s.kind === 'text') {
         if (a.text !== undefined) {
           if (typeof a.text !== 'string' || !a.text.trim()) throw new ToolError('„text“ ist leer');
@@ -617,6 +631,7 @@ export const EDIT_TOOLS: ToolDef[] = [
       if (typeof a.name === 'string') p.name = a.name;
       if (a.output !== undefined) p.output = a.output === true;
       if (a.visible !== undefined) p.show = a.visible === true;
+      if (a.locked !== undefined) p.locked = a.locked === true;
       if (a.mode !== undefined) p.mode = oneOf(a, 'mode', ['line', 'fill'] as const);
       const n = (k: string, opt: { min?: number; max?: number; int?: boolean }, as = k) => {
         const v = optNum(a, k, opt);
@@ -635,7 +650,7 @@ export const EDIT_TOOLS: ToolDef[] = [
       if (a.bidirectional !== undefined) p.bidirectional = a.bidirectional === true;
       if (!Object.keys(p).length) throw new ToolError('Keine Einstellung angegeben');
       // Eigene Werte lösen den Layer von einem Eintrag der Material-Bibliothek
-      if (Object.keys(p).some((k) => !['name', 'output', 'show'].includes(k))) p.material = undefined;
+      if (Object.keys(p).some((k) => !['name', 'output', 'show', 'locked'].includes(k))) p.material = undefined;
       ed.updateLayer(i, p);
       return { layer: i, changed: Object.keys(p).filter((k) => k !== 'material') };
     },

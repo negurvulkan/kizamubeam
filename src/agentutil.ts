@@ -73,6 +73,9 @@ export function describe(ed: Editor, o: Obj, parent: Mat, detail: boolean): Reco
     layer: o.layer,
     bounds: machineBox(ed, boundsOf([o], parent)),
   };
+  if (o.name) out.name = o.name;
+  if (o.hidden) out.hidden = true;
+  if (o.locked) out.locked = true;
   const rot = rotationOf(m);
   if (rot) out.rotation = rot;
   // Maße werden nach der Skalierung angegeben, also so groß, wie das Objekt auf dem Bett ist
@@ -97,7 +100,7 @@ export function describe(ed: Editor, o: Obj, parent: Mat, detail: boolean): Reco
       Object.assign(out, { text: s.text, font: s.font, size: r3(s.size * sy), bold: s.bold, italic: s.italic, align: s.align });
       break;
     case 'image':
-      Object.assign(out, { name: s.name ?? null, pixels: `${s.pxW}×${s.pxH}` });
+      Object.assign(out, { file: s.name ?? null, pixels: `${s.pxW}×${s.pxH}` });
       break;
     case 'group':
       out.children = s.children.map((c) => describe(ed, c, m, detail));
@@ -132,6 +135,7 @@ export function layerInfo(ed: Editor, i: number) {
     color: ed.layerDrawColor(i),
     output: L.output,
     visible: L.show,
+    locked: L.locked === true,
     contains: [parts.vec && 'vectors', parts.img && 'images'].filter(Boolean),
     mode: L.mode,
     speed: L.speed,

@@ -15,6 +15,7 @@ import { openMaterialTestDialog } from './materialtest';
 import { BoolBase } from './ops';
 import { agentStatus, openAgentDialog } from './agentui';
 import { startAgentBridge } from './agent';
+import { buildObjectsPanel, toggleObjectsPanel } from './objectsPanel';
 import { dec, LangPref, LANGUAGES, setLangPref, t, tn } from './i18n';
 
 const FONT_CANDIDATES = [
@@ -88,6 +89,7 @@ export function buildUI(ed: Editor) {
   buildNumbar(ed);
   buildTools(ed);
   buildLayers(ed);
+  buildObjectsPanel(ed);
   buildLaser(ed);
   buildPalette(ed);
   buildStatus(ed);
@@ -220,6 +222,7 @@ function buildMenu(ed: Editor) {
       [t('Verkleinern'), '-', () => ed.zoomAt(0.8)],
       'sep',
       [t('Drahtgitter / Gefüllt'), 'Alt+W', () => ((ed.filled = !ed.filled), ed.emit('view'))],
+      [t('Objekte-Fenster ein/aus'), '', () => toggleObjectsPanel()],
       'sep',
       [t('Design: wie System'), '', () => applyTheme(ed, 'system')],
       [t('Design: hell'), '', () => applyTheme(ed, 'light')],

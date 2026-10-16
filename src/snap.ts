@@ -1,6 +1,6 @@
 // Fangen wie in LightBurn: Objektfang (Knoten, Mittelpunkt, Zentrum, Schnittpunkt, Linie) und Ausrichtungshilfen.
 // Alle Koordinaten in Welt-mm; Toleranzen werden vom Editor aus Bildschirmpixeln umgerechnet.
-import { apply, inv, leaves, mul, Obj, Pt } from './model';
+import { apply, inv, visibleLeaves, mul, Obj, Pt } from './model';
 import { bezierPt, Box, boundsOf, segments, shapeSubs, textOutline } from './geom';
 import { t } from './i18n';
 
@@ -75,7 +75,7 @@ export function buildSnapSet(objs: Obj[], visible: (leaf: Obj) => boolean, skip:
   for (const top of objs) {
     if (skip.has(top)) continue;
     let any = false;
-    for (const [leaf, m] of leaves([top])) {
+    for (const [leaf, m] of visibleLeaves([top])) {
       if (!visible(leaf)) continue;
       any = true;
       const s = leaf.shape;
