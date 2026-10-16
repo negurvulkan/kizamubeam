@@ -88,7 +88,7 @@ const READ_TOOLS: ToolDef[] = [
   {
     name: 'list_devices',
     title: 'Geräte auflisten',
-    description: 'Eingerichtete Lasergeräte (Name, Firmware, Arbeitsbereich, Startposition, Job-Ursprung) und welches gewählt ist.',
+    description: 'Eingerichtete Lasergeräte (Name, Firmware, Arbeitsbereich, Startposition, Job-Ursprung, Drehachse) und welches gewählt ist. Mit eingeschalteter Drehachse ist Y die Umfangsrichtung des Objekts.',
     tier: Tier.Read,
     inputSchema: { type: 'object', properties: {} },
     run: () => {
@@ -99,6 +99,7 @@ const READ_TOOLS: ToolDef[] = [
           id: d.id, name: d.name, firmware: d.fw, bed: { w: d.bedW, h: d.bedH }, connection: d.conn,
           startFrom: d.startFrom, jobOrigin: d.jobOrigin, cutSelectedOnly: d.cutSelected, airAssistCommand: d.airCmd,
           agentLimits: { maxPowerPercent: d.agentMaxPower, minSpeedMmPerMin: d.agentMinSpeed },
+          rotary: d.rotary,
         })),
       });
     },

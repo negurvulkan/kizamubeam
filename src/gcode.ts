@@ -33,15 +33,16 @@ export interface FirmwareInfo {
   footer: string[];
   home: string;
   unlock: string | null;
-  jog: (x: number, y: number, f: number) => string[];
+  /** Relativ verfahren; axis ist der Buchstabe für die Y-Richtung (bei Rotary z. B. A) */
+  jog: (x: number, y: number, f: number, axis?: string) => string[];
   setOrigin: string;
   clearOrigin: string | null;
   /** Einstellungen der Maschine lesen: FluidNC-Pfade, GRBL-$$ oder gar nicht */
   read: 'fluidnc' | 'grbl' | null;
 }
 
-const grblJog = (x: number, y: number, f: number) => [`$J=G91 G21${x ? ` X${num(x)}` : ''}${y ? ` Y${num(y)}` : ''} F${Math.round(f)}`];
-const relJog = (x: number, y: number, f: number) => ['G91', `G0${x ? ` X${num(x)}` : ''}${y ? ` Y${num(y)}` : ''} F${Math.round(f)}`, 'G90'];
+const grblJog = (x: number, y: number, f: number, axis = 'Y') => [`$J=G91 G21${x ? ` X${num(x)}` : ''}${y ? ` ${axis}${num(y)}` : ''} F${Math.round(f)}`];
+const relJog = (x: number, y: number, f: number, axis = 'Y') => ['G91', `G0${x ? ` X${num(x)}` : ''}${y ? ` ${axis}${num(y)}` : ''} F${Math.round(f)}`, 'G90'];
 const GRBL_BASE = {
   sync: false, realtime: true, poll: null, laserOn: ['M4 S0'], frameOn: ['M3 S0'], footer: ['M5', 'M2'],
   home: '$H', unlock: '$X', jog: grblJog, setOrigin: 'G10 L20 P1 X0 Y0', clearOrigin: 'G10 L2 P1 X0 Y0',
@@ -64,6 +65,27 @@ export const FIRMWARES: Record<Firmware, FirmwareInfo> = {
     home: '$H', unlock: '$X', jog: relJog, setOrigin: 'G10 L20 P1 X0 Y0', clearOrigin: 'G10 L2 P1 X0 Y0', read: null,
   },
 };
+
+/** Achse, auf der die Drehung ausgegeben wird: Y = Rotary steckt am Y-Anschluss, sonst eine eigene Achse */
+export type RotaryAxis = 'Y' | 'Z' | 'A' | 'B' | 'C';
+
+/** Drehachse (Rotary): Die Y-Richtung des Entwurfs wird zur Umfangsrichtung des Objekts */
+export interface Rotary {
+  enabled: boolean;
+  /** Walzen (Objekt liegt auf zwei Rollen) oder Futter (Objekt ist eingespannt) */
+  kind: 'roller' | 'chuck';
+  axis: RotaryAxis;
+  /** Achsweg für eine volle Umdrehung der Walze bzw. des Futters, in den Einheiten der Steuerung (mm, bei A/B/C meist Grad) */
+  perRev: number;
+  /** Durchmesser der angetriebenen Walze in mm (nur Walzen) */
+  rollerDiam: number;
+  /** Durchmesser des Objekts in mm (Futter: bestimmt den Maßstab; Walzen: nur für den Umfang-Hinweis und die Testdrehung) */
+  objectDiam: number;
+  /** Drehrichtung umkehren */
+  mirror: boolean;
+}
+
+export const DEFAULT_ROTARY: Rotary = { enabled: false, kind: 'roller', axis: 'Y', perRev: 360, rollerDiam: 25, objectDiam: 80, mirror: false };
 
 export interface Device {
   id: string;
@@ -107,6 +129,7 @@ export interface Device {
   /** Grenzen für Jobs, die ein KI-Agent anfordert: höchste Leistung in %, kleinste Geschwindigkeit in mm/min (0 = keine) */
   agentMaxPower: number;
   agentMinSpeed: number;
+  rotary: Rotary;
 }
 
 export const DEFAULT_DEVICE: Device = {
@@ -139,6 +162,7 @@ export const DEFAULT_DEVICE: Device = {
   endScript: '',
   agentMaxPower: 100,
   agentMinSpeed: 0,
+  rotary: DEFAULT_ROTARY,
 };
 
 /** Vorlagen für neue Geräte. Maße nach Herstellerangabe; vor dem ersten Job mit „Von der Maschine lesen“ prüfen. */
@@ -164,6 +188,7 @@ export function newDevice(preset: Partial<Device> & { fw: Firmware }): Device {
     host: preset.fw === 'fluidnc' ? 'fluidnc.local' : '',
     sMax: fw.sMax,
     ...preset,
+    rotary: { ...DEFAULT_ROTARY, ...preset.rotary },
     id: `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
   };
 }
@@ -181,7 +206,7 @@ export function loadDevices(): DeviceStore {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) {
       const st = JSON.parse(raw) as DeviceStore;
-      st.devices = st.devices.map((d) => ({ ...DEFAULT_DEVICE, ...d }));
+      st.devices = st.devices.map((d) => ({ ...DEFAULT_DEVICE, ...d, rotary: { ...DEFAULT_ROTARY, ...d.rotary } }));
       if (st.devices.length) {
         if (!st.devices.some((d) => d.id === st.current)) st.current = st.devices[0].id;
         return st;
@@ -189,11 +214,11 @@ export function loadDevices(): DeviceStore {
     }
     // Früher gab es nur ein Gerät
     const old = localStorage.getItem(OLD_KEY);
-    if (old) return { devices: [{ ...DEFAULT_DEVICE, ...JSON.parse(old), id: 'standard' }], current: 'standard' };
+    if (old) return { devices: [{ ...DEFAULT_DEVICE, ...JSON.parse(old), id: 'standard', rotary: { ...DEFAULT_ROTARY } }], current: 'standard' };
   } catch {
     /* Standardwerte */
   }
-  return { devices: [{ ...DEFAULT_DEVICE }], current: DEFAULT_DEVICE.id };
+  return { devices: [{ ...DEFAULT_DEVICE, rotary: { ...DEFAULT_ROTARY } }], current: DEFAULT_DEVICE.id };
 }
 
 export function saveDevices(st: DeviceStore) {
@@ -202,6 +227,67 @@ export function saveDevices(st: DeviceStore) {
   } catch {
     /* nicht speicherbar, z. B. privates Fenster */
   }
+}
+
+// ---------- Drehachse ----------
+
+/** Weg auf der Objektoberfläche für eine volle Umdrehung der Walze bzw. des Futters (mm) */
+export const rotaryCirc = (r: Rotary) => Math.PI * (r.kind === 'chuck' ? r.objectDiam : r.rollerDiam);
+
+/** Ist die Drehachse eingeschaltet und vollständig eingestellt? */
+export const rotaryOn = (d: Device) => !!d.rotary?.enabled && d.rotary.perRev > 0 && rotaryCirc(d.rotary) > 0;
+
+/** Achsweg je mm auf der Objektoberfläche, negativ bei umgekehrter Drehrichtung */
+export const rotaryScale = (r: Rotary) => (r.perRev / rotaryCirc(r)) * (r.mirror ? -1 : 1);
+
+/** Buchstabe, unter dem die Y-Richtung des Entwurfs ausgegeben wird */
+export const outAxis = (d: Device): RotaryAxis => (rotaryOn(d) ? d.rotary.axis : 'Y');
+
+/** Drehachse als eigene Achse (nicht am Y-Anschluss): sie wird zu Beginn mit G92 auf 0 gesetzt */
+export const separateAxis = (d: Device) => rotaryOn(d) && d.rotary.axis !== 'Y';
+
+/**
+ * Bewegungen für die Ausgabe mit Drehachse. Y (Weg auf der Oberfläche) wird um den Startpunkt in Achsweg
+ * umgerechnet; am Y-Anschluss bleibt der Startpunkt, wo er ist, eine eigene Achse beginnt bei 0.
+ * Der Vorschub wird je Bewegung so angepasst, dass die Geschwindigkeit auf der Oberfläche stimmt
+ * (die Steuerung rechnet F über X und den Achsweg). Ohne Drehachse kommen die Bewegungen unverändert zurück.
+ */
+export function rotaryMoves(mv: Moves, d: Device): Moves {
+  if (!rotaryOn(d)) return mv;
+  const k = rotaryScale(d.rotary);
+  const ref = mv.y0,
+    base = d.rotary.axis === 'Y' ? ref : 0;
+  const map = (y: number) => base + (y - ref) * k;
+  const out = new Moves(mv.x0, map(mv.y0));
+  let px = mv.x0,
+    py = mv.y0;
+  for (let i = 0; i < mv.n; i++) {
+    const x = mv.x[i],
+      y = mv.y[i];
+    let f = mv.f[i];
+    const dx = x - px,
+      dy = y - py;
+    const l = Math.hypot(dx, dy);
+    if (f > 0 && l > 1e-9) f = Math.max(1, Math.round((f * Math.hypot(dx, dy * k)) / l));
+    out.push(x, map(y), f, mv.s[i], mv.layer[i]);
+    px = x;
+    py = y;
+  }
+  return out;
+}
+
+/** Relatives Verfahren um dx, dy mm (Oberfläche); mit Drehachse geht dy auf die Drehachse, f gilt für die Oberfläche */
+export function jogLines(d: Device, dx: number, dy: number, f: number): string[] {
+  const fw = FIRMWARES[d.fw];
+  if (!rotaryOn(d)) return fw.jog(dx, dy, f);
+  const k = rotaryScale(d.rotary);
+  const l = Math.hypot(dx, dy);
+  return fw.jog(dx, dy * k, l > 0 ? (f * Math.hypot(dx, dy * k)) / l : f, d.rotary.axis);
+}
+
+/** Testdrehung: das Objekt einmal ganz herumdrehen (bei Walzen hängt das vom Objektdurchmesser ab) */
+export function rotaryTestLines(d: Device, speed = 1500): string[] {
+  return jogLines(d, 0, Math.PI * d.rotary.objectDiam, speed);
 }
 
 // ---------- Bewegungsliste ----------
@@ -817,6 +903,11 @@ export async function buildJob(inp: JobInput): Promise<Job> {
 
   // 2. Verschiebung nach „Starten ab“
   const jb = finite(bounds);
+  if (jb && rotaryOn(device)) {
+    const c = Math.PI * device.rotary.objectDiam;
+    if (c > 0 && jb.y1 - jb.y0 > c + 0.01)
+      warnings.push(t('Der Job ist {h} mm hoch, der Umfang des Objekts aber nur {c} mm: Er überlappt sich beim Drehen.', { h: (jb.y1 - jb.y0).toFixed(1), c: c.toFixed(1) }));
+  }
   let offset: Pt = { x: 0, y: 0 };
   // Auch für die Vorschau: so ergibt sich dieselbe Reihenfolge wie beim Lasern (sie hängt vom Startpunkt ab)
   if (jb && device.startFrom !== 'absolute') {
@@ -1037,7 +1128,7 @@ export interface GCode {
  */
 export function writeGCode(job: Job, d: Device, est: Estimate, name = 'Laserwerk'): GCode {
   const header = gcodeHeader(job, d, est, name);
-  return gcodeLines(job.moves, d, est, job.air, header);
+  return gcodeLines(rotaryMoves(job.moves, d), d, est, job.air, header);
 }
 
 /** Kopf des G-Codes: Kommentare, Einheiten, absolute Koordinaten, Laser im Lasermodus an */
@@ -1049,9 +1140,24 @@ function gcodeHeader(job: Job, d: Device, est: Estimate, name: string): string[]
   if (job.bounds) out.push(t('; Bereich: X {x0} … {x1}, Y {y0} … {y1} mm', { x0: num(job.bounds.x0), x1: num(job.bounds.x1), y0: num(job.bounds.y0), y1: num(job.bounds.y1) }));
   const fw = FIRMWARES[d.fw];
   out.push(t('; Gerät: {name} ({label})', { name: d.name, label: fw.label }));
-  out.push('G21', 'G90', ...fw.laserOn, ...scriptLines(d.startScript));
+  out.push(...rotaryComment(d));
+  out.push('G21', 'G90', ...rotaryZero(d), ...fw.laserOn, ...scriptLines(d.startScript));
   return out;
 }
+
+/** Beschreibung der Drehachse im Kopf des G-Codes */
+function rotaryComment(d: Device): string[] {
+  if (!rotaryOn(d)) return [];
+  const r = d.rotary;
+  return [
+    r.kind === 'chuck'
+      ? t('; Drehachse: Futter, Achse {axis}, {perRev} je Umdrehung, Objekt Ø {od} mm', { axis: r.axis, perRev: num(r.perRev), od: num(r.objectDiam) })
+      : t('; Drehachse: Walzen Ø {rd} mm, Achse {axis}, {perRev} je Umdrehung', { axis: r.axis, perRev: num(r.perRev), rd: num(r.rollerDiam) }),
+  ];
+}
+
+/** Eigene Drehachse: die aktuelle Stellung wird zur 0, von dort aus rechnet der Job */
+const rotaryZero = (d: Device) => (separateAxis(d) ? [`G92 ${d.rotary.axis}0`] : []);
 
 /** Zeilen eines Skripts aus den Geräteeinstellungen, ohne Leerzeilen */
 export function scriptLines(s: string | undefined): string[] {
@@ -1080,6 +1186,7 @@ export function gcodeLines(mv: Moves, d: Device, est: Estimate, airList: number[
     cs = -1,
     known = false;
   const airLayers = new Set(airList);
+  const axis = outAxis(d);
   let air = false;
   for (let i = 0; i < mv.n; i++) {
     const x = mv.x[i],
@@ -1104,7 +1211,7 @@ export function gcodeLines(mv: Moves, d: Device, est: Estimate, airList: number[
       g = 1;
     }
     if (!known || xs !== num(cx)) l += `${l ? ' ' : ''}X${xs}`;
-    if (!known || ys !== num(cy)) l += `${l ? ' ' : ''}Y${ys}`;
+    if (!known || ys !== num(cy)) l += `${l ? ' ' : ''}${axis}${ys}`;
     known = true;
     if (!rapid) {
       const s = sValue(mv.s[i], d);
@@ -1142,8 +1249,8 @@ export async function prepareGCode(job: Job, d: Device, est: Estimate, name = 'L
   const header = gcodeHeader(job, d, est, name);
   if (hasNative()) {
     try {
-      const mv = job.moves;
-      const params = JSON.stringify({ x0: mv.x0, y0: mv.y0, sMax: d.sMax, air: job.air, airCmd: d.airCmd || 'M8', header, footer: gcodeFooter(d), total: est.total });
+      const mv = rotaryMoves(job.moves, d);
+      const params = JSON.stringify({ x0: mv.x0, y0: mv.y0, sMax: d.sMax, air: job.air, airCmd: d.airCmd || 'M8', header, footer: gcodeFooter(d), total: est.total, yAxis: outAxis(d) });
       const buf = await native<ArrayBuffer>('gcode_prepare', packMoves(mv, est.t, params));
       const head = new Uint32Array(buf, 0, 2);
       return { id: head[0], lines: null, count: head[1], times: new Float64Array(buf, 8), total: est.total };
@@ -1151,7 +1258,7 @@ export async function prepareGCode(job: Job, d: Device, est: Estimate, name = 'L
       /* ältere Desktop-App ohne Rust-Kern: weiter in TypeScript */
     }
   }
-  const g = gcodeLines(job.moves, d, est, job.air, header);
+  const g = gcodeLines(rotaryMoves(job.moves, d), d, est, job.air, header);
   return { id: null, lines: g.lines, count: g.lines.length, times: g.times, total: g.total };
 }
 
@@ -1192,8 +1299,27 @@ export function frameGCode(job: Job, d: Device, contour: boolean): string[] | nu
   pts = [...pts, pts[0]];
   const fw = FIRMWARES[d.fw];
   const s = d.frameLaser ? sValue(d.framePower / 100, d) : 0;
-  const out = ['G21', 'G90', ...(d.frameLaser ? fw.frameOn : []), `G0 X${num(pts[0].x)} Y${num(pts[0].y)}`];
-  for (let i = 1; i < pts.length; i++) out.push(`G1 X${num(pts[i].x)} Y${num(pts[i].y)}${i === 1 ? ` S${s} F${Math.round(d.frameSpeed)}` : ''}`);
+  const rot = rotaryOn(d);
+  const raw = new Moves(job.moves.x0, job.moves.y0);
+  raw.push(pts[0].x, pts[0].y, 0, 0, 0);
+  for (let i = 1; i < pts.length; i++) raw.push(pts[i].x, pts[i].y, d.frameSpeed, 0, 0);
+  // Mit Drehachse zurück zum Start, sonst beginnt der Job (oder der nächste Rahmen) an einer verdrehten Stelle
+  if (rot) raw.push(raw.x0, raw.y0, 0, 0, 0);
+  const mv = rotaryMoves(raw, d);
+  const axis = outAxis(d);
+  const out = ['G21', 'G90', ...rotaryZero(d), ...(d.frameLaser ? fw.frameOn : [])];
+  let cf = -1,
+    first = true;
+  for (let i = 0; i < mv.n; i++) {
+    const xy = `X${num(mv.x[i])} ${axis}${num(mv.y[i])}`;
+    if (mv.f[i] === 0) {
+      out.push(`G0 ${xy}`);
+      continue;
+    }
+    out.push(`G1 ${xy}${first ? ` S${s}` : ''}${mv.f[i] !== cf ? ` F${Math.round(mv.f[i])}` : ''}`);
+    first = false;
+    cf = mv.f[i];
+  }
   out.push(...fw.footer.filter((l) => l !== 'M2'));
   return out;
 }
