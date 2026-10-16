@@ -1,7 +1,7 @@
 # Laserwerk (Arbeitstitel)
 
 Freie Laser-Software mit der Bedienung von LightBurn als Vorbild: Entwerfen, Bilder bearbeiten und direkt an den Laser senden.
-Stack: Tauri 2, TypeScript (Oberfläche, Editor, G-Code), Rust (Desktop-Hülle, Maschinenanbindung, MCP-Server). Lizenz: GPL-3.0-or-later.
+Stack: Tauri 2, TypeScript (Oberfläche, Editor, G-Code), Rust (Desktop-Hülle, Maschinenanbindung, MCP-Server). Lizenz: GPL-3.0-or-later (siehe `LICENSE`). Version: 1.0.0-alpha.
 
 ## Starten
 
