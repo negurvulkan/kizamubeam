@@ -78,5 +78,6 @@ export const ICONS: Record<string, string> = {
   gridArray: svg('<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1" stroke-dasharray="2 1.5"/><rect x="3" y="14" width="7" height="7" rx="1" stroke-dasharray="2 1.5"/><rect x="14" y="14" width="7" height="7" rx="1" stroke-dasharray="2 1.5"/>'),
   circArray: svg('<circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="4.5" r="2.5"/><circle cx="19.5" cy="12" r="2.5" stroke-dasharray="1.8 1.4"/><circle cx="12" cy="19.5" r="2.5" stroke-dasharray="1.8 1.4"/><circle cx="4.5" cy="12" r="2.5" stroke-dasharray="1.8 1.4"/>'),
   hinge: svg('<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M7 4v6M7 14v6M12 7v10M17 4v6M17 14v6"/>'),
+  lidhinge: svg('<path d="M3 6h7v12H3zM14 6h7v12h-7z"/><circle cx="12" cy="8" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="16" r="1.6"/>'),
   joint: svg('<path d="M3 9h4v3h4V9h4v3h4V9h2"/><path d="M3 15h4v-3M11 12v3h4v-3M19 12v3h2" stroke-dasharray="1.8 1.4"/>'),
 };

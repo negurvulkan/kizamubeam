@@ -80,6 +80,10 @@ export function cachedWorldPath(o: Obj, m: Mat): Path2D {
 /** Farbe für Fangpunkte und Ausrichtungshilfen (auf hellem und dunklem Grund gut sichtbar) */
 export const SNAP_COLOR = '#e0218a';
 
+/** Hinweise des Scharnier-Generators (Werkzeug „Verbindung“ mit der Art „Scharnier für Deckel“) */
+export const HINGE_HINT_FIRST = t('Scharnier: Oberkante der Rückwand anklicken (bekommt die Kasten-Knöchel). Esc hebt die Wahl auf.');
+export const HINGE_HINT_SECOND = t('Scharnier: jetzt die Hinterkante des Deckels anklicken. Erneuter Klick hebt die Wahl auf.');
+
 export const TOOL_HINTS: Record<Tool, string> = {
   select: t('Drehen: knapp außerhalb einer Ecke ziehen oder Auswahl nochmals anklicken. Rahmen nach rechts: umschließend, nach links: kreuzend.'),
   node: t('Klick/Rahmen wählt Knoten, Shift ergänzt. Entf löschen, L Gerade, C Kurve, E Ecke, S glatt, I einfügen (oder Doppelklick auf Kante), B aufbrechen, T trimmen.'),

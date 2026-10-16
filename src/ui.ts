@@ -209,6 +209,7 @@ function buildMenu(ed: Editor) {
         [t('Kreisarray …'), '', () => openCircularArrayDialog(ed)],
       ] },
       [t('Verbindungen (Zinken, Zapfen, Keil, T-Slot) …'), '', () => ed.setTool('joint')],
+      [t('Scharnier für Deckel …'), '', () => ed.startHingeTool()],
       [t('Biegeschnitte (Living Hinge) …'), '', () => openHingeDialog(ed)],
       'sep',
       { sub: t('Textfunktionen'), items: [
@@ -756,6 +757,10 @@ function buildBars(ed: Editor) {
     tool('trim', 'trim', t('Formen trimmen (Ctrl+K): Abschnitte bis zum nächsten Schnittpunkt anklicken und entfernen')),
     tool('start', 'startpoint', t('Startpunkt setzen: Knoten anklicken, an dem der Schnitt beginnt (Shift: Richtung umkehren)')),
     tool('joint', 'joint', t('Verbindung: Fingerzinken, Zapfen, Überblattung, Schnapp-, Haken-, Keil- oder T-Slot-Verbindung auf gerade Kanten anwenden')),
+    {
+      id: 'lidhinge', cat: W, icon: 'lidhinge', label: t('Scharnier für Deckel: Oberkante der Rückwand und Hinterkante des Deckels anklicken; erzeugt Knöchel, Schlitze und Stiftlöcher'),
+      run: () => ed.startHingeTool(), on: () => ed.tool === 'joint' && ed.jointHingeMode,
+    },
     { id: 'qr', cat: W, icon: 'qr', label: t('QR-Code erstellen'), run: () => openQrDialog(ed) },
     { id: 'vartext', cat: W, short: t('Var. Text'), label: t('Variabler Text …'), run: () => openVarTextDialog(ed) },
     { id: 'textpath', cat: W, short: t('Auf Pfad'), label: t('Text auf Pfad'), run: () => ed.applyPathToText(), enabled: sel2 },
@@ -802,7 +807,7 @@ function buildBars(ed: Editor) {
       ],
       tools: [
         'tool:select', 'tool:node', SEP, 'tool:line', 'tool:rect', 'tool:ellipse', 'tool:polygon', 'tool:text', 'qr', SEP,
-        'grp:bool', 'offset', 'grp:path', 'grp:array', 'tool:joint', 'hinge',
+        'grp:bool', 'offset', 'grp:path', 'grp:array', 'tool:joint', 'lidhinge', 'hinge',
       ],
     },
     // Gespeicherte Leisten von vor den Knopfgruppen: die alten Standardfolgen durch die Gruppe ersetzen

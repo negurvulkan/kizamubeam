@@ -12,7 +12,8 @@
     "test:gcode": "node scripts/run-ts.mjs scripts/gcode-test.ts",
     "test:paths": "node scripts/run-ts.mjs scripts/pathtools-test.ts",
     "test:vartext": "node scripts/run-ts.mjs scripts/vartext-test.ts",
-    "test:history": "node scripts/run-ts.mjs scripts/history-test.ts"
+    "test:history": "node scripts/run-ts.mjs scripts/history-test.ts",
+    "test:joints": "node scripts/run-ts.mjs scripts/joints-test.ts"
   },
   "license": "GPL-3.0-or-later",
   "devDependencies": {

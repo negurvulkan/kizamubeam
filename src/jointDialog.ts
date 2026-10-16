@@ -30,6 +30,7 @@ export function openJointDialog(ed: Editor) {
     return;
   }
   const st = loadState();
+  if (ed.jointHingeMode) st.kind = 'lidhinge';
   if (picks.length < 2 && st.kind === 'finger') st.swap = false;
   // Materialdicke aus der Material-Bibliothek des Layers übernehmen, falls dort hinterlegt
   const L = ed.layer(picks[0].obj.layer);
@@ -40,7 +41,7 @@ export function openJointDialog(ed: Editor) {
   if (L.kerf) notes.push(t('Der Layer hat schon einen Kerf-Versatz: Kerf hier auf 0 lassen, sonst wird doppelt ausgeglichen.'));
 
   const info = h('div', { class: 'note' }, ' ');
-  const rows: Record<JointKind | 'tenons', HTMLElement[]> = { finger: [], tenon: [], lap: [], snap: [], hook: [], wedge: [], tslot: [], tenons: [] };
+  const rows: Record<JointKind | 'tenons', HTMLElement[]> = { finger: [], tenon: [], lap: [], snap: [], hook: [], wedge: [], tslot: [], lidhinge: [], tenons: [] };
   const row = (kind: JointKind | 'tenons', ...els: HTMLElement[]) => (rows[kind].push(...els), els);
   /** Alle Arten mit Zapfen und Schlitzen */
   const tenonKinds: JointKind[] = ['tenon', 'snap', 'hook', 'wedge', 'tslot'];
@@ -48,9 +49,10 @@ export function openJointDialog(ed: Editor) {
 
   const preview = () => {
     if (!dlg.open) return;
-    for (const k of ['finger', 'tenon', 'lap', 'snap', 'hook', 'wedge', 'tslot'] as JointKind[]) rows[k].forEach((el) => (el.hidden = st.kind !== k));
+    for (const k of ['finger', 'tenon', 'lap', 'snap', 'hook', 'wedge', 'tslot', 'lidhinge'] as JointKind[]) rows[k].forEach((el) => (el.hidden = st.kind !== k));
     rows.tenons.forEach((el) => (el.hidden = !tenonKinds.includes(st.kind)));
     const r = computeJoint(picks, st);
+    howtoNote.textContent = [st.kind === 'lidhinge' ? hingeHowto : howto, ...notes].join(' ');
     info.textContent = r.error ?? t('{info}. Orange gestrichelt: Vorschau.', { info: r.info });
     info.classList.toggle('error', !!r.error);
     ed.setJointPreview(r.error ? null : [...[...r.changes.values()].flatMap((c) => c.subs), ...r.added]);
@@ -59,7 +61,7 @@ export function openJointDialog(ed: Editor) {
   const second = picks.length > 1;
   const body = [
     h('label', { for: 'joint-kind' }, t('Art')),
-    select('joint-kind', st.kind, [['finger', t('Fingerzinken')], ['tenon', t('Schlitz und Zapfen')], ['lap', t('Überblattung (Kreuzverbindung)')], ['snap', t('Schnappverbindung')], ['hook', t('Hakenverbindung')], ['wedge', t('Keilzapfen')], ['tslot', t('T-Slot mit Mutter')]], (v) => (st.kind = v)),
+    select('joint-kind', st.kind, [['finger', t('Fingerzinken')], ['tenon', t('Schlitz und Zapfen')], ['lap', t('Überblattung (Kreuzverbindung)')], ['snap', t('Schnappverbindung')], ['hook', t('Hakenverbindung')], ['wedge', t('Keilzapfen')], ['tslot', t('T-Slot mit Mutter')], ['lidhinge', t('Scharnier für Deckel (mit Stift)')]], (v) => (st.kind = v)),
     h('label', { for: 'joint-t' }, t('Materialdicke (mm)')),
     numField('joint-t', st.thickness, (v) => (st.thickness = v), t('Tiefe der Zinken und Zapfen, Breite der Schlitze')),
     ...row('finger',
@@ -104,6 +106,16 @@ export function openJointDialog(ed: Editor) {
       h('label', { for: 'joint-nh' }, t('Mutter Höhe (mm)')),
       numField('joint-nh', st.nutHeight, (v) => (st.nutHeight = v), t('M3: 2,4 (mit etwas Luft 2,6)')),
     ),
+    ...row('lidhinge',
+      h('label', { for: 'joint-hn' }, t('Anzahl Knöchel')),
+      numField('joint-hn', st.hingeCount, (v) => (st.hingeCount = Math.max(3, Math.round(v))), t('Wird auf eine ungerade Zahl gerundet: die äußeren Knöchel sitzen am Kasten, die dazwischen am Deckel')),
+      h('label', { for: 'joint-pd' }, t('Stift Ø (mm)')),
+      numField('joint-pd', st.pinDia, (v) => (st.pinDia = v), t('Durchmesser des Stifts, z. B. Messingdraht, Rundstab, Nagel oder 1,75-mm-Filament')),
+      h('label', { for: 'joint-pp' }, t('Spiel am Stift (mm)')),
+      numField('joint-pp', st.pinPlay, (v) => (st.pinPlay = Math.max(0, v)), t('Um so viel wird das Stiftloch größer als der Stift, damit sich das Scharnier leicht dreht')),
+      h('label', { for: 'joint-hw' }, t('Wandstärke ums Loch (mm)')),
+      numField('joint-hw', st.hingeWall, (v) => (st.hingeWall = v), t('Material um das Stiftloch; bestimmt, wie groß die Augen der Knöchel werden')),
+    ),
     ...row('lap',
       h('label', { for: 'joint-ln' }, t('Schlitze je Kante')),
       numField('joint-ln', st.lapCount, (v) => (st.lapCount = Math.max(1, Math.round(v))), t('Teilen die Kante in gleiche Fächer, z. B. 3 Schlitze = 4 Fächer')),
@@ -121,12 +133,15 @@ export function openJointDialog(ed: Editor) {
     ? t('Kante 1 bekommt die Zinken, Zapfen bzw. Überblattungs-Schlitze, Kante 2 das Gegenstück. Bei Zapfen (auch Schnapp- und Hakenzapfen) wird eine einzelne gezeichnete Linie durch die Schlitze ersetzt.')
     : t('Nur eine Kante gewählt: Zinken, Zapfen bzw. Schlitze ohne Gegenstück.');
 
+  const hingeHowto = t('Kante 1 = Oberkante der Rückwand, Kante 2 = Hinterkante des Deckels (der Deckel liegt auf der Rückwand und schließt hinten bündig ab). Beide Platten bekommen Schlitze, daneben entstehen die Knöchel. Knöchel in die Schlitze kleben, Stift durch alle Augen schieben.');
+  const howtoNote = h('div', { class: 'note' }, ' ');
+
   const dlg = h(
     'dialog',
     { class: 'offset-dialog array-dialog joint-dialog' },
     h('h3', {}, t('Verbindung')),
     h('div', { class: 'form' }, ...body),
-    h('div', { class: 'note' }, [howto, ...notes].join(' ')),
+    howtoNote,
     info,
     h(
       'div',

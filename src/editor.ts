@@ -112,6 +112,8 @@ export class Editor {
   onJointDialog: (() => void) | null = null;
   /** Vorschau der Verbindung: neue Konturen der betroffenen Objekte (Welt) */
   jointPreview: SubPath[] | null = null;
+  /** Werkzeug „Verbindung“ wurde als Scharnier-Generator gestartet (Dialog öffnet mit „Scharnier für Deckel“) */
+  jointHingeMode = false;
 
   // Biegeschnitte (Living Hinges)
   /** Vorschau der Biegeschnitte (Welt) */
@@ -359,6 +361,7 @@ export class Editor {
     this.nodeHover = this.segHover = null;
     this.jointPicks = [];
     this.jointHover = null;
+    this.jointHingeMode = false;
     this.trimHover = null;
     this.startHover = null;
     this.clearSnap();
