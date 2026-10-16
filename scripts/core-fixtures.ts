@@ -4,7 +4,7 @@
 import './core-fixtures-env';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { applyAdjust, dither, resample } from '../src/images';
-import { estimate, FIRMWARES, gcodeLines, Moves, newDevice, packMoves, scanLines } from '../src/gcode';
+import { DEFAULT_ROTARY, estimate, FIRMWARES, gcodeLines, Moves, newDevice, outAxis, packMoves, rotaryMoves, scanLines } from '../src/gcode';
 import { defaultImageLayer, inv, ImageAdjust, Mat, mul } from '../src/model';
 
 // Reproduzierbare Zufallszahlen
@@ -41,8 +41,8 @@ const scans = [
 });
 
 // G-Code: Eilgänge, Vorschübe, gleiche Punkte, negative Koordinaten, Air Assist auf Layer 1
-function gcodeCase(fw: 'fluidnc' | 'smoothie') {
-  const d = newDevice({ fw });
+function gcodeCase(fw: 'fluidnc' | 'smoothie', axis?: 'A') {
+  const d = newDevice({ fw, ...(axis ? { rotary: { ...DEFAULT_ROTARY, enabled: true, axis, kind: 'chuck' as const, objectDiam: 70 } } : {}) });
   const mv = new Moves(1.25, -3);
   let x = 0,
     y = 0;
@@ -60,12 +60,14 @@ function gcodeCase(fw: 'fluidnc' | 'smoothie') {
     mv.push(i === 7 ? -0.0001 : x, y, f, s, Math.floor(i / 700) % 3 === 1 ? 1 : i > 2900 ? -1 : 0);
   }
   const est = estimate(mv, d);
-  const g = gcodeLines(mv, d, est, [1], ['; Kopf', 'G21', 'G90', 'M4 S0']);
-  const params = { x0: mv.x0, y0: mv.y0, sMax: d.sMax, air: [1], airCmd: 'M8', header: ['; Kopf', 'G21', 'G90', 'M4 S0'], footer: FIRMWARES[fw].footer, total: est.total };
+  // Mit Drehachse: Bewegungen wie in prepareGCode umgerechnet, Y-Richtung als A ausgegeben
+  const out = rotaryMoves(mv, d);
+  const g = gcodeLines(out, d, est, [1], ['; Kopf', 'G21', 'G90', 'M4 S0']);
+  const params = { x0: out.x0, y0: out.y0, sMax: d.sMax, air: [1], airCmd: 'M8', header: ['; Kopf', 'G21', 'G90', 'M4 S0'], footer: FIRMWARES[fw].footer, total: est.total, ...(axis ? { yAxis: outAxis(d) } : {}) };
   return {
     // so, wie prepareGCode die Daten an den Rust-Kern schickt
-    packed: arr(packMoves(mv, est.t, JSON.stringify(params))),
-    moves: { x0: mv.x0, y0: mv.y0, x: arr(mv.x.subarray(0, mv.n)), y: arr(mv.y.subarray(0, mv.n)), s: arr(mv.s.subarray(0, mv.n)), f: arr(mv.f.subarray(0, mv.n)), layer: arr(mv.layer.subarray(0, mv.n)), t: arr(est.t) },
+    packed: arr(packMoves(out, est.t, JSON.stringify(params))),
+    moves: { x0: out.x0, y0: out.y0, x: arr(out.x.subarray(0, out.n)), y: arr(out.y.subarray(0, out.n)), s: arr(out.s.subarray(0, out.n)), f: arr(out.f.subarray(0, out.n)), layer: arr(out.layer.subarray(0, out.n)), t: arr(est.t) },
     params,
     lines: g.lines,
     times: arr(g.times),
@@ -81,7 +83,7 @@ const out = {
   adjustedNeg: arr(adjustedNeg),
   dithered,
   scans,
-  gcode: [gcodeCase('fluidnc'), gcodeCase('smoothie')],
+  gcode: [gcodeCase('fluidnc'), gcodeCase('smoothie'), gcodeCase('fluidnc', 'A')],
 };
 mkdirSync(new URL('../src-tauri/core/tests/fixtures/', import.meta.url), { recursive: true });
 writeFileSync(new URL('../src-tauri/core/tests/fixtures/parity.json', import.meta.url), JSON.stringify(out));

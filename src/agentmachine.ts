@@ -5,7 +5,7 @@
 // Anhalten und Stoppen gehen immer. Jede Maschinenaktion landet zusätzlich in einer Protokolldatei.
 import type { Editor } from './editor';
 import { h } from './dom';
-import { estimate, formatDuration, frameGCode, FIRMWARES, Job, prepareGCode, writeGCode } from './gcode';
+import { estimate, formatDuration, frameGCode, FIRMWARES, Job, prepareGCode, rotaryOn, writeGCode } from './gcode';
 import { isTauri, machine } from './machine';
 import { device, laserNotify, makeJob, runBlocker } from './laser';
 import { layerLabel, Pt } from './model';
@@ -75,7 +75,9 @@ function outsideBed(ed: Editor, job: Job): string | null {
   if (!tb || device.startFrom === 'user') return null;
   const { w, h: bh } = ed.doc.bed;
   const e = 0.01;
-  if (tb.x0 >= -e && tb.y0 >= -e && tb.x1 <= w + e && tb.y1 <= bh + e) return null;
+  // Mit Drehachse ist Y der Umfang des Objekts, nur X muss aufs Bett passen
+  const yOk = rotaryOn(device) || (tb.y0 >= -e && tb.y1 <= bh + e);
+  if (tb.x0 >= -e && tb.x1 <= w + e && yOk) return null;
   return t('Der Job reicht über den Arbeitsbereich ({w} × {bh} mm) hinaus: X {x0} … {x1}, Y {y0} … {y1} mm (inkl. Überfahrweg).', {
     w, bh, x0: tb.x0.toFixed(1), x1: tb.x1.toFixed(1), y0: tb.y0.toFixed(1), y1: tb.y1.toFixed(1),
   });
@@ -107,6 +109,7 @@ function jobSummary(ed: Editor, job: Job) {
       travelMeters: r3(est.rapidLength / 1000),
       area: { x: r3(b.x0), y: r3(b.y0), w: r3(b.x1 - b.x0), h: r3(b.y1 - b.y0) },
       startFrom: device.startFrom,
+      rotary: rotaryOn(device) ? { ...device.rotary } : null,
       layers: [...stats].map(([i, st]) => ({
         layer: i, name: ed.layer(i).name, maxPowerPercent: r3(st.maxPower * 100),
         speedMmPerMin: st.minSpeed === st.maxSpeed ? Math.round(st.minSpeed) : [Math.round(st.minSpeed), Math.round(st.maxSpeed)],

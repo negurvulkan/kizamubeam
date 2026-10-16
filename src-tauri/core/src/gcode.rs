@@ -34,6 +34,13 @@ pub struct Params {
     pub footer: Vec<String>,
     /// Geschätzte Gesamtdauer in Sekunden
     pub total: f64,
+    /// Buchstabe für die Y-Richtung: Y, bei einer eigenen Drehachse z. B. A (die Bewegungen sind schon umgerechnet)
+    #[serde(default = "default_axis")]
+    pub y_axis: String,
+}
+
+fn default_axis() -> String {
+    "Y".into()
 }
 
 /// Koordinate in 1/1000 mm, gerundet wie `Math.round(v * 1000)`
@@ -130,7 +137,7 @@ pub fn write(mv: &Moves, p: &Params) -> (Vec<String>, Vec<f64>) {
             if !l.is_empty() {
                 l.push(' ');
             }
-            l.push('Y');
+            l.push_str(&p.y_axis);
             push_scaled(&mut l, ys, 3);
         }
         known = true;

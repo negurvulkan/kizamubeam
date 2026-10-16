@@ -5,8 +5,8 @@ import { ICONS } from './icons';
 import { saveText } from './files';
 import { native } from './native';
 import {
-  anchorOf, buildJob, burns, Device, estimate, Firmware, FIRMWARES, formatDuration, frameGCode, Job, loadDevices, Moves, newDevice, PRESETS,
-  prepareGCode, sameMoves, saveDevices, StartFrom, startHere,
+  anchorOf, buildJob, burns, DEFAULT_ROTARY, Device, estimate, Firmware, FIRMWARES, formatDuration, frameGCode, Job, jogLines, loadDevices, Moves, newDevice, PRESETS,
+  prepareGCode, Rotary, RotaryAxis, rotaryCirc, rotaryOn, rotaryTestLines, sameMoves, saveDevices, StartFrom, startHere,
 } from './gcode';
 import { isTauri, machine, PortInfo } from './machine';
 import type { Doc, ImageLayer, Layer } from './model';
@@ -97,7 +97,9 @@ function boundsOk(ed: Editor, job: Job): boolean {
   const { w, h: bh } = ed.doc.bed;
   if (device.startFrom === 'user') return true; // Lage hängt vom gesetzten Ursprung ab
   const e = 0.01;
-  if (tb.x0 >= -e && tb.y0 >= -e && tb.x1 <= w + e && tb.y1 <= bh + e) return true;
+  // Mit Drehachse ist Y der Umfang des Objekts, nur X muss aufs Bett passen
+  const yOk = rotaryOn(device) || (tb.y0 >= -e && tb.y1 <= bh + e);
+  if (tb.x0 >= -e && tb.x1 <= w + e && yOk) return true;
   return confirm(
     t('Der Job reicht über den Arbeitsbereich ({w} × {bh} mm) hinaus:\n', { w, bh }) +
       t('X {x0} … {x1}, Y {y0} … {y1} mm (inkl. Überfahrweg).\n\nTrotzdem starten?', { x0: tb.x0.toFixed(1), x1: tb.x1.toFixed(1), y0: tb.y0.toFixed(1), y1: tb.y1.toFixed(1) }),
@@ -256,7 +258,10 @@ function laserTab(ed: Editor): HTMLElement {
   const stopB = big('stop', t('Stopp'), t('Job abbrechen'), () => machine.stop());
   const frameB = big('frame', t('Rahmen'), t('Rechteck um den Job abfahren'), () => frameJob(ed, false));
   const contourB = big('contour', t('Kontur'), t('Umriss des Jobs abfahren (Gummiband)'), () => frameJob(ed, true));
-  const homeB = big('home', t('Home'), t('Referenzfahrt'), () => machine.send(fw().home));
+  const homeB = big('home', t('Home'), t('Referenzfahrt'), () => {
+    if (rotaryOn(device) && device.rotary.axis === 'Y' && !confirm(t('Die Drehachse steckt am Y-Anschluss. Eine Referenzfahrt kann sie endlos drehen lassen, weil es dort keinen Endschalter gibt.\n\nTrotzdem referenzieren?'))) return;
+    machine.send(fw().home);
+  });
   const originB = big('origin', t('Ursprung'), t('Zum Nullpunkt fahren'), () => machine.send('G0 X0 Y0'));
   const previewB = big('preview', t('Vorschau'), t('Vorschau mit Zeitschätzung (Alt+P)'), () => openPreview(ed));
   const saveB = big('gcode', 'G-Code', t('G-Code speichern'), () => saveGCode(ed));
@@ -300,6 +305,8 @@ function laserTab(ed: Editor): HTMLElement {
     h('div', { class: 'checks' },
       check(t('Nur Auswahl'), t('Nur die ausgewählten Objekte lasern'), () => device.cutSelected, (v) => (device.cutSelected = v)),
       check(t('Pfad optimieren'), t('Innere Formen zuerst, kurze Leerwege'), () => device.optimize, (v) => (device.optimize = v)),
+      check(t('Drehachse'), t('Rotary einschalten: Y wird zur Umfangsrichtung des Objekts'), () => device.rotary.enabled, (v) => (device.rotary = { ...device.rotary, enabled: v })),
+      h('button', { class: 'btn small', title: t('Drehachse (Rotary) einrichten'), onclick: () => openRotaryDialog() }, t('Drehachse …')),
     ),
     h('div', { class: 'conn-row' },
       h('button', { class: 'btn', onclick: () => openDeviceDialog(ed) }, h('span', { html: ICONS.settings }), t('Geräteeinstellungen')),
@@ -401,7 +408,7 @@ function moveTab(ed: Editor): HTMLElement {
   const st = { step: 10, speed: 3000 };
   const jog = (dx: number, dy: number) => {
     if (!machine.connected) return notify(t('Nicht verbunden.'), true);
-    for (const l of fw().jog(dx * st.step, dy * st.step, st.speed)) machine.send(l);
+    for (const l of jogLines(device, dx * st.step, dy * st.step, st.speed)) machine.send(l);
   };
   const pad = h('div', { class: 'jog' });
   const arrows: [number, number, string][] = [
@@ -681,6 +688,98 @@ export function openDeviceDialog(ed: Editor, target: Device = device, onDone?: (
   dlg.showModal();
 }
 
+// ---------- Drehachse ----------
+
+/** Drehachse (Rotary) des gewählten Geräts einrichten, wie „Rotary Setup“ in LightBurn */
+export function openRotaryDialog() {
+  const target = device;
+  const r: Rotary = { ...DEFAULT_ROTARY, ...target.rotary };
+  const rows: HTMLElement[] = [];
+  const row = (label: string, el: HTMLElement, title?: string) => {
+    const lab = h('label', { title }, label);
+    rows.push(lab, el);
+    return [lab, el];
+  };
+  const numField = (get: () => number, set: (v: number) => void, title?: string) => {
+    const el = numInput('', (v) => v > 0 && (set(v), update()), title);
+    el.value = String(get());
+    return el;
+  };
+  const enabled = h('input', { type: 'checkbox', checked: r.enabled, onchange: (e: Event) => ((r.enabled = (e.target as HTMLInputElement).checked), update()) });
+  row(t('Drehachse einschalten'), h('span', {}, enabled));
+  const kind = h('select', { onchange: (e: Event) => ((r.kind = (e.target as HTMLSelectElement).value as Rotary['kind']), update()) },
+    h('option', { value: 'roller', selected: r.kind === 'roller' }, t('Walzen')),
+    h('option', { value: 'chuck', selected: r.kind === 'chuck' }, t('Futter')),
+  );
+  row(t('Art'), kind);
+  const axis = h('select', { onchange: (e: Event) => ((r.axis = (e.target as HTMLSelectElement).value as RotaryAxis), update()) },
+    h('option', { value: 'Y', selected: r.axis === 'Y' }, t('Y (Rotary statt Y-Motor angeschlossen)')),
+    ...(['A', 'B', 'C', 'Z'] as RotaryAxis[]).map((a) => h('option', { value: a, selected: r.axis === a }, t('{axis} (eigene Achse)', { axis: a }))),
+  );
+  row(t('Achse'), axis, t('Wo der Rotary an der Steuerung hängt'));
+  const perRevLabel = h('span', {});
+  const perRev = numField(() => r.perRev, (v) => (r.perRev = v), t('Achsweg, den die Steuerung für eine volle Umdrehung der Walze bzw. des Futters fährt'));
+  rows.push(h('label', {}, perRevLabel), perRev);
+  const [rollerLab, rollerEl] = row(t('Walzendurchmesser (mm)'), numField(() => r.rollerDiam, (v) => (r.rollerDiam = v)), t('Durchmesser der angetriebenen Walze'));
+  const objDiam = numField(() => r.objectDiam, (v) => ((r.objectDiam = v), (circ.value = (Math.PI * v).toFixed(2))), t('Am breitesten Punkt der Gravur messen'));
+  row(t('Objektdurchmesser (mm)'), objDiam);
+  const circ = numInput('', (v) => v > 0 && ((r.objectDiam = v / Math.PI), (objDiam.value = r.objectDiam.toFixed(2)), update()), t('Umfang statt Durchmesser eingeben, z. B. mit einem Maßband gemessen'));
+  circ.value = (Math.PI * r.objectDiam).toFixed(2);
+  row(t('Objektumfang (mm)'), circ);
+  const mirror = h('input', { type: 'checkbox', checked: r.mirror, onchange: (e: Event) => ((r.mirror = (e.target as HTMLInputElement).checked), update()) });
+  row(t('Drehrichtung umkehren'), h('span', {}, mirror), t('Wenn die Gravur gespiegelt herauskommt'));
+  const info = h('div', { class: 'note' });
+  const testNote = h('div', { class: 'note' });
+  const testBtn = h('button', {
+    class: 'btn',
+    title: t('Das Objekt mit den eingegebenen Werten genau einmal herumdrehen'),
+    onclick: () => {
+      const why = runBlocker();
+      if (why) return void (testNote.textContent = why);
+      for (const l of rotaryTestLines({ ...target, rotary: { ...r, enabled: true } })) machine.send(l);
+      testNote.textContent = t('Das Objekt sollte sich jetzt genau einmal drehen. Dreht es zu weit oder zu kurz, den Achsweg pro Umdrehung im gleichen Verhältnis anpassen.');
+    },
+  }, t('Testdrehung')) as HTMLButtonElement;
+  const update = () => {
+    const deg = r.axis !== 'Y' && r.axis !== 'Z';
+    perRevLabel.textContent = deg ? t('Achsweg pro Umdrehung (meist 360°)') : t('Achsweg pro Umdrehung (mm)');
+    rollerLab.hidden = rollerEl.hidden = r.kind !== 'roller';
+    const c = rotaryCirc(r);
+    const k = c > 0 ? r.perRev / c : 0;
+    info.textContent =
+      t('1 mm auf dem Objekt = {k} {unit} auf Achse {axis}.', { k: k.toFixed(4), unit: deg ? '°' : 'mm', axis: r.axis }) +
+      ' ' +
+      (r.axis === 'Y'
+        ? t('Am Y-Anschluss: Soft-Limits bzw. Endschalter der Y-Achse dürfen nicht stören, und nicht referenzieren, solange der Rotary steckt.')
+        : t('Eigene Achse: Sie muss in der Steuerung eingerichtet sein (bei FluidNC in der config.yaml). Laserwerk setzt zu Beginn jedes Jobs die aktuelle Stellung mit G92 auf 0.'));
+  };
+  update();
+  const dlg = h('dialog', { class: 'device-dialog' },
+    h('h3', {}, t('Drehachse: {name}', { name: target.name })),
+    h('div', { class: 'form' }, ...rows),
+    info,
+    h('div', { class: 'note' }, t('Die Y-Richtung des Entwurfs wird zur Umfangsrichtung des Objekts. Den Laserkopf vor dem Start über die höchste Stelle des Objekts stellen und fokussieren; als Startpunkt eignet sich „Aktuelle Position“.')),
+    h('div', { class: 'conn-row' }, testBtn),
+    testNote,
+    h('div', { class: 'dialog-buttons' },
+      h('button', { class: 'btn', onclick: () => dlg.close() }, t('Abbrechen')),
+      h('button', {
+        class: 'btn primary',
+        onclick: () => {
+          (document.activeElement as HTMLElement | null)?.blur();
+          target.rotary = { ...r };
+          deviceChanged();
+          dlg.close();
+        },
+      }, t('Übernehmen')),
+    ),
+  );
+  dlg.addEventListener('close', () => dlg.remove());
+  dlg.addEventListener('keydown', (e) => e.stopPropagation());
+  document.body.append(dlg);
+  dlg.showModal();
+}
+
 // ---------- Geräteliste ----------
 
 /** Geräte verwalten: aus Vorlagen anlegen, bearbeiten, kopieren, löschen, auswählen */
@@ -704,7 +803,7 @@ export function openDevicesDialog(ed: Editor) {
         h('td', {}, h('div', { class: 'actions' },
           btn(t('Bearbeiten'), t('Einstellungen dieses Geräts'), () => openDeviceDialog(ed, d, fill)),
           btn(t('Kopieren'), t('Als neues Gerät kopieren'), () => {
-            store.devices.push({ ...d, id: newDevice(d).id, name: t('{name} (Kopie)', { name: d.name }) });
+            store.devices.push({ ...d, rotary: { ...d.rotary }, id: newDevice(d).id, name: t('{name} (Kopie)', { name: d.name }) });
             deviceChanged();
             fill();
           }),
@@ -787,6 +886,7 @@ export async function openPreview(ed: Editor, src?: JobSource) {
     ...stat(t('Leerweg'), `${(est.rapidLength / 1000).toFixed(2)} m`),
     ...stat(t('Bereich'), `${(b.x1 - b.x0).toFixed(1)} × ${(b.y1 - b.y0).toFixed(1)} mm`),
     ...stat(t('Bewegungen'), mv.n.toLocaleString(locale)),
+    ...(rotaryOn(device) ? stat(t('Drehachse'), t('Achse {axis}, Umfang {c} mm', { axis: device.rotary.axis, c: (Math.PI * device.rotary.objectDiam).toFixed(1) })) : []),
   );
   const warn = h('div', { class: 'note' }, ...job.warnings.map((w) => h('div', {}, w)));
   const dlg = h('dialog', { class: 'preview-dialog' },

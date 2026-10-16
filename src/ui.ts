@@ -11,7 +11,7 @@ import { openCircularArrayDialog, openGridArrayDialog } from './arrayDialogs';
 import { openJointDialog } from './jointDialog';
 import { openHingeDialog } from './hingeDialog';
 import { openQrDialog, openVarTextDialog } from './qrDialog';
-import { buildLaser, frameJob, openDeviceDialog, openDevicesDialog, openPreview, saveGCode, startJob } from './laser';
+import { buildLaser, frameJob, openDeviceDialog, openDevicesDialog, openPreview, openRotaryDialog, saveGCode, startJob } from './laser';
 import { openLayerDialog } from './layerdialog';
 import { openMaterialTestDialog } from './materialtest';
 import { BoolBase } from './ops';
@@ -246,6 +246,7 @@ function buildMenu(ed: Editor) {
       'sep',
       [t('Geräte …'), '', () => openDevicesDialog(ed)],
       [t('Geräteeinstellungen …'), '', () => openDeviceDialog(ed)],
+      [t('Drehachse (Rotary) …'), '', () => openRotaryDialog()],
     ]],
     [t('Ansicht'), [
       [t('Ganze Seite'), 'Ctrl+0', () => ed.zoomPage()],
@@ -709,6 +710,7 @@ function buildBars(ed: Editor) {
     { id: 'materialtest', cat: L, short: t('Test'), label: t('Materialtest …'), run: () => openMaterialTestDialog(ed) },
     { id: 'devsettings', cat: L, icon: 'settings', label: t('Geräteeinstellungen'), run: () => openDeviceDialog(ed) },
     { id: 'devices', cat: L, short: t('Geräte'), label: t('Geräte …'), run: () => openDevicesDialog(ed) },
+    { id: 'rotary', cat: L, short: t('Rotary'), label: t('Drehachse (Rotary) …'), run: () => openRotaryDialog() },
   ];
   initToolbars(list, {
     main: [
