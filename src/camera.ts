@@ -5,6 +5,10 @@
 // Bildseite. Damit gilt eine Kalibrierung für jede Auflösung mit demselben Seitenverhältnis.
 // Kalibriert wird mit gelaserten Markierungen bekannter Lage, die man im Kamerabild anklickt (wie LightBurns
 // Ausrichtung). Ab 6 Markierungen wird die Linsenverzeichnung mitbestimmt.
+//
+// Kopfkamera: Die Kamera fährt mit dem Laserkopf. Die Kalibrierung gilt für die Kopfposition beim Foto (head);
+// steht der Kopf woanders, ist das Bild um die Differenz verschoben. Ein Bettpunkt b erscheint bei Kopfposition P
+// dort, wo bei der Kalibrierung der Punkt b − (P − head) erschien.
 
 import type { Pt } from './model';
 import { t } from './i18n';
@@ -25,6 +29,16 @@ export interface CameraCalib {
   bedW: number;
   bedH: number;
   date: string;
+  /** Nur Kopfkamera: Kopfposition (Werkstückkoordinaten, mm) beim Kalibrierfoto */
+  head?: Pt;
+}
+
+/** Rechteck in Bettkoordinaten (mm, y nach oben) */
+export interface Rect {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
 }
 
 export interface MarkSettings {
@@ -36,9 +50,18 @@ export interface MarkSettings {
   size: number;
   speed: number;
   power: number;
+  /** Nur Kopfkamera: Abstand der äußeren Markierungen voneinander in mm */
+  field: number;
 }
 
+/** fixed: fest über dem Bett; head: am Laserkopf, fährt mit */
+export type CameraMount = 'fixed' | 'head';
+
 export interface CameraSettings {
+  /** Eindeutige Kennung und Name in der Kameraliste */
+  id: string;
+  name: string;
+  mount: CameraMount;
   /** Gewählte Kamera (MediaDeviceInfo.deviceId) und ihr Name zum Wiederfinden */
   cam: string;
   label: string;
@@ -54,6 +77,9 @@ export interface CameraSettings {
 }
 
 export const DEFAULT_CAMERA: CameraSettings = {
+  id: '',
+  name: '',
+  mount: 'fixed',
   cam: '',
   label: '',
   width: 1920,
@@ -62,7 +88,7 @@ export const DEFAULT_CAMERA: CameraSettings = {
   opacity: 0.8,
   live: false,
   calib: null,
-  marks: { n: 3, margin: 25, size: 10, speed: 1000, power: 20 },
+  marks: { n: 3, margin: 25, size: 10, speed: 1000, power: 20, field: 40 },
 };
 
 // ---------- Mathematik ----------
@@ -271,11 +297,76 @@ export function calibrate(bed: Pt[], img: Pt[], w: number, h: number, lens: bool
 
 /** Sollpositionen der Markierungen (Maschinenkoordinaten, y nach oben), Reihenfolge: hinten links → vorne rechts */
 export function markPositions(m: MarkSettings, bedW: number, bedH: number): Pt[] {
+  return markPositionsIn(m, { x0: m.margin, y0: m.margin, x1: bedW - m.margin, y1: bedH - m.margin });
+}
+
+/** Markierungen im Rechteck r (äußere Markierungen auf dem Rand), Reihenfolge wie markPositions */
+export function markPositionsIn(m: MarkSettings, r: Rect): Pt[] {
   const pts: Pt[] = [];
   const n = Math.max(2, m.n);
-  const span = (len: number, i: number) => m.margin + ((len - 2 * m.margin) * i) / (n - 1);
-  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) pts.push({ x: span(bedW, c), y: bedH - span(bedH, r) });
+  for (let i = 0; i < n; i++)
+    for (let j = 0; j < n; j++) pts.push({ x: r.x0 + ((r.x1 - r.x0) * j) / (n - 1), y: r.y1 - ((r.y1 - r.y0) * i) / (n - 1) });
   return pts;
+}
+
+/** Markierungsfeld einer Kopfkamera um die Mitte c */
+export function headMarkRect(m: MarkSettings, c: Pt): Rect {
+  const f = m.field / 2;
+  return { x0: c.x - f, y0: c.y - f, x1: c.x + f, y1: c.y + f };
+}
+
+/** Verschiebung des Kamerabilds einer Kopfkamera bei Kopfposition pos gegenüber der Kalibrierung */
+export function headShift(c: CameraCalib, pos: Pt | null): Pt {
+  return c.head && pos ? { x: pos.x - c.head.x, y: pos.y - c.head.y } : { x: 0, y: 0 };
+}
+
+/** Sichtbereich des Kamerabilds auf dem Bett (umschließendes Rechteck, bei Kopfkameras an der Kalibrierposition) */
+export function footprint(c: CameraCalib, w: number, h: number): Rect {
+  const r = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+  const N = 16;
+  for (let i = 0; i <= N; i++)
+    for (const p of [{ x: (w * i) / N, y: 0 }, { x: (w * i) / N, y: h }, { x: 0, y: (h * i) / N }, { x: w, y: (h * i) / N }]) {
+      const b = pixelToBed(c, p, w, h);
+      if (!isFinite(b.x) || !isFinite(b.y)) continue;
+      r.x0 = Math.min(r.x0, b.x);
+      r.y0 = Math.min(r.y0, b.y);
+      r.x1 = Math.max(r.x1, b.x);
+      r.y1 = Math.max(r.y1, b.y);
+    }
+  return r;
+}
+
+/** Größtes achsparalleles Rechteck um die Bildmitte, das ganz im Kamerabild liegt (für lückenloses Abfahren) */
+export function coverRect(c: CameraCalib, w: number, h: number): Rect {
+  const f = footprint(c, w, h);
+  const mid = pixelToBed(c, { x: w / 2, y: h / 2 }, w, h);
+  const inside = (r: Rect) => {
+    const N = 6;
+    for (let i = 0; i <= N; i++) {
+      const x = r.x0 + ((r.x1 - r.x0) * i) / N,
+        y = r.y0 + ((r.y1 - r.y0) * i) / N;
+      for (const [X, Y] of [[x, r.y0], [x, r.y1], [r.x0, y], [r.x1, y]]) {
+        const p = bedToPixel(c, X, Y, w, h);
+        if (!(p.x >= 0 && p.y >= 0 && p.x <= w && p.y <= h)) return false;
+      }
+    }
+    return true;
+  };
+  // Von der Bildmitte aus in beide Richtungen getrennt so weit wie möglich ausdehnen
+  let r = { x0: mid.x, y0: mid.y, x1: mid.x, y1: mid.y };
+  const steps = 40;
+  const dx = (f.x1 - f.x0) / 2 / steps,
+    dy = (f.y1 - f.y0) / 2 / steps;
+  for (let k = 0; k < 4 * steps; k++) {
+    let grew = false;
+    for (const side of ['x0', 'x1', 'y0', 'y1'] as const) {
+      const n = { ...r };
+      n[side] += (side === 'x0' ? -dx : side === 'x1' ? dx : side === 'y0' ? -dy : dy);
+      if (inside(n)) ((r = n), (grew = true));
+    }
+    if (!grew) break;
+  }
+  return r;
 }
 
 /** Passt die Kalibrierung zum Seitenverhältnis des Kamerabilds? */
@@ -294,18 +385,25 @@ export interface Remap {
   sy: Float32Array;
   srcW: number;
   srcH: number;
+  /** Abgedeckter Bettbereich (die erste Zeile liegt bei y1) */
+  rect: Rect;
 }
 
 export function buildRemap(c: CameraCalib, srcW: number, srcH: number, bedW: number, bedH: number, maxPx = 1600): Remap {
   const mmPx = Math.max(bedW, bedH) / maxPx;
-  const w = Math.max(1, Math.round(bedW / mmPx)),
-    h = Math.max(1, Math.round(bedH / mmPx));
+  return buildRemapRect(c, srcW, srcH, { x0: 0, y0: 0, x1: bedW, y1: bedH }, mmPx);
+}
+
+/** Entzerrung für den Bettbereich r mit mmPx mm je Ausgabepixel; shift = Verschiebung einer Kopfkamera (headShift) */
+export function buildRemapRect(c: CameraCalib, srcW: number, srcH: number, r: Rect, mmPx: number, shift: Pt = { x: 0, y: 0 }): Remap {
+  const w = Math.max(1, Math.round((r.x1 - r.x0) / mmPx)),
+    h = Math.max(1, Math.round((r.y1 - r.y0) / mmPx));
   const sx = new Float32Array(w * h),
     sy = new Float32Array(w * h);
   for (let j = 0; j < h; j++) {
-    const Y = bedH - ((j + 0.5) * bedH) / h;
+    const Y = r.y1 - ((j + 0.5) * (r.y1 - r.y0)) / h - shift.y;
     for (let i = 0; i < w; i++) {
-      const X = ((i + 0.5) * bedW) / w;
+      const X = r.x0 + ((i + 0.5) * (r.x1 - r.x0)) / w - shift.x;
       const p = bedToPixel(c, X, Y, srcW, srcH);
       const k = j * w + i;
       const inside = p.x >= 0 && p.y >= 0 && p.x <= srcW - 1 && p.y <= srcH - 1;
@@ -313,7 +411,7 @@ export function buildRemap(c: CameraCalib, srcW: number, srcH: number, bedW: num
       sy[k] = inside ? p.y : NaN;
     }
   }
-  return { w, h, sx, sy, srcW, srcH };
+  return { w, h, sx, sy, srcW, srcH, rect: r };
 }
 
 /** Kamerabild entzerren (bilinear) */
@@ -421,6 +519,16 @@ export class CameraStream {
     this.stream?.getTracks().forEach((t) => t.stop());
     this.stream = null;
     this.video.srcObject = null;
+  }
+
+  /** Warten, bis n neue Bilder angekommen sind (nach einer Kopfbewegung liegen noch alte im Puffer) */
+  async freshFrames(n = 3) {
+    const v = this.video as HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number };
+    for (let i = 0; i < n; i++)
+      await new Promise<void>((res) => {
+        const done = setTimeout(res, 250);
+        v.requestVideoFrameCallback?.(() => (clearTimeout(done), res()));
+      });
   }
 
   /** Aktuelles Bild als Canvas (Rohbild, unverzerrt) */

@@ -22,6 +22,8 @@ function deviceChanged() {
   saveDevices(store);
   deviceListeners.forEach((f) => f());
 }
+/** Wird bei jedem Geräte- oder Einstellungswechsel aufgerufen; liefert eine Abmeldefunktion */
+export const onDeviceChange = (f: () => void) => (deviceListeners.add(f), () => deviceListeners.delete(f));
 const fw = () => FIRMWARES[device.fw];
 
 /** Arbeitsfläche an das Bett des gewählten Geräts anpassen */
