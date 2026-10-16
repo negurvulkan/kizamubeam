@@ -7,7 +7,7 @@ import type { Editor } from './editor';
 import { h } from './dom';
 import { estimate, formatDuration, frameGCode, FIRMWARES, Job, prepareGCode, rotaryOn, writeGCode } from './gcode';
 import { isTauri, machine } from './machine';
-import { device, laserNotify, makeJob, runBlocker } from './laser';
+import { bedCheck, bedProblem, device, laserNotify, makeJob, runBlocker } from './laser';
 import { layerLabel, Pt } from './model';
 import { Args, Content, json, log, r3, Tier, ToolDef, ToolError } from './agentutil';
 import { locale, t } from './i18n';
@@ -69,18 +69,10 @@ function limitProblems(ed: Editor, stats: Map<number, LayerStats>): string[] {
   return out;
 }
 
-/** Liegt der Job samt Überfahrwegen außerhalb des Bettes? (Beim Benutzer-Ursprung nicht feststellbar) */
+/** Liegt der Job samt Überfahrwegen außerhalb des Bettes? (null = nein oder beim Benutzer-Ursprung nicht feststellbar) */
 function outsideBed(ed: Editor, job: Job): string | null {
-  const tb = job.travel;
-  if (!tb || device.startFrom === 'user') return null;
-  const { w, h: bh } = ed.doc.bed;
-  const e = 0.01;
-  // Mit Drehachse ist Y der Umfang des Objekts, nur X muss aufs Bett passen
-  const yOk = rotaryOn(device) || (tb.y0 >= -e && tb.y1 <= bh + e);
-  if (tb.x0 >= -e && tb.x1 <= w + e && yOk) return null;
-  return t('Der Job reicht über den Arbeitsbereich ({w} × {bh} mm) hinaus: X {x0} … {x1}, Y {y0} … {y1} mm (inkl. Überfahrweg).', {
-    w, bh, x0: tb.x0.toFixed(1), x1: tb.x1.toFixed(1), y0: tb.y0.toFixed(1), y1: tb.y1.toFixed(1),
-  });
+  const c = bedCheck(ed, job);
+  return c.kind === 'out' ? bedProblem(ed, job, c)!.replace('\n', ' ') : null;
 }
 
 async function buildJob(ed: Editor): Promise<Job> {
@@ -118,7 +110,8 @@ function jobSummary(ed: Editor, job: Job) {
       agentLimits: { maxPowerPercent: device.agentMaxPower, minSpeedMmPerMin: device.agentMinSpeed },
       withinAgentLimits: !problems.length,
       limitProblems: problems,
-      insideBed: !outside,
+      // null = beim Benutzer-Ursprung nicht prüfbar, solange die Steuerung den Ursprung nicht gemeldet hat
+      insideBed: bedCheck(ed, job).kind === 'unknown' ? null : !outside,
       warnings: job.warnings,
     },
   };
@@ -511,7 +504,7 @@ export const MACHINE_TOOLS: ToolDef[] = [
           ),
           layerTable(ed, s.stats),
           ...(job.warnings.length ? [h('div', { class: 'note' }, ...job.warnings.map((w) => h('div', {}, w)))] : []),
-          ...(device.startFrom === 'user' ? [h('div', { class: 'note error' }, t('Start ab Benutzer-Ursprung: Ob der Job auf das Bett passt, hängt vom gesetzten Ursprung ab.'))] : []),
+          ...(bedCheck(ed, job).kind === 'unknown' ? [h('div', { class: 'note error' }, bedProblem(ed, job)!)] : []),
           ...agentNote(a),
           h('p', { class: 'note' }, t('Es läuft der Stand von eben, auch wenn du das Dokument jetzt noch änderst.')),
         ],

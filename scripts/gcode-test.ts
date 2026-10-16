@@ -1,7 +1,8 @@
 // Tests der Maschinenausgabe: Start-/End-Skripte, „Start Here“, Vorschau gegen Job. Aufruf: npm run test:gcode
 import './core-fixtures-env';
 import { strict as assert } from 'node:assert';
-import { buildJob, burns, DEFAULT_ROTARY, Device, estimate, frameGCode, gcodeFooter, jogLines, Moves, newDevice, Rotary, rotaryTestLines, sameMoves, startHere, writeGCode } from '../src/gcode';
+import { buildJob, burns, checkBed, DEFAULT_ROTARY, Device, estimate, frameGCode, gcodeFooter, jogLines, Moves, newDevice, Rotary, rotaryTestLines, sameMoves, startHere, writeGCode } from '../src/gcode';
+import { parseStatus, WorkOffset } from '../src/machine';
 import { defaultImageLayer, defaultLayer, loadDoc, Obj } from '../src/model';
 
 let failed = 0;
@@ -190,6 +191,37 @@ await test('Warnung, wenn der Job höher ist als der Objektumfang', async () => 
   const job = (od: number) => buildJob({ doc, layer: (i: number) => ({ ...defaultLayer(i), mode: 'line' as const }), imgLayer: () => defaultImageLayer(), device: rotDev({ objectDiam: od }) });
   assert.equal((await job(20)).warnings.length, 1);
   assert.equal((await job(40)).warnings.length, 0);
+});
+
+await test('Arbeitsbereich: Benutzer-Ursprung mit gemeldetem Nullpunkt wird geprüft', () => {
+  const bed = { w: 400, h: 400 };
+  const d = { ...newDevice({ fw: 'fluidnc' }), startFrom: 'user' as const };
+  const tb = { x0: -1, y0: 0, x1: 99, y1: 50 };
+  // Ursprung unbekannt: keine Aussage möglich, nicht stillschweigend „passt“
+  assert.deepEqual(checkBed(tb, bed, d, null), { kind: 'unknown' });
+  assert.equal(checkBed(tb, bed, d, { x: 100, y: 100 }).kind, 'ok');
+  const out = checkBed(tb, bed, d, { x: 350, y: 100 });
+  assert.equal(out.kind, 'out');
+  assert.deepEqual(out.kind === 'out' && out.box, { x0: 349, y0: 100, x1: 449, y1: 150 });
+  // Ohne gemeldeten Nullpunkt bleibt es bei „Absolut“ beim Bett in Werkstückkoordinaten
+  const abs = { ...d, startFrom: 'absolute' as const };
+  assert.equal(checkBed({ x0: 0, y0: 0, x1: 400, y1: 400 }, bed, abs, null).kind, 'ok');
+  assert.equal(checkBed({ x0: 0, y0: 0, x1: 400, y1: 400 }, bed, abs, { x: 10, y: 0 }).kind, 'out');
+  assert.equal(checkBed(null, bed, d, null).kind, 'ok');
+});
+
+await test('Statusbericht: Werkstück-Nullpunkt erst bekannt, wenn die Steuerung ihn meldet', () => {
+  const wco: WorkOffset = { v: [0, 0, 0], known: false };
+  const empty = { state: '', mpos: null, wpos: null, feed: 0, power: 0 };
+  let st = parseStatus('<Idle|MPos:150.000,120.000,0.000|FS:0,0>', empty, wco);
+  assert.equal(wco.known, false);
+  st = parseStatus('<Idle|MPos:150.000,120.000,0.000|FS:0,0|WCO:100.000,80.000,0.000>', st, wco);
+  assert.equal(wco.known, true);
+  assert.deepEqual(st.wpos, [50, 40, 0]);
+  // Smoothieware meldet MPos und WPos zugleich
+  const w2: WorkOffset = { v: [0, 0, 0], known: false };
+  parseStatus('<Idle|MPos:30.000,20.000,0.000|WPos:10.000,5.000,0.000>', empty, w2);
+  assert.deepEqual(w2, { v: [20, 15, 0], known: true });
 });
 
 if (failed) {

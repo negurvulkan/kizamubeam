@@ -68,8 +68,14 @@ export function explain(line: string): string | null {
   return null;
 }
 
+/** Werkstück-Nullpunkt in Maschinenkoordinaten; known = von der Steuerung gemeldet (WCO oder MPos und WPos zugleich) */
+export interface WorkOffset {
+  v: [number, number, number];
+  known: boolean;
+}
+
 /** Statusbericht auswerten, z. B. <Idle|MPos:1.000,2.000,0.000|FS:0,0|WCO:0.000,0.000,0.000> */
-export function parseStatus(line: string, prev: MachineStatus, wco: number[]): MachineStatus {
+export function parseStatus(line: string, prev: MachineStatus, wco: WorkOffset): MachineStatus {
   const body = line.replace(/^<|>$/g, '').split('|');
   const st: MachineStatus = { ...prev, state: body[0].split(':')[0] };
   const vec = (s: string) => {
@@ -83,22 +89,27 @@ export function parseStatus(line: string, prev: MachineStatus, wco: number[]): M
     if (k === 'MPos') mpos = vec(v);
     else if (k === 'WPos') wpos = vec(v);
     else if (k === 'WCO') {
-      const w = vec(v);
-      wco[0] = w[0];
-      wco[1] = w[1];
-      wco[2] = w[2];
+      wco.v = vec(v);
+      wco.known = true;
     } else if (k === 'FS' || k === 'F') {
       const p = v.split(',').map(Number);
       st.feed = p[0] || 0;
       st.power = p[1] || 0;
     }
   }
-  if (mpos) {
+  const o = wco.v;
+  if (mpos && wpos) {
+    // z. B. Smoothieware meldet beide: daraus ergibt sich der Nullpunkt
     st.mpos = mpos;
-    st.wpos = [mpos[0] - wco[0], mpos[1] - wco[1], mpos[2] - wco[2]];
+    st.wpos = wpos;
+    wco.v = [mpos[0] - wpos[0], mpos[1] - wpos[1], mpos[2] - wpos[2]];
+    wco.known = true;
+  } else if (mpos) {
+    st.mpos = mpos;
+    st.wpos = [mpos[0] - o[0], mpos[1] - o[1], mpos[2] - o[2]];
   } else if (wpos) {
     st.wpos = wpos;
-    st.mpos = [wpos[0] + wco[0], wpos[1] + wco[1], wpos[2] + wco[2]];
+    st.mpos = [wpos[0] + o[0], wpos[1] + o[1], wpos[2] + o[2]];
   }
   return st;
 }
@@ -117,7 +128,7 @@ class Machine {
   jobStarted = 0;
   /** Laufender Auftrag ist eine Rahmenfahrt (keine Fortschrittsanzeige) */
   jobIsFrame = false;
-  private wco = [0, 0, 0];
+  private wco: WorkOffset = { v: [0, 0, 0], known: false };
   /** Firmware der aktuellen Verbindung */
   fw = FIRMWARES.fluidnc;
   private listeners = new Set<(e: MachineEvent) => void>();
@@ -177,6 +188,7 @@ class Machine {
     const m114 = /^X:(-?[\d.]+)\s*Y:(-?[\d.]+)(?:\s*Z:(-?[\d.]+))?/.exec(line);
     if (m114) {
       const p: [number, number, number] = [+m114[1], +m114[2], +(m114[3] ?? 0)];
+      // M114 meldet Werkstückkoordinaten; einen G92-Versatz verrät Marlin nicht (wco bleibt unbekannt)
       this.status = { ...this.status, mpos: p, wpos: p };
       this.emit({ type: 'status' });
       return;
@@ -199,6 +211,7 @@ class Machine {
     }
     if (this.connected || this.connecting) return;
     this.connecting = true;
+    this.wco = { v: [0, 0, 0], known: false };
     this.emit({ type: 'connection' });
     try {
       await this.listen();
@@ -230,11 +243,18 @@ class Machine {
     await invoke('machine_disconnect');
   }
 
+  /** Werkstück-Nullpunkt (X, Y) in Maschinenkoordinaten, wie ihn die Steuerung zuletzt gemeldet hat; null = unbekannt */
+  workOffset(): { x: number; y: number } | null {
+    return this.connected && this.wco.known ? { x: this.wco.v[0], y: this.wco.v[1] } : null;
+  }
+
   /** Eine Zeile senden (Konsole, Bewegen, Home …). Wird abgelehnt, solange ein Job läuft. */
   async send(line: string) {
     if (!this.connected) return this.log(t('Nicht verbunden.'), 'error');
     const { invoke } = await import('@tauri-apps/api/core');
     this.log(line, 'out');
+    // Nullpunkt oder Koordinatensystem ändert sich: bis zur nächsten Meldung der Steuerung gilt er als unbekannt
+    if (/G\s*(10|92|5[4-9])\b/i.test(line)) this.wco.known = false;
     try {
       await invoke('machine_send', { line });
     } catch (e) {
