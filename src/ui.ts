@@ -3,7 +3,7 @@ import { Editor, Tool } from './editor';
 import { ICONS } from './icons';
 import { DITHER_MODES, DitherMode, ImageAdjust, ImageLayer, ImageShape, Layer, layerLabel, Obj, pageName, PALETTE, SubPath, TextShape } from './model';
 import { exportSvg, importFile, installDropAndPaste, openProject, saveProcessedBitmap, saveProject } from './files';
-import { assetImage, displayCanvas, outputGrid } from './images';
+import { assetImage, displayCanvas, onImageReady, outputGrid } from './images';
 import { systemFonts } from './fonts';
 import { $, evalExpr, f2, h, iconBtn, numInput, sep, setVal } from './dom';
 import { openCircularArrayDialog, openGridArrayDialog } from './arrayDialogs';
@@ -1096,8 +1096,11 @@ function openAdjustDialog(ed: Editor, layer?: number) {
       }, t('Übernehmen')),
     ),
   );
+  // Desktop-App: das Ergebnis kommt nachträglich aus dem Rust-Kern
+  const offReady = onImageReady(drawPreview);
   dlg.addEventListener('close', () => {
     clearTimeout(timer);
+    offReady();
     const newAdj = targets.map((o) => ({ ...(o.shape as ImageShape).adjust }));
     const newLayer = { ...ed.imgLayer(li) };
     // Ausgangszustand herstellen; bei „Übernehmen“ die Änderung als ein Undo-Schritt wieder anwenden

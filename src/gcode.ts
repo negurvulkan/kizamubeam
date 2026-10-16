@@ -4,7 +4,8 @@ import ClipperLib from 'clipper-lib';
 import { apply, Doc, ImageLayer, ImageShape, inv, Layer, visibleLeaves, Mat, mul, normalizeLayer, Obj, Pt, SubPath, TabSettings } from './model';
 import { bezierPt, segments, shapeSubs } from './geom';
 import { loadFont, textToSubs } from './fonts';
-import { outputGrid, processImage } from './images';
+import { nativeScanLines, outputGrid, processImage } from './images';
+import { hasNative, native } from './native';
 import { locale, t, tn } from './i18n';
 
 // ---------- Geräte und Firmware ----------
@@ -623,15 +624,39 @@ function fillLines(polys: Poly[], interval: number, s: number): { y: number; run
   return out;
 }
 
-/** Bildzeilen: Ausgabepunkte des geditherten Bildes je Zeile zu Läufen gleicher Leistung zusammenfassen */
-function imageLines(shape: ImageShape, world: Mat, toOut: Mat, L: ImageLayer): { y: number; runs: Run[] }[] | null {
+/**
+ * Bildzeilen: Ausgabepunkte des geditherten Bildes je Zeile zu Läufen gleicher Leistung zusammenfassen.
+ * In der Desktop-App rechnet das der Rust-Kern (src-tauri/core/src/raster.rs, scan_lines) nach denselben Regeln.
+ */
+async function imageLines(shape: ImageShape, world: Mat, toOut: Mat, L: ImageLayer): Promise<{ y: number; runs: Run[] }[] | null> {
   const { cols, rows } = outputGrid(shape, world, L.interval);
-  const v = processImage(shape, L, cols, rows);
-  if (!v) return null;
   const M = mul(toOut, world); // lokal (mm) → Ausgabe
   const IM = inv(M);
+  const packed = await nativeScanLines(shape, L, cols, rows, M, IM);
+  if (packed) return unpackLines(packed);
+  // Browser (ohne Rust-Kern)
+  const v = processImage(shape, L, cols, rows);
+  return v && scanLines(v, shape.w, shape.h, L, cols, rows, M, IM);
+}
+
+/** Rasterzeilen aus dem Rust-Kern: je Zeile y, Anzahl der Läufe, dann x0, x1, s je Lauf */
+function unpackLines(p: Float64Array): { y: number; runs: Run[] }[] {
+  const out: { y: number; runs: Run[] }[] = [];
+  for (let i = 0; i < p.length; ) {
+    const y = p[i],
+      n = p[i + 1];
+    i += 2;
+    const runs: Run[] = new Array(n);
+    for (let k = 0; k < n; k++, i += 3) runs[k] = [p[i], p[i + 1], p[i + 2]];
+    out.push({ y, runs });
+  }
+  return out;
+}
+
+/** Rasterzeilen aus dem verarbeiteten Bild v (cols × rows) der Größe w × h mm; M: lokal → Ausgabe, IM: Umkehrung */
+export function scanLines(v: Uint8Array | Uint8ClampedArray, w: number, h: number, L: ImageLayer, cols: number, rows: number, M: Mat, IM: Mat): { y: number; runs: Run[] }[] {
   const b = emptyBox();
-  for (const [x, y] of [[0, 0], [shape.w, 0], [shape.w, shape.h], [0, shape.h]]) {
+  for (const [x, y] of [[0, 0], [w, 0], [w, h], [0, h]]) {
     const q = apply(M, x, y);
     addPt(b, q.x, q.y);
   }
@@ -652,8 +677,8 @@ function imageLines(shape: ImageShape, world: Mat, toOut: Mat, L: ImageLayer): {
     for (let k = 0; k < nx; k++) {
       const x = b.x0 + (k + 0.5) * stepX;
       const q = apply(IM, x, y);
-      const c = Math.floor((q.x / shape.w) * cols),
-        r = Math.floor((q.y / shape.h) * rows);
+      const c = Math.floor((q.x / w) * cols),
+        r = Math.floor((q.y / h) * rows);
       let s = 0;
       if (c >= 0 && c < cols && r >= 0 && r < rows) {
         const val = v[r * cols + c];
@@ -776,7 +801,7 @@ export async function buildJob(inp: JobInput): Promise<Job> {
       const IL = inp.imgLayer(li);
       const ov = (IL.overscan / 100) * (IL.speed / 60);
       for (const im of bk.images) {
-        const lines = imageLines(im.shape, im.world, toOut, IL);
+        const lines = await imageLines(im.shape, im.world, toOut, IL);
         if (!lines) {
           warnings.push(t('Bild „{name}“ ist noch nicht geladen und wurde übersprungen.', { name: im.shape.name ?? t('Bild') }));
           continue;
@@ -956,26 +981,38 @@ export interface GCode {
  * und mit M9 ausgeschaltet.
  */
 export function writeGCode(job: Job, d: Device, est: Estimate, name = 'Laserwerk'): GCode {
-  const mv = job.moves;
-  const lines: string[] = [];
-  const times: number[] = [];
-  const head = (l: string) => (lines.push(l), times.push(0));
-  head(`; ${name}`);
-  head(t('; Erzeugt von Laserwerk am {date}', { date: new Date().toLocaleString(locale) }));
-  head(t('; Geschätzte Dauer: {total}', { total: formatDuration(est.total) }));
-  if (job.bounds) head(t('; Bereich: X {x0} … {x1}, Y {y0} … {y1} mm', { x0: num(job.bounds.x0), x1: num(job.bounds.x1), y0: num(job.bounds.y0), y1: num(job.bounds.y1) }));
+  const header = gcodeHeader(job, d, est, name);
+  return gcodeLines(job.moves, d, est, job.air, header);
+}
+
+/** Kopf des G-Codes: Kommentare, Einheiten, absolute Koordinaten, Laser im Lasermodus an */
+function gcodeHeader(job: Job, d: Device, est: Estimate, name: string): string[] {
+  const out: string[] = [];
+  out.push(`; ${name}`);
+  out.push(t('; Erzeugt von Laserwerk am {date}', { date: new Date().toLocaleString(locale) }));
+  out.push(t('; Geschätzte Dauer: {total}', { total: formatDuration(est.total) }));
+  if (job.bounds) out.push(t('; Bereich: X {x0} … {x1}, Y {y0} … {y1} mm', { x0: num(job.bounds.x0), x1: num(job.bounds.x1), y0: num(job.bounds.y0), y1: num(job.bounds.y1) }));
   const fw = FIRMWARES[d.fw];
-  head(t('; Gerät: {name} ({label})', { name: d.name, label: fw.label }));
-  head('G21');
-  head('G90');
-  fw.laserOn.forEach(head);
+  out.push(t('; Gerät: {name} ({label})', { name: d.name, label: fw.label }));
+  out.push('G21', 'G90', ...fw.laserOn);
+  return out;
+}
+
+/**
+ * Bewegungen zu G-Code-Zeilen. Der Rust-Kern (src-tauri/core/src/gcode.rs) schreibt in der Desktop-App
+ * dieselben Zeilen; Änderungen hier müssen dort nachgezogen werden (Vergleichstest: npm run test:core).
+ */
+export function gcodeLines(mv: Moves, d: Device, est: Estimate, airList: number[], header: string[]): GCode {
+  const lines: string[] = [...header];
+  const times: number[] = header.map(() => 0);
+  const fw = FIRMWARES[d.fw];
   let g = -1,
     cx = mv.x0,
     cy = mv.y0,
     cf = -1,
     cs = -1,
     known = false;
-  const airLayers = new Set(job.air);
+  const airLayers = new Set(airList);
   let air = false;
   for (let i = 0; i < mv.n; i++) {
     const x = mv.x[i],
@@ -1019,6 +1056,60 @@ export function writeGCode(job: Job, d: Device, est: Estimate, name = 'Laserwerk
     times.push(est.total);
   }
   return { lines, times: Float64Array.from(times), total: est.total };
+}
+
+/**
+ * G-Code für Start und Speichern. In der Desktop-App schreibt ihn der Rust-Kern und behält die Zeilen
+ * (id), damit Millionen Rasterzeilen nicht als Text durch die Oberfläche müssen; im Browser stehen sie in lines.
+ */
+export interface PreparedGCode {
+  id: number | null;
+  lines: string[] | null;
+  count: number;
+  /** Geschätzte Zeit (s), zu der die Zeile fertig ist */
+  times: Float64Array;
+  total: number;
+}
+
+export async function prepareGCode(job: Job, d: Device, est: Estimate, name = 'Laserwerk'): Promise<PreparedGCode> {
+  const header = gcodeHeader(job, d, est, name);
+  if (hasNative()) {
+    try {
+      const mv = job.moves;
+      const params = JSON.stringify({ x0: mv.x0, y0: mv.y0, sMax: d.sMax, air: job.air, airCmd: d.airCmd || 'M8', header, footer: FIRMWARES[d.fw].footer, total: est.total });
+      const buf = await native<ArrayBuffer>('gcode_prepare', packMoves(mv, est.t, params));
+      const head = new Uint32Array(buf, 0, 2);
+      return { id: head[0], lines: null, count: head[1], times: new Float64Array(buf, 8), total: est.total };
+    } catch {
+      /* ältere Desktop-App ohne Rust-Kern: weiter in TypeScript */
+    }
+  }
+  const g = gcodeLines(job.moves, d, est, job.air, header);
+  return { id: null, lines: g.lines, count: g.lines.length, times: g.times, total: g.total };
+}
+
+/** Bewegungen für den Rust-Kern: u32 n, u32 JSON-Länge, JSON, Auffüllung auf 8 Byte, x, y, t (f64), f, s (f32), layer (i16) */
+export function packMoves(mv: Moves, t: Float64Array, params: string): Uint8Array {
+  const json = new TextEncoder().encode(params);
+  const n = mv.n;
+  const start = Math.ceil((8 + json.length) / 8) * 8;
+  const buf = new ArrayBuffer(start + n * (8 * 3 + 4 * 2 + 2));
+  const head = new DataView(buf);
+  head.setUint32(0, n, true);
+  head.setUint32(4, json.length, true);
+  new Uint8Array(buf, 8, json.length).set(json);
+  let off = start;
+  const put = <T extends Float64Array | Float32Array | Int16Array>(Ctor: new (b: ArrayBuffer, o: number, l: number) => T, src: T) => {
+    new Ctor(buf, off, n).set(src.subarray(0, n) as never);
+    off += n * (src.BYTES_PER_ELEMENT as number);
+  };
+  put(Float64Array, mv.x);
+  put(Float64Array, mv.y);
+  put(Float64Array, t);
+  put(Float32Array, mv.f);
+  put(Float32Array, mv.s);
+  put(Int16Array, mv.layer);
+  return new Uint8Array(buf);
 }
 
 // ---------- Rahmen ----------

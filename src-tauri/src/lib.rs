@@ -1,5 +1,6 @@
 pub mod agent;
 mod machine;
+mod native;
 mod stream;
 
 use std::sync::OnceLock;
@@ -175,6 +176,7 @@ pub fn run() {
         })
         .manage(machine::Machine::default())
         .manage(agent::Agent::default())
+        .manage(std::sync::Arc::new(native::Native::default()))
         .setup(|app| {
             use tauri::Manager;
             agent::start(app.handle(), &app.state::<agent::Agent>());
@@ -194,6 +196,12 @@ pub fn run() {
             machine::machine_send,
             machine::machine_realtime,
             machine::machine_job,
+            machine::machine_job_prepared,
+            native::image_register,
+            native::image_process,
+            native::image_scan,
+            native::gcode_prepare,
+            native::gcode_save,
             machine::machine_pause,
             machine::machine_resume,
             machine::machine_stop,

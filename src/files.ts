@@ -243,6 +243,6 @@ async function saveDataUrl(name: string, filterName: string, ext: string, dataUr
 export async function saveProcessedBitmap(ed: Editor) {
   const o = ed.selImages()[0];
   if (!o || o.shape.kind !== 'image') return;
-  const url = processedPng(o.shape, o.m, ed.imgLayer(o.layer));
+  const url = await processedPng(o.shape, o.m, ed.imgLayer(o.layer));
   if (url) await saveDataUrl(t('bild-bearbeitet.png'), 'PNG', 'png', url);
 }

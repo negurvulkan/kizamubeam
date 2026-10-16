@@ -1,7 +1,8 @@
 // Rasterbilder: Asset-Speicher (Bilddaten außerhalb von Undo und Dokument-JSON),
 // Bildverarbeitung (Helligkeit, Kontrast, Gamma, Schärfen, Negativ, Dithering) und Zwischenspeicher der Ergebnisse.
-import { DitherMode, ImageAdjust, ImageLayer, ImageShape, Mat } from './model';
+import { DEFAULT_ADJUST, defaultImageLayer, DitherMode, ImageAdjust, ImageLayer, ImageShape, Mat } from './model';
 import { t } from './i18n';
+import { hasNative, native } from './native';
 
 // ---------- Asset-Speicher ----------
 
@@ -12,14 +13,17 @@ interface Asset {
   gray: Float32Array | null;
   w: number;
   h: number;
+  /** Graustufen liegen auch im Rust-Kern (Desktop-App); false = nicht dort, dann rechnet TypeScript */
+  native: Promise<boolean>;
 }
 
 const assets = new Map<string, Asset>();
 const listeners = new Set<() => void>();
 
-/** Wird aufgerufen, sobald ein Bild dekodiert ist oder ein Ergebnis neu berechnet wurde. */
-export function onImageReady(cb: () => void) {
+/** Wird aufgerufen, sobald ein Bild dekodiert ist oder ein Ergebnis neu berechnet wurde. Liefert die Abmeldung. */
+export function onImageReady(cb: () => void): () => void {
   listeners.add(cb);
+  return () => listeners.delete(cb);
 }
 const notify = () => listeners.forEach((f) => f());
 
@@ -39,7 +43,9 @@ export async function addAsset(dataUrl: string): Promise<{ id: string; w: number
   const ex = assets.get(id);
   if (ex?.img) return { id, w: ex.w, h: ex.h };
   const img = await decode(dataUrl);
-  assets.set(id, { dataUrl, img, gray: null, w: img.naturalWidth, h: img.naturalHeight });
+  const a: Asset = { dataUrl, img, gray: null, w: img.naturalWidth, h: img.naturalHeight, native: Promise.resolve(false) };
+  a.native = toNative(id, a);
+  assets.set(id, a);
   persist(id, dataUrl);
   return { id, w: img.naturalWidth, h: img.naturalHeight };
 }
@@ -47,19 +53,39 @@ export async function addAsset(dataUrl: string): Promise<{ id: string; w: number
 /** Bekannte Asset-ID mit Daten (z. B. aus einer Projektdatei) eintragen; dekodiert im Hintergrund. */
 export function registerAsset(id: string, dataUrl: string) {
   if (assets.get(id)?.img) return;
-  const a: Asset = { dataUrl, img: null, gray: null, w: 0, h: 0 };
+  const a: Asset = { dataUrl, img: null, gray: null, w: 0, h: 0, native: Promise.resolve(false) };
   assets.set(id, a);
   persist(id, dataUrl);
-  decode(dataUrl)
-    .then((img) => {
-      a.img = img;
-      a.w = img.naturalWidth;
-      a.h = img.naturalHeight;
-      notify();
-    })
-    .catch(() => {
-      /* defektes Bild: bleibt als Platzhalter */
-    });
+  const decoded = decode(dataUrl).then((img) => {
+    a.img = img;
+    a.w = img.naturalWidth;
+    a.h = img.naturalHeight;
+  });
+  a.native = decoded.then(
+    () => toNative(id, a),
+    () => false,
+  );
+  decoded.then(notify, () => {
+    /* defektes Bild: bleibt als Platzhalter */
+  });
+}
+
+/**
+ * Graustufen an den Rust-Kern geben. Dekodiert hat die Webansicht (wie bisher, mit Farbprofil und Drehung),
+ * damit Desktop-App und Browser aus derselben Datei dieselben Punkte lasern.
+ */
+async function toNative(id: string, a: Asset): Promise<boolean> {
+  if (!hasNative()) return false;
+  const g = sourceGray(a);
+  if (!g) return false;
+  try {
+    await native('image_register', new Uint8Array(g.buffer, g.byteOffset, g.byteLength), { headers: { 'x-asset': id, 'x-size': `${a.w}x${a.h}` } });
+    // Die Kopie hier braucht nur noch das Nachzeichnen, sourceGray berechnet sie dann neu
+    a.gray = null;
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function decode(src: string): Promise<HTMLImageElement> {
@@ -143,7 +169,7 @@ function sourceGray(a: Asset): Float32Array | null {
 }
 
 /** Graustufen auf cols × rows bringen (Flächenmittel beim Verkleinern, bilinear beim Vergrößern). */
-function resample(src: Float32Array, sw: number, sh: number, cols: number, rows: number): Float32Array {
+export function resample(src: Float32Array, sw: number, sh: number, cols: number, rows: number): Float32Array {
   const out = new Float32Array(cols * rows);
   const fx = sw / cols,
     fy = sh / rows;
@@ -362,6 +388,49 @@ export function processImage(s: ImageShape, L: ImageLayer, cols: number, rows: n
   return dither(g, cols, rows, { mode: L.dither, threshold: L.threshold, cellPx, angle: L.angle });
 }
 
+/** Einstellungen für den Rust-Kern; fehlende Felder (ältere Dateien) mit den Standardwerten */
+const nativeLayer = (L: ImageLayer) => {
+  const d = { ...defaultImageLayer(), ...L };
+  return { power: d.power, minPower: d.minPower, interval: d.interval, dither: d.dither, negative: d.negative, cells: d.cells, angle: d.angle, threshold: d.threshold };
+};
+const nativeAdjust = (s: ImageShape) => ({ ...DEFAULT_ADJUST, ...s.adjust });
+
+/** Liegen die Graustufen des Bildes im Rust-Kern? (Desktop-App; sonst rechnet TypeScript) */
+async function nativeAsset(s: ImageShape): Promise<boolean> {
+  const a = assets.get(s.asset);
+  return !!a && (await a.native);
+}
+
+/**
+ * Wie processImage, aber in der Desktop-App im Rust-Kern (mehrere Kerne, blockiert die Oberfläche nicht).
+ * Ist das Bild dort nicht lesbar, rechnet TypeScript.
+ */
+export async function processImageAsync(s: ImageShape, L: ImageLayer, cols: number, rows: number): Promise<Uint8Array | Uint8ClampedArray | null> {
+  if (await nativeAsset(s)) {
+    try {
+      const buf = await native<ArrayBuffer>('image_process', { id: s.asset, cols, rows, adjust: nativeAdjust(s), layer: nativeLayer(L) });
+      return new Uint8Array(buf);
+    } catch {
+      /* Rust-Kern nicht erreichbar: weiter in TypeScript */
+    }
+  }
+  return processImage(s, L, cols, rows);
+}
+
+/**
+ * Rasterzeilen eines Bildes aus dem Rust-Kern: je Zeile y, Anzahl der Läufe, dann x0, x1, Leistung je Lauf.
+ * m bildet lokale mm des Bildes auf Ausgabekoordinaten ab, im ist die Umkehrung. null = im Rust-Kern nicht möglich.
+ */
+export async function nativeScanLines(s: ImageShape, L: ImageLayer, cols: number, rows: number, m: Mat, im: Mat): Promise<Float64Array | null> {
+  if (!(await nativeAsset(s))) return null;
+  try {
+    const buf = await native<ArrayBuffer>('image_scan', { id: s.asset, cols, rows, adjust: nativeAdjust(s), layer: nativeLayer(L), w: s.w, h: s.h, m, im });
+    return new Float64Array(buf);
+  } catch {
+    return null;
+  }
+}
+
 /** Graustufen nach den Anpassungen (ohne Dithering), z. B. zum Nachzeichnen. */
 export function adjustedGray(s: ImageShape, cols: number, rows: number, negative = false): Float32Array | null {
   const a = assets.get(s.asset);
@@ -378,7 +447,7 @@ export function sourceSize(id: string): { w: number; h: number } | null {
   return a?.img ? { w: a.w, h: a.h } : null;
 }
 
-function toCanvas(v: Uint8ClampedArray, w: number, h: number): HTMLCanvasElement {
+function toCanvas(v: Uint8Array | Uint8ClampedArray, w: number, h: number): HTMLCanvasElement {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
@@ -397,7 +466,7 @@ function toCanvas(v: Uint8ClampedArray, w: number, h: number): HTMLCanvasElement
 
 interface Cached {
   key: string;
-  canvas: HTMLCanvasElement;
+  canvas: HTMLCanvasElement | null;
   pending: string | null;
 }
 const results = new WeakMap<ImageShape, Cached>();
@@ -419,6 +488,7 @@ export function displayCanvas(s: ImageShape, m: Mat, L: ImageLayer, immediate = 
   const key = resultKey(s, L, cols, rows);
   const c = results.get(s);
   if (c && c.key === key) return c.canvas;
+  if (hasNative()) return nativeDisplay(s, L, cols, rows, key, c, immediate);
   const compute = () => {
     const v = processImage(s, L, cols, rows);
     if (!v) return;
@@ -442,10 +512,54 @@ export function displayCanvas(s: ImageShape, m: Mat, L: ImageLayer, immediate = 
   return c.canvas;
 }
 
+/**
+ * Desktop-App: Ergebnis im Rust-Kern rechnen lassen. Bis es da ist, bleibt das alte Ergebnis (gestreckt) stehen;
+ * danach zeichnen alle, die sich mit onImageReady angemeldet haben, neu. Während einer Rechnung wartet höchstens
+ * ein neuer Auftrag je Bild, Zwischenstände beim Ziehen werden übersprungen.
+ */
+function nativeDisplay(s: ImageShape, L: ImageLayer, cols: number, rows: number, key: string, c: Cached | undefined, immediate: boolean) {
+  let entry = c;
+  if (!entry) results.set(s, (entry = { key: '', canvas: null, pending: null }));
+  if (entry.pending === key) return entry.canvas;
+  const e = entry;
+  const run = () => {
+    if (e.pending !== key) return;
+    if (running.has(s)) return void waiting.set(s, run);
+    running.add(s);
+    processImageAsync(s, L, cols, rows)
+      .then((v) => {
+        // auch ohne Ergebnis als erledigt merken, sonst würde jedes Neuzeichnen es erneut versuchen
+        e.key = key;
+        if (v) e.canvas = toCanvas(v, cols, rows);
+      })
+      .catch(() => {
+        e.key = key;
+      })
+      .finally(() => {
+        if (e.pending === key) e.pending = null;
+        running.delete(s);
+        const next = waiting.get(s);
+        waiting.delete(s);
+        if (next) next();
+        notify();
+      });
+  };
+  e.pending = key;
+  if (!e.canvas || immediate) run();
+  else {
+    clearTimeout(nativeTimers.get(s));
+    nativeTimers.set(s, window.setTimeout(run, 120));
+  }
+  return e.canvas;
+}
+const running = new WeakSet<ImageShape>();
+const waiting = new WeakMap<ImageShape, () => void>();
+const nativeTimers = new WeakMap<ImageShape, number>();
+
 /** Verarbeitetes Bild als PNG-Daten (für „Bearbeitetes Bild speichern“). */
-export function processedPng(s: ImageShape, m: Mat, L: ImageLayer): string | null {
+export async function processedPng(s: ImageShape, m: Mat, L: ImageLayer): Promise<string | null> {
   const { cols, rows } = outputGrid(s, m, L.interval);
-  const v = processImage(s, L, cols, rows);
+  const v = await processImageAsync(s, L, cols, rows);
   return v ? toCanvas(v, cols, rows).toDataURL('image/png') : null;
 }
 

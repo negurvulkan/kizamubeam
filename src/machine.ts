@@ -1,6 +1,6 @@
 // Verbindung zur Maschine (FluidNC/GRBL). Die eigentliche Kommunikation läuft im Rust-Kern (src-tauri/src/machine.rs);
 // hier liegen Zustand, Statusauswertung und die Befehle für die Oberfläche.
-import { Device, FIRMWARES } from './gcode';
+import { Device, FIRMWARES, PreparedGCode } from './gcode';
 import { t, tBackend } from './i18n';
 
 export const isTauri = () => '__TAURI_INTERNALS__' in window;
@@ -248,17 +248,25 @@ class Machine {
     await invoke('machine_realtime', { byte });
   }
 
+  /** Auftrag senden: fertige Zeilen oder G-Code, den der Rust-Kern schon vorbereitet hat (prepareGCode) */
   async runJob(lines: string[], times: Float64Array | null, frame = false) {
+    return this.startJob(lines.length, times, frame, { cmd: 'machine_job', args: { lines } });
+  }
+  async runPrepared(g: PreparedGCode) {
+    if (g.lines) return this.runJob(g.lines, g.times);
+    return this.startJob(g.count, g.times, false, { cmd: 'machine_job_prepared', args: { id: g.id } });
+  }
+  private async startJob(total: number, times: Float64Array | null, frame: boolean, call: { cmd: string; args: Record<string, unknown> }) {
     if (!this.connected) return this.log(t('Nicht verbunden.'), 'error');
     if (this.busy) return this.log(t('Es läuft bereits ein Auftrag.'), 'error');
     const { invoke } = await import('@tauri-apps/api/core');
     this.jobTimes = times;
     this.jobIsFrame = frame;
     this.jobStarted = performance.now();
-    this.progress = { sent: 0, acked: 0, total: lines.length, errors: 0 };
+    this.progress = { sent: 0, acked: 0, total, errors: 0 };
     this.emit({ type: 'progress' });
     try {
-      await invoke('machine_job', { lines });
+      await invoke(call.cmd, call.args);
     } catch (e) {
       this.progress = null;
       this.jobTimes = null;

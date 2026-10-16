@@ -5,7 +5,7 @@
 // Anhalten und Stoppen gehen immer. Jede Maschinenaktion landet zusätzlich in einer Protokolldatei.
 import type { Editor } from './editor';
 import { h } from './dom';
-import { estimate, formatDuration, frameGCode, FIRMWARES, Job, writeGCode } from './gcode';
+import { estimate, formatDuration, frameGCode, FIRMWARES, Job, prepareGCode, writeGCode } from './gcode';
 import { isTauri, machine } from './machine';
 import { device, laserNotify, makeJob, runBlocker } from './laser';
 import { layerLabel, Pt } from './model';
@@ -493,10 +493,10 @@ export const MACHINE_TOOLS: ToolDef[] = [
       if (s.outside) throw new ToolError(s.outside);
       if (s.problems.length) throw new ToolError(`Außerhalb der Grenzen für Agenten-Jobs (nur die Person kann sie in den Geräteeinstellungen ändern):\n${s.problems.join('\n')}`);
       // Genau dieser Stand läuft nach der Bestätigung, auch wenn das Dokument danach geändert wird
-      const g = writeGCode(job, device, s.est);
+      const g = await prepareGCode(job, device, s.est);
       const d = s.data;
       const area = `X ${d.area.x} … ${r3(d.area.x + d.area.w)}, Y ${d.area.y} … ${r3(d.area.y + d.area.h)} mm`;
-      const r = ask('job', `${formatDuration(s.est.total)}, ${area}, ${g.lines.length} Zeilen`, {
+      const r = ask('job', `${formatDuration(s.est.total)}, ${area}, ${g.count} Zeilen`, {
         title: t('KI-Agent möchte einen Job starten'),
         content: [
           jobCanvas(ed, job),
@@ -518,7 +518,7 @@ export const MACHINE_TOOLS: ToolDef[] = [
           const why = runBlocker();
           if (why) return why;
           laserNotify(t('Job gestartet (von einem KI-Agenten angefordert), geschätzt {total}.', { total: formatDuration(s.est.total) }));
-          await machine.runJob(g.lines, g.times);
+          await machine.runPrepared(g);
           return machine.busy ? null : t('Start fehlgeschlagen, Details in der Konsole.');
         },
       });

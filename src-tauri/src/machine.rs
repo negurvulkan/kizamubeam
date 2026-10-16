@@ -160,6 +160,16 @@ pub async fn machine_job(state: State<'_, Machine>, lines: Vec<String>) -> Resul
     state.send(Cmd::Job(lines))
 }
 
+/// Job mit G-Code, den der Rust-Kern schon vorbereitet hat (native::gcode_prepare)
+#[tauri::command]
+pub async fn machine_job_prepared(state: State<'_, Machine>, native: State<'_, Arc<crate::native::Native>>, id: u32) -> Result<(), String> {
+    if state.busy.load(Ordering::SeqCst) {
+        return Err("Es läuft bereits ein Job.".into());
+    }
+    let lines = native.gcode(id)?;
+    state.send(Cmd::Job(lines.as_ref().clone()))
+}
+
 #[tauri::command]
 pub async fn machine_pause(state: State<'_, Machine>) -> Result<(), String> {
     state.send(Cmd::Pause)

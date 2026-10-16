@@ -262,6 +262,7 @@
   "Keine Schnittstelle gewählt": "No port selected",
   "Während ein Job läuft, sind keine Befehle möglich.": "No commands possible while a job is running.",
   "Es läuft bereits ein Job.": "A job is already running.",
+  "G-Code nicht mehr vorhanden, bitte den Job erneut starten.": "G-code is no longer available, please start the job again.",
   "Die Gegenstelle hat die Verbindung beendet.": "The other side closed the connection.",
   "Die Steuerung wurde neu gestartet": "The controller was restarted",
   "Alarm, Job abgebrochen": "Alarm, job aborted",
