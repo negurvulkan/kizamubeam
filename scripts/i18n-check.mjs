@@ -9,7 +9,8 @@ const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
 const srcDir = path.join(root, 'src');
 const keys = new Map(); // Text → erste Fundstelle
 
-for (const f of fs.readdirSync(srcDir).filter((f) => f.endsWith('.ts'))) {
+// auch Unterordner (z. B. src/editor/); Pfade mit / wie in den Meldungen
+for (const f of fs.readdirSync(srcDir, { recursive: true }).map((f) => f.split(path.sep).join('/')).filter((f) => f.endsWith('.ts')).sort()) {
   const file = path.join(srcDir, f);
   const text = fs.readFileSync(file, 'utf8');
   const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);

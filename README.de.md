@@ -108,7 +108,8 @@ Texte stehen im Code auf Deutsch in `t('…')` (Platzhalter in geschweiften Klam
 |---|---|
 | `src/model.ts` | Datenmodell: Dokument, Objekte, Layer, Matrizen, Palette |
 | `src/geom.ts` | Formen als Bézierpfade, Begrenzungsrahmen, Text-Layout, Treffertest, SVG-Pfade |
-| `src/editor.ts` | Arbeitsfläche: Zeichnen, Werkzeuge, Auswahl, Transformieren, Knoten, Befehle, Undo |
+| `src/editor.ts` | Editor-Klasse: Zustand, Ansicht, Auswahl, Werkzeugwahl; bindet die Teile darunter ein |
+| `src/editor/*.ts` | Teile des Editors: `document` (Undo, Autosave, Seiten), `pointer` (Mauseingaben), `keyboard`, `snapping` (Fangen), `nodes` (Knoten), `paths` (Pfad-Werkzeuge), `shapeops` (Umwandeln, Boolesche Operationen, Offset, Arrays), `joints`, `hinges`, `commands`, `objects`, `text` (QR, variabler Text, Text auf Pfad), `imageops` (Bilder, Import, Nachzeichnen), `render` (Zeichnen der Arbeitsfläche) |
 | `src/ui.ts` | Menü, Aktionen der Funktionsleisten, Eigenschaftenleiste, Layer-Fenster, Palette, Statusleiste, Texteingabe |
 | `src/dock.ts` | Andockbare Fenster: Reiter, Gruppen, freie Fenster, Größe, Ein-/Ausblenden, gespeicherte Anordnung |
 | `src/toolbars.ts` | Anpassbare Funktionsleisten: Aktionen, Belegung, Symbolgröße, Anpassen-Dialog, Leisten ein-/ausblenden |

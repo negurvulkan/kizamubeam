@@ -108,7 +108,8 @@ UI texts are written in German in the code inside `t('…')` (placeholders in cu
 |---|---|
 | `src/model.ts` | Data model: document, objects, layers, matrices, palette |
 | `src/geom.ts` | Shapes as Bézier paths, bounding boxes, text layout, hit testing, SVG paths |
-| `src/editor.ts` | Workspace: drawing, tools, selection, transforms, nodes, commands, undo |
+| `src/editor.ts` | Editor class: state, view, selection, tool choice; pulls in the parts below |
+| `src/editor/*.ts` | Editor parts: `document` (undo, autosave, pages), `pointer` (mouse input), `keyboard`, `snapping`, `nodes`, `paths` (path tools), `shapeops` (convert, booleans, offset, arrays), `joints`, `hinges`, `commands`, `objects`, `text` (QR, variable text, text on path), `imageops` (images, import, trace), `render` (drawing the workspace) |
 | `src/ui.ts` | Menu, toolbar actions, numeric edits toolbar, layer window, palette, status bar, text input |
 | `src/dock.ts` | Dockable windows: tabs, groups, floating windows, sizing, show/hide, saved layout |
 | `src/toolbars.ts` | Customizable toolbars: actions, contents, icon size, customize dialog, show/hide bars |
