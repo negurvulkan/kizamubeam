@@ -176,6 +176,8 @@ function buildMenu(ed: Editor) {
       [t('Schnittmenge'), '', () => ed.booleanSel('intersect')],
       [t('Boolesche Optionen …'), '', () => openBooleanDialog(ed)],
       [t('Offset …'), 'Alt+O', () => openOffsetDialog(ed)],
+      [t('Text auf Pfad'), '', () => ed.applyPathToText()],
+      [t('Text vom Pfad lösen'), '', () => ed.removePathFromText()],
       [t('Rasterarray …'), 'Ctrl+Shift+A', () => openGridArrayDialog(ed)],
       [t('Kreisarray …'), '', () => openCircularArrayDialog(ed)],
       [t('Verbindungen (Zinken, Zapfen, Keil, T-Slot) …'), '', () => ed.setTool('joint')],
@@ -492,11 +494,23 @@ function buildNumbar(ed: Editor) {
     b.dataset.align = a;
     return b;
   });
+  const bWeld = h('button', { class: 'toggle', title: t('Buchstaben schweißen: überlappende Zeichen zu einer Kontur verschmelzen') }, t('Schweißen'));
+  bWeld.addEventListener('click', () => ed.updateTexts({ weld: !bWeld.classList.contains('on') }));
+  // Text auf Pfad
+  const bOnPath = h('button', { class: 'toggle', title: t('Text folgt der gewählten Form (Text und eine Form auswählen)') }, t('Auf Pfad'));
+  bOnPath.addEventListener('click', () => ed.applyPathToText());
+  const fPOff = numInput('small', (v) => ed.updateTextPath({ offset: v }), t('Verschiebung entlang der Kurve (mm)'));
+  const fPDist = numInput('small', (v) => ed.updateTextPath({ dist: v }), t('Abstand der Grundlinie zur Kurve (mm)'));
+  const bPFlip = h('button', { class: 'toggle', title: t('Text auf die andere Seite der Kurve legen') }, t('Seite|Text auf Pfad'));
+  bPFlip.addEventListener('click', () => ed.updateTextPath({ flip: !bPFlip.classList.contains('on') }));
+  const bPOff = h('button', { class: 'toggle', title: t('Text wieder gerade setzen') }, t('Lösen'));
+  bPOff.addEventListener('click', () => ed.removePathFromText());
+  const pathProps = h('span', { class: 'field' }, h('label', {}, t('Versatz'), fPOff), h('label', {}, t('Abstand|Text auf Pfad'), fPDist), bPFlip, bPOff);
   const textProps = h(
     'div',
     { class: 'field' },
     h('label', {}, t('Schrift'), fontSel), h('label', {}, t('Höhe'), fSize),
-    h('label', {}, t('Abst. H'), fHs), h('label', {}, 'V', fVs), ...alignBtns, bBold, bItal, bUp,
+    h('label', {}, t('Abst. H'), fHs), h('label', {}, 'V', fVs), ...alignBtns, bBold, bItal, bUp, bWeld, bOnPath, pathProps,
   );
 
   // Knotenbearbeitung
@@ -577,6 +591,15 @@ function buildNumbar(ed: Editor) {
     bItal.classList.toggle('on', tx.italic);
     bUp.classList.toggle('on', tx.upper);
     alignBtns.forEach((b) => b.classList.toggle('on', b.dataset.align === tx.align));
+    bWeld.classList.toggle('on', !!tx.weld);
+    bOnPath.hidden = !ed.canApplyPathToText();
+    const tp = ts.length ? (ts[0].shape as TextShape).path : undefined;
+    pathProps.hidden = !tp;
+    if (tp) {
+      setVal(fPOff, f2(tp.offset));
+      setVal(fPDist, f2(tp.dist));
+      bPFlip.classList.toggle('on', tp.flip);
+    }
   };
   ed.on((w) => w !== 'view' && refresh());
   refresh();

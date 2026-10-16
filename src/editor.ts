@@ -1,9 +1,10 @@
 // Editor: Zustand, Zeichnen auf der Arbeitsfläche, Werkzeuge und Befehle.
 import {
-  about, allObjs, apply, bumpIds, clone, cloneObj, DEFAULT_ADJUST, defaultImageLayer, defaultLayer, Doc, normalizeLayer, IDENT, loadDoc, pageName, ImageAdjust, ImageLayer,
+  about, allObjs, apply, bumpIds, clone, cloneObjs, DEFAULT_ADJUST, defaultImageLayer, defaultLayer, Doc, normalizeLayer, IDENT, loadDoc, pageName, ImageAdjust, ImageLayer,
   ImageShape, inv, Layer, leaves, Mat, mul, newDoc, newId, Node, Obj, PALETTE, Pt, rotate, scale, setLayerDeep, Shape, SubPath,
-  TextShape, translate, visibleLeaves, homeLayer,
+  TextPath, TextShape, translate, visibleLeaves, homeLayer,
 } from './model';
+import { ArcLength } from './textpath';
 import { addAsset, adjustedGray, assetUrl, displayCanvas, onImageReady, registerAsset, restoreAssets, sourceSize } from './images';
 import { ImportResult, transformSubs } from './importers';
 import { traceGray, TraceOptions } from './trace';
@@ -85,6 +86,13 @@ const SNAP_PX_ALT = 20;
 /** Werkzeug-Layer T1: Hilfslinien liegen dort und werden nie gelasert */
 const GUIDE_LAYER = 30;
 type Mods = { altKey: boolean; ctrlKey: boolean; metaKey: boolean };
+
+/** Längste Kontur einer Form (z. B. die äußere bei mehreren) als Kurve für Text auf Pfad */
+function linkCurve(s: Shape): SubPath | null {
+  const subs = shapeSubs(s).filter((sp) => sp.nodes.length > 1);
+  if (!subs.length) return null;
+  return clone(subs.reduce((a, b) => (new ArcLength(b).length > new ArcLength(a).length ? b : a)));
+}
 
 export class Editor {
   doc: Doc = newDoc();
@@ -171,6 +179,7 @@ export class Editor {
     const loop = () => {
       if (this.dirty) {
         this.dirty = false;
+        this.syncTextLinks();
         this.render();
       }
       requestAnimationFrame(loop);
@@ -184,6 +193,7 @@ export class Editor {
   emit(what: 'doc' | 'sel' | 'view' | 'tool') {
     this.dirty = true;
     if (what !== 'view') this.snapVer++;
+    if (what === 'doc') this.syncTextLinks();
     this.listeners.forEach((f) => f(what));
     if (what === 'doc') this.scheduleSave();
   }
@@ -383,7 +393,7 @@ export class Editor {
     const src = this.doc.pages[i];
     if (!src) return -1;
     this.snapshot();
-    this.doc.pages.splice(i + 1, 0, { name: t('{name} (Kopie)', { name: src.name }), objs: src.objs.map(cloneObj) });
+    this.doc.pages.splice(i + 1, 0, { name: t('{name} (Kopie)', { name: src.name }), objs: cloneObjs(src.objs) });
     this.clearPageState();
     this.doc.page = i + 1;
     this.emit('doc');
@@ -1678,11 +1688,10 @@ export class Editor {
     const originals = this.doc.objs.filter((o) => this.sel.includes(o));
     const copies: Obj[] = [];
     for (const M of mats.slice(1)) {
-      for (const o of originals) {
-        const c = cloneObj(o);
-        c.m = mul(M, o.m);
+      cloneObjs(originals).forEach((c, i) => {
+        c.m = mul(M, originals[i].m);
         copies.push(c);
-      }
+      });
     }
     const all = [...originals, ...copies];
     if (asGroup) {
@@ -1989,8 +1998,7 @@ export class Editor {
   paste(offset = 5) {
     if (!this.clipboard.length) return;
     this.snapshot();
-    const objs = this.clipboard.map((o) => {
-      const c = cloneObj(o);
+    const objs = cloneObjs(this.clipboard).map((c) => {
       c.m = mul(translate(offset, offset), c.m);
       return c;
     });
@@ -2002,7 +2010,7 @@ export class Editor {
   duplicate() {
     if (!this.sel.length) return;
     this.snapshot();
-    const objs = this.sel.map(cloneObj);
+    const objs = cloneObjs(this.sel);
     this.doc.objs.push(...objs);
     this.setSel(objs);
     this.emit('doc');
@@ -2209,7 +2217,7 @@ export class Editor {
     return this.sel.filter((o) => o.shape.kind === 'text');
   }
   updateTexts(patch: Partial<TextShape>) {
-    Object.assign(this.textDefaults, Object.fromEntries(Object.entries(patch).filter(([k]) => k !== 'text')));
+    Object.assign(this.textDefaults, Object.fromEntries(Object.entries(patch).filter(([k]) => k !== 'text' && k !== 'path')));
     const ts = this.selTexts();
     if (!ts.length) return;
     this.snapshot();
@@ -2217,6 +2225,117 @@ export class Editor {
       Object.assign(o.shape, patch);
       this.touch(o.shape);
     });
+    this.emit('doc');
+    this.emit('sel');
+  }
+  /** Formen, die als Kurve für Text auf Pfad taugen */
+  private pathCandidates(): Obj[] {
+    return this.sel.filter((o) => ['path', 'rect', 'ellipse', 'polygon'].includes(o.shape.kind));
+  }
+  /** Ist „Text auf Pfad“ möglich? Genau ein Text und eine Form ausgewählt. */
+  canApplyPathToText() {
+    return this.selTexts().length === 1 && this.pathCandidates().length === 1;
+  }
+  /**
+   * Text auf Pfad (wie „Apply Path to Text“ in LightBurn): Der gewählte Text folgt der gewählten Form.
+   * Der Text übernimmt eine Kopie der Kurve; die Form bleibt als eigenes Objekt erhalten.
+   * Erneut anwenden ersetzt die Kurve und behält Verschiebung, Abstand und Seite.
+   */
+  applyPathToText(): boolean {
+    const texts = this.selTexts(),
+      shapes = this.pathCandidates();
+    if (texts.length !== 1 || shapes.length !== 1) {
+      this.hint = t('Für Text auf Pfad genau einen Text und eine Form (Linie, Rechteck, Ellipse, Polygon) auswählen.');
+      this.emit('tool');
+      return false;
+    }
+    const to = texts[0],
+      po = shapes[0];
+    const ts = to.shape as TextShape;
+    const det = to.m[0] * to.m[3] - to.m[1] * to.m[2];
+    const sub = linkCurve(po.shape);
+    if (!sub || Math.abs(det) < 1e-12) return false;
+    this.snapshot();
+    // Drehung des Texts verwerfen (die Glyphen folgen ohnehin der Kurve), Größe und Spiegelung bleiben.
+    // So liegt „oben“ bei geschlossenen Formen auch oben auf der Arbeitsfläche.
+    const sx = Math.hypot(to.m[0], to.m[1]),
+      sy = Math.sign(det) * Math.hypot(to.m[2], to.m[3]);
+    to.m = [sx, 0, 0, sy, to.m[4], to.m[5]];
+    const local = transformSubs([sub], mul(inv(to.m), po.m))[0];
+    ts.path = {
+      sub: local, offset: ts.path?.offset ?? 0, dist: ts.path?.dist ?? 0, flip: ts.path?.flip ?? false,
+      link: po.id, textM: [...to.m] as Mat, linkM: [...po.m] as Mat,
+    };
+    this.touch(ts);
+    this.setSel([to]);
+    this.hint = t('Text folgt jetzt der Form, auch wenn sie später verschoben oder bearbeitet wird. Die Form wird mitgelasert, außer auf einem Werkzeuglayer (T1/T2) oder ausgeblendet.');
+    this.emit('doc');
+    return true;
+  }
+  /**
+   * Verknüpfte Texte auf Pfad mit ihrer Form abgleichen (läuft vor jedem Zeichnen und nach Änderungen):
+   * Wurde die Form verschoben oder bearbeitet, folgt der Text. Wurde nur der Text verschoben, wandert die Form mit.
+   * Ist die Form gelöscht, behält der Text die letzte Kurve.
+   */
+  private syncTextLinks() {
+    let texts: [TextShape, Mat][] | null = null;
+    const byId = new Map<number, [Obj, Mat]>();
+    for (const [leaf, m] of leaves(this.doc.objs)) {
+      byId.set(leaf.id, [leaf, m]);
+      if (leaf.shape.kind === 'text' && leaf.shape.path?.link !== undefined) (texts ??= []).push([leaf.shape, m]);
+    }
+    if (!texts) return;
+    const same = (a: Mat | undefined, b: Mat) => !!a && a.every((v, i) => Math.abs(v - b[i]) < 1e-9);
+    for (const [ts, tm] of texts) {
+      const tp = ts.path!;
+      const hit = byId.get(tp.link!);
+      if (!hit || !['path', 'rect', 'ellipse', 'polygon'].includes(hit[0].shape.kind)) {
+        delete tp.link;
+        delete tp.textM;
+        delete tp.linkM;
+        continue;
+      }
+      const [lo] = hit;
+      let lm = hit[1];
+      // Nur der Text wurde bewegt: Form mitnehmen (nur bei Objekten der obersten Ebene)
+      if (tp.textM && !same(tp.textM, tm) && same(tp.linkM, lm) && this.doc.objs.includes(lo)) {
+        const d = mul(tm, inv(tp.textM));
+        lo.m = mul(d, lo.m);
+        lm = lo.m;
+        this.touch(lo.shape);
+      }
+      tp.textM = [...tm] as Mat;
+      tp.linkM = [...lm] as Mat;
+      const sub = linkCurve(lo.shape);
+      if (!sub || Math.abs(tm[0] * tm[3] - tm[1] * tm[2]) < 1e-12) continue;
+      const local = transformSubs([sub], mul(inv(tm), lm))[0];
+      if (JSON.stringify(local) !== JSON.stringify(tp.sub)) {
+        tp.sub = local;
+        this.touch(ts);
+      }
+    }
+  }
+  /** Text wieder gerade setzen */
+  removePathFromText() {
+    const ts = this.selTexts().filter((o) => (o.shape as TextShape).path);
+    if (!ts.length) return;
+    this.snapshot();
+    for (const o of ts) {
+      delete (o.shape as TextShape).path;
+      this.touch(o.shape);
+    }
+    this.emit('doc');
+    this.emit('sel');
+  }
+  /** Verschiebung, Abstand oder Seite bei Text auf Pfad ändern */
+  updateTextPath(patch: Partial<Omit<TextPath, 'sub'>>) {
+    const ts = this.selTexts().filter((o) => (o.shape as TextShape).path);
+    if (!ts.length) return;
+    this.snapshot();
+    for (const o of ts) {
+      Object.assign((o.shape as TextShape).path!, patch);
+      this.touch(o.shape);
+    }
     this.emit('doc');
     this.emit('sel');
   }
@@ -2664,6 +2783,18 @@ export class Editor {
       ctx.strokeStyle = ctx.fillStyle = this.layerDrawColor(o.layer);
       ctx.setLineDash(selected ? [5 * px, 3 * px] : []);
       drawText(ctx, t, m, fill ? 'fill' : 'stroke', fill ? px : px * 1.2);
+      if (selected && t.path && t.path.link === undefined) {
+        // Kurve des Texts als Hilfslinie, wenn die Form nicht mehr da ist
+        const g = new Path2D();
+        g.addPath(subsToPath2D([t.path.sub]), new DOMMatrix(m));
+        ctx.save();
+        ctx.setLineDash([2 * px, 3 * px]);
+        ctx.globalAlpha = 0.6;
+        ctx.lineWidth = px;
+        ctx.strokeStyle = this.colors.sel;
+        ctx.stroke(g);
+        ctx.restore();
+      }
       if (selected) {
         ctx.setLineDash([5 * px, 3 * px]);
         ctx.globalAlpha = 0.5;

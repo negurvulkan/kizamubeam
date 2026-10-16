@@ -23,6 +23,8 @@ npm run tauri build    # Installationspaket
 - Bearbeiten: Auswahl per Klick und Rahmen (nach rechts umschließend, nach links kreuzend), Verschieben, Skalieren, Drehen mit der Maus (knapp außerhalb einer Ecke ziehen oder zweiter Klick auf die Auswahl; Drehpunkt verschiebbar, Shift 15°, Ctrl 5°, Esc bricht ab), Zahlenfelder mit 9-Punkt-Anker und Formeln mit Einheiten („100/3“, „2in“), Knotenbearbeitung (Knoten per Klick, Shift+Klick, Rahmen oder Ctrl+A auswählen, gemeinsam ziehen oder mit Pfeiltasten schieben; Entf löschen, L Gerade, C Kurve, E Ecke, S glatt, I einfügen), In Pfad umwandeln, Gruppieren, Spiegeln, Ausrichten, Verteilen, Kopieren, Duplizieren, Rückgängig.
 - Fangen (Statusleiste „Fang“ und „Raster“): an Knoten, Mittelpunkten, Zentren, Schnittpunkten und Linien sowie am Raster mit einstellbarer Weite. Ctrl beim Ziehen kehrt das Fangen um, Alt fängt stärker und zeigt Ausrichtungshilfen an anderen Objekten.
 - Arrays (Werkzeuge → Rasterarray, Ctrl+Shift+A, und Kreisarray) mit Live-Vorschau: Kopien in Spalten und Zeilen mit Abstand oder Mittenabstand, Richtung, Versatz und Spiegeln jeder zweiten Zeile/Spalte, bzw. im Kreis um einen Mittelpunkt. Bézierkurven bleiben exakt erhalten.
+- Text auf Pfad (Werkzeuge → Text auf Pfad oder „Auf Pfad“ in der Textleiste): Text und eine Form wählen, der Text folgt Linie, Kurve, Rechteck, Ellipse oder Polygon. Offene Kurven beginnen je nach Ausrichtung am Anfang, in der Mitte oder am Ende, geschlossene Formen am obersten Punkt. In der Textleiste: Versatz entlang der Kurve, Abstand zur Kurve, Seite wechseln, Lösen. Text und Form bleiben verknüpft wie in LightBurn: Wird die Form verschoben oder bearbeitet, folgt der Text; wird nur der Text verschoben, wandert die Form mit. Die Form wird mitgelasert, außer auf einem Werkzeuglayer (T1/T2) oder ausgeblendet; wird sie gelöscht, behält der Text die letzte Kurve.
+- Buchstaben schweißen („Schweißen“ in der Textleiste): überlappende Zeichen verschmelzen zu einer Kontur, z. B. bei Schreibschrift oder engem Zeichenabstand; gilt für Anzeige, Lasern, Export und Umwandeln.
 - Text in Pfad umwandeln (Ctrl+Shift+C) mit den echten Schriftkonturen: in der Desktop-App aus den installierten Systemschriften, im Browser mit Roboto als Ersatz.
 - Boolesche Operationen: Vereinen, Abziehen, Schnittmenge. Unter „Boolesche Optionen“ wird die Basis gewählt (zuerst gewählte, hinterste oder vorderste Form) und ob die Originale erhalten bleiben; im Menü Werkzeuge gibt es zusätzlich „Vordere vom hinteren abziehen“ und „Hintere vom vorderen abziehen“. Texte und Gruppen werden dabei automatisch als Konturen behandelt.
 - Offset (Alt+O) nach außen, innen oder beides, mit runden, spitzen oder abgeschrägten Ecken und Live-Vorschau. Offene Linien bekommen eine geschlossene Kontur.
@@ -66,7 +68,7 @@ npm run tauri build    # Installationspaket
 
 ## Noch nicht enthalten
 
-Kopfkamera und mehrere Kameras gleichzeitig, Text auf Pfad (Text entlang einer Kurve), Schweißen von Buchstaben, Drehachse (Rotary). Bei Bildern fehlen noch Zuschneiden/Maske, TIFF, die Verfahren Newsprint und Sketch sowie Bild-Presets.
+Kopfkamera und mehrere Kameras gleichzeitig, Drehachse (Rotary). Bei Bildern fehlen noch Zuschneiden/Maske, TIFF, die Verfahren Newsprint und Sketch sowie Bild-Presets.
 
 ## Übersetzungen
 
@@ -87,6 +89,8 @@ Texte stehen im Code auf Deutsch in `t('…')` (Platzhalter in geschweiften Klam
 | `src/ui.ts` | Menü, Leisten, Layer- und Laser-Panel, Palette, Statusleiste, Texteingabe |
 | `src/layerdialog.ts` | Layer-Einstellungen (Kerf, Haltestege, Füllen, Air Assist) |
 | `src/fonts.ts` | Schriftdateien laden (Systemschriften über Rust, Ersatzschrift) und Text in Bézierpfade umwandeln (opentype.js) |
+| `src/textpath.ts` | Text auf Pfad: Bogenlänge, Glyphen entlang der Kurve setzen |
+| `src/clip.ts`, `src/curves.ts` | Clipper-Anbindung (Zerlegen, Kurvenrückführung, Buchstaben schweißen) und Bézier-Grundlagen |
 | `src/ops.ts` | Boolesche Operationen und Offset (Clipper) |
 | `src/snap.ts` | Fangen: Objektfang (Knoten, Mittelpunkt, Zentrum, Schnittpunkt, Linie) und Ausrichtungshilfen |
 | `src/arrays.ts`, `src/arrayDialogs.ts` | Raster- und Kreisarray mit Dialogen und Live-Vorschau |
