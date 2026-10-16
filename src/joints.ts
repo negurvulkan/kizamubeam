@@ -1,16 +1,16 @@
 // Holzverbindungen für gelaserte Bauteile: Fingerzinken, Schlitz und Zapfen, Überblattung, Schnapp- und Hakenverbindung,
-// Keilzapfen und T-Slot mit Mutter.
+// Keilzapfen, T-Slot mit Mutter und Deckelscharnier mit Stift.
 // Eine Verbindung wird auf gerade Kanten vorhandener Formen angewendet. Die Kante wird durch das Zinken- bzw.
 // Zapfenprofil ersetzt, Schlitze kommen als geschlossene Unterpfade hinzu. Alles bleibt ein normaler Pfad mit
 // geraden Segmenten (exakte Ecken, keine Näherung) und lässt sich danach im Knoteneditor weiter bearbeiten.
 // Gerechnet wird in Weltkoordinaten (mm), damit Materialdicke und Breiten auch bei gedrehten oder skalierten
 // Objekten stimmen; das Ergebnis wird in die lokalen Koordinaten des Objekts zurückgerechnet.
-import { Mat, Obj, Pt, SubPath } from './model';
+import { Mat, Node, Obj, Pt, SubPath } from './model';
 import { bezierPt, segments, shapeSubs } from './geom';
 import { transformSubs } from './importers';
 import { dec, t, tn } from './i18n';
 
-export type JointKind = 'finger' | 'tenon' | 'lap' | 'snap' | 'hook' | 'wedge' | 'tslot';
+export type JointKind = 'finger' | 'tenon' | 'lap' | 'snap' | 'hook' | 'wedge' | 'tslot' | 'lidhinge';
 
 export interface JointOptions {
   kind: JointKind;
@@ -47,6 +47,12 @@ export interface JointOptions {
   nutWidth: number;
   nutHeight: number;
   boltLength: number;
+  /** Deckelscharnier: Anzahl der Knöchel (ungerade, die äußeren gehören zum Kasten) */
+  hingeCount: number;
+  /** Deckelscharnier: Durchmesser des Stifts bzw. Drahts, Spiel im Stiftloch und Wandstärke um das Loch (mm) */
+  pinDia: number;
+  pinPlay: number;
+  hingeWall: number;
   /** Schnittbreite des Lasers in mm: Zinken/Zapfen werden um so viel breiter, Lücken/Schlitze schmaler gezeichnet */
   kerf: number;
   /** Spiel in mm: positiv = lockerer, negativ = strammer (Press-Fit) */
@@ -56,7 +62,7 @@ export interface JointOptions {
 export const DEFAULT_JOINT: JointOptions = {
   kind: 'finger', thickness: 3, fingerWidth: 10, direction: 'in', swap: false,
   tenonCount: 2, tenonWidth: 15, slotOffset: 0, lapCount: 1, lapDepth: 50, snapLip: 0.6, snapLength: 3, snapRelief: 8, hookLength: 6, hookFlip: false,
-  wedgeWidth: 6, wedgePull: 0.5, boltDia: 3.2, nutWidth: 5.6, nutHeight: 2.6, boltLength: 16, kerf: 0, clearance: 0,
+  wedgeWidth: 6, wedgePull: 0.5, boltDia: 3.2, nutWidth: 5.6, nutHeight: 2.6, boltLength: 16, hingeCount: 5, pinDia: 3, pinPlay: 0.2, hingeWall: 2, kerf: 0, clearance: 0,
 };
 
 /** Gewählte gerade Kante: Blatt-Objekt, seine Weltmatrix und das Segment in shapeSubs(obj.shape) */
@@ -201,6 +207,111 @@ export const tenonCenters = (len: number, n: number) => Array.from({ length: n }
 
 const fmt = (v: number) => dec(String(Math.round(v * 100) / 100));
 
+/** Unterpfad aus Geraden und Kreisbögen (Bézier, je Stück höchstens 90°) */
+class PathBuilder {
+  nodes: Node[] = [];
+  line(x: number, y: number) {
+    this.nodes.push({ x, y });
+    return this;
+  }
+  /** Bogen um (cx, cy) vom Winkel a0 bis a1 (Bogenmaß, Vorzeichen = Richtung); der letzte Knoten liegt bei a0 */
+  arc(cx: number, cy: number, r: number, a0: number, a1: number) {
+    const n = Math.max(1, Math.ceil(Math.abs(a1 - a0) / (Math.PI / 2) - 1e-9));
+    const da = (a1 - a0) / n;
+    const k = (4 / 3) * Math.tan(da / 4) * r;
+    for (let i = 0; i < n; i++) {
+      const p = a0 + i * da,
+        q = p + da;
+      const last = this.nodes[this.nodes.length - 1];
+      last.cout = { x: last.x - Math.sin(p) * k, y: last.y + Math.cos(p) * k };
+      const x = cx + Math.cos(q) * r,
+        y = cy + Math.sin(q) * r;
+      this.nodes.push({ x, y, cin: { x: x + Math.sin(q) * k, y: y - Math.cos(q) * k } });
+    }
+    return this;
+  }
+  /** Geschlossener Unterpfad; fällt der letzte Knoten auf den ersten, werden beide verschmolzen */
+  close(): SubPath {
+    const a = this.nodes[0],
+      b = this.nodes[this.nodes.length - 1];
+    if (this.nodes.length > 1 && Math.hypot(a.x - b.x, a.y - b.y) < 1e-9) {
+      if (b.cin) a.cin = b.cin;
+      this.nodes.pop();
+    }
+    for (const nd of this.nodes) if (nd.cin && nd.cout) nd.smooth = true;
+    return { closed: true, nodes: this.nodes };
+  }
+}
+
+const circleSub = (cx: number, cy: number, r: number) => new PathBuilder().line(cx + r, cy).arc(cx, cy, r, 0, 2 * Math.PI).close();
+
+/**
+ * Maße des Deckelscharniers im Profil (Blick entlang der Stiftachse, mm).
+ * x zeigt von der Außenseite der Rückwand nach hinten, y von der Oberkante der Rückwand nach oben.
+ * Die Rückwand liegt bei x ∈ [−t, 0], y ≤ 0, der geschlossene Deckel bei x ≤ 0, y ∈ [0, t] (hinten bündig).
+ * Die Achse sitzt hinter der Rückwand auf halber Deckeldicke: so bewegt sich die Deckelkante beim Öffnen erst
+ * nach vorn und oben und streift die Kasten-Knöchel nicht.
+ */
+export function lidHingeDims(o: JointOptions) {
+  const th = o.thickness;
+  const adj = o.kerf - o.clearance;
+  /** Radius des Auges um den Stift */
+  const R = o.pinDia / 2 + o.pinPlay / 2 + o.hingeWall;
+  /** Luft zwischen Auge und Rückwand bzw. Deckelkante */
+  const gap = 0.5;
+  const ax = R + gap,
+    ay = th / 2;
+  /** Zapfenlänge (Schlitzlänge) und Abstand des Schlitzes von der Kante */
+  const T = Math.max(6, 2 * R);
+  const s0 = Math.max(2, th);
+  /** Mitte von Zapfen und Schlitz, von der Kante nach innen gemessen */
+  const mid = s0 + T / 2;
+  return {
+    th, adj, R, gap, ax, ay, T, s0, mid,
+    /** Halbe Zapfenlänge am Knöchel (Kerf − Spiel macht ihn länger) bzw. am Schlitz */
+    tenonHalf: (T + adj) / 2,
+    slotHalf: (T - adj) / 2,
+    /** Durchmesser des Stiftlochs (der Kerf weitet es beim Schneiden auf) */
+    hole: o.pinDia + o.pinPlay - o.kerf,
+  };
+}
+
+/** Profile der beiden Knöchel-Arten im Profilsystem von lidHingeDims, jeweils Umriss + Stiftloch */
+export function lidHingeProfiles(o: JointOptions): { box: SubPath[]; lid: SubPath[] } {
+  const d = lidHingeDims(o);
+  const { th, R, gap, ax, ay, mid, tenonHalf } = d;
+  const PI = Math.PI;
+  const yTop = -mid + tenonHalf,
+    yBot = -mid - tenonHalf;
+  // Kasten-Knöchel: Fuß hinter der Rückwand, Zapfen durch den Schlitz bis zur Innenseite, oben das halbe Auge
+  const box = new PathBuilder()
+    .line(0, ay)
+    .line(gap, ay)
+    .arc(ax, ay, R, PI, 0)
+    .line(ax + R, yBot)
+    .line(-th, yBot)
+    .line(-th, yTop)
+    .line(0, yTop)
+    .line(0, ay)
+    .close();
+  // Deckel-Knöchel: liegt auf dem Deckel, Zapfen nach unten durch den Deckel, hinten das Auge (drei Viertel)
+  const xF = -mid - tenonHalf,
+    xB = -mid + tenonHalf;
+  const lid = new PathBuilder()
+    .line(xF, ay + R)
+    .line(ax, ay + R)
+    .arc(ax, ay, R, PI / 2, -PI)
+    .line(0, ay)
+    .line(0, th)
+    .line(xB, th)
+    .line(xB, 0)
+    .line(xF, 0)
+    .line(xF, ay + R)
+    .close();
+  const hole = () => circleSub(ax, ay, d.hole / 2);
+  return { box: [box, hole()], lid: [lid, hole()] };
+}
+
 /**
  * Verbindung berechnen. Fingerzinken: eine oder zwei Kanten (die zweite bekommt das Gegenstück).
  * Schlitz und Zapfen: erste Kante bekommt die Zapfen, die zweite Linie (Kante oder einzelne Hilfslinie) die Schlitze.
@@ -267,6 +378,68 @@ export function computeJoint(picks: EdgePick[], o: JointOptions): JointResult {
       edits.push({ pick: picks[i], pts });
     }
     info = tn('{n} Schlitz je Kante, {width} mm breit, {depth} tief', '{n} Schlitze je Kante, {width} mm breit, {depth} tief', n, { width: fmt(sw), depth: depths.map((d) => `${fmt(d)} mm`).join(' / ') });
+  } else if (o.kind === 'lidhinge') {
+    // Deckelscharnier: Kante 1 = Oberkante der Rückwand, Kante 2 = Hinterkante des Deckels.
+    // Beide Platten bekommen Schlitze für die Knöchel, die Knöchel selbst kommen als neue Teile dazu.
+    if (picks.length < 2) return fail(t('Scharnier braucht zwei Kanten: erst die Oberkante der Rückwand, dann die Hinterkante des Deckels.'));
+    if (!geoms[0].closed || !geoms[1].closed) return fail(t('Scharnier braucht Kanten geschlossener Formen (Rückwand und Deckel).'));
+    if (picks[0].obj === picks[1].obj) return fail(t('Rückwand und Deckel müssen zwei verschiedene Teile sein.'));
+    if (!(o.pinDia > 0)) return fail(t('Stiftdurchmesser muss größer als 0 sein.'));
+    if (!(o.hingeWall > 0)) return fail(t('Wandstärke um den Stift muss größer als 0 sein.'));
+    const d = lidHingeDims(o);
+    if (d.hole <= 0) return fail(t('Stiftloch zu klein für den Kerf.'));
+    if (d.slotHalf <= 0 || th - adj <= 0) return fail(t('Schlitze zu klein für Kerf und Spiel.'));
+    if (d.R - th / 2 < 1) return fail(t('Auge zu schwach: Stift oder Wandstärke größer wählen (Auge muss mindestens 1 mm über den Deckel ragen).'));
+    let n = Math.max(3, Math.round(o.hingeCount));
+    if (n % 2 === 0) n++;
+    const L = Math.min(geoms[0].len, geoms[1].len);
+    const pitch = L / n;
+    if (pitch - th < 0.5) return fail(t('Zu viele Knöchel für die Kantenlänge (zwischen zwei Knöcheln muss mindestens 0,5 mm Luft bleiben).'));
+    const centers = tenonCenters(L, n);
+    const sw = th - adj;
+    // Schlitze: Kasten-Knöchel an geraden, Deckel-Knöchel an ungeraden Stellen (ungerade Anzahl: symmetrisch,
+    // die Laufrichtung der Kanten spielt keine Rolle)
+    for (const [i, g] of geoms.entries()) {
+      const slots: SubPath[] = [];
+      const off = (g.len - L) / 2;
+      centers.forEach((c, k) => {
+        if (k % 2 !== i) return;
+        const u = off + c;
+        slots.push({
+          closed: true,
+          nodes: [at(g, u - sw / 2, -d.mid - d.slotHalf), at(g, u + sw / 2, -d.mid - d.slotHalf), at(g, u + sw / 2, -d.mid + d.slotHalf), at(g, u - sw / 2, -d.mid + d.slotHalf)],
+        });
+      });
+      extra.set(picks[i].obj, slots);
+    }
+    // Knöchel rechts neben Rückwand und Deckel legen, in einer Reihe (erst die für den Kasten, dann die für den Deckel),
+    // „oben“ im Profil zeigt auf der Arbeitsfläche nach oben
+    const prof = lidHingeProfiles(o);
+    const plates = [...changes.values()].flatMap((c) => c.subs).flatMap((sp) => sp.nodes);
+    let px = Math.max(...plates.map((p) => p.x)) + 5;
+    const py = Math.min(...plates.map((p) => p.y));
+    const place = (subs: SubPath[]) => {
+      const pts = subs.flatMap((sp) => sp.nodes);
+      const x0 = Math.min(...pts.map((p) => p.x)),
+        x1 = Math.max(...pts.map((p) => p.x)),
+        y1 = Math.max(...pts.map((p) => p.y));
+      const map = (p: Pt): Pt => ({ x: px + p.x - x0, y: py + y1 - p.y });
+      for (const sp of subs)
+        added.push({
+          closed: true,
+          nodes: sp.nodes.map((nd) => ({ ...map(nd), ...(nd.cin ? { cin: map(nd.cin) } : {}), ...(nd.cout ? { cout: map(nd.cout) } : {}), ...(nd.smooth ? { smooth: true } : {}) })),
+        });
+      px += x1 - x0 + 3;
+    };
+    const nBox = (n + 1) / 2,
+      nLid = (n - 1) / 2;
+    for (let k = 0; k < nBox; k++) place(prof.box);
+    for (let k = 0; k < nLid; k++) place(prof.lid);
+    const pinLen = L - pitch + th + 4;
+    info = t('{nBox} Knöchel für den Kasten, {nLid} für den Deckel; Stift Ø {dia} mm, etwa {len} mm lang', { nBox, nLid, dia: fmt(o.pinDia), len: fmt(Math.ceil(pinLen)) });
+    if (Math.abs(geoms[0].len - geoms[1].len) > 0.01)
+      info += t('. Kanten unterschiedlich lang ({len} / {len2} mm): Knöchel liegen mittig auf {pattern} mm', { len: fmt(geoms[0].len), len2: fmt(geoms[1].len), pattern: fmt(L) });
+    if (pitch / 2 - th / 2 < th) info += t('. Achtung: die äußeren Knöchel sitzen sehr nah an den Ecken (Seitenwände!)');
   } else {
     // Zapfen-Familie: einfacher Zapfen, Schnappzapfen mit Rasthaken, L-förmiger Haken, Keilzapfen, Zapfen mit T-Slots dazwischen
     const g = geoms[0];

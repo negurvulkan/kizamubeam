@@ -64,6 +64,7 @@ On Windows, `npm run tauri build` only builds the NSIS installer (`.exe`, see `s
 - Cross-lap joints in the same tool: both edges get slots of material thickness, and the depth is a share of the board width (edge 1 e.g. 50 %, edge 2 the rest). Several slots divide the edge into equal compartments, for grid inserts and bottle dividers, for example.
 - Snap-fit and hook joints in the same tool: snap tabs with two flexible tongues and catch hooks (overhang, hook length and spring slot adjustable), and L-shaped hook tabs whose slot is lengthened by the hook length (insert, then slide).
 - Wedge tenons and T-slots with nuts in the same tool: wedge tenons pass through the mating board and have a wedge hole; matching wedges are created as well. With T-slots, a screw slot with a nut window sits between every two tabs, and the mating board gets the hole (screw, nut and screw length adjustable).
+- Lid hinge (Tools → Lid Hinge …, or “Lid hinge (with pin)” in the Joint tool): click the top edge of the back wall, then the back edge of the lid. Both panels get slots, and knuckles with pin holes are created next to them; the outer knuckles belong to the box, the ones in between to the lid. Glue the knuckles into the slots and push a pin (wire, dowel, nail or filament) through all eyes. Number of knuckles, pin diameter, pin clearance and wall around the hole are adjustable; the lid opens beyond 90°. Tests: `npm run test:joints`.
 - Living hinges (Tools → Living Hinge): fills a selected closed shape with a cut pattern so the board bends there. Patterns: straight cuts, waves, diamonds, honeycomb, triangles, weave and spiral, with live preview and starting values derived from the material thickness. The cuts are exact lines and Bézier curves.
 - Color is the layer: clicking a palette color assigns the selection to it. Layer table with mode (Line/Fill), speed, power, air assist, output, visibility and quick editing.
 - Cut Settings (double-click a layer): kerf offset, tabs (count or spacing, skip inner shapes), scan angle, cross-hatch, bidirectional, overscan, air assist (M8 or M7, off with M9; configurable in Device Settings). The settings are stored as `CutSettings` in the layer (`src/model.ts`).
@@ -140,7 +141,7 @@ UI texts are written in German in the code inside `t('…')` (placeholders in cu
 | `src/snap.ts` | Snapping: object snap (node, midpoint, center, intersection, line) and alignment guides |
 | `src/arrays.ts`, `src/arrayDialogs.ts` | Grid and circular arrays with dialogs and live preview |
 | `src/hinges.ts`, `src/hingeDialog.ts` | Living hinges: patterns and dialog |
-| `src/joints.ts`, `src/jointDialog.ts` | Joints: finger joints, tab-and-slot, cross-lap, snap-fit, hook, wedge and T-slot joints |
+| `src/joints.ts`, `src/jointDialog.ts` | Joints: finger joints, tab-and-slot, cross-lap, snap-fit, hook, wedge and T-slot joints, lid hinge with pin. Tests: `npm run test:joints` |
 | `src/images.ts` | Image data (outside undo, backed up in IndexedDB), image processing and dithering, result cache |
 | `src/imagePresets.ts` | Image presets (adjustments and image mode) in local storage |
 | `src/trace.ts` | Trace image: marching squares, simplification, curve fitting |

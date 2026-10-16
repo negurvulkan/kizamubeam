@@ -4,7 +4,7 @@ import { Box, boundsOf, leafIntersectsBox, segments, shapeSubs } from '../geom';
 import { buildSnapSet, findSnap } from '../snap';
 import { t } from '../i18n';
 import type { Editor } from '../editor';
-import { RULER, SNAP_PX, TOOL_HINTS } from './shared';
+import { HINGE_HINT_FIRST, HINGE_HINT_SECOND, RULER, SNAP_PX, TOOL_HINTS } from './shared';
 
 const ROTATE_CURSOR =
   `url("data:image/svg+xml,${encodeURIComponent(
@@ -150,7 +150,9 @@ export class EditorPointer {
         const i = this.jointPicks.findIndex((p) => p.obj === h.obj && p.sub === h.sub && p.seg === h.seg);
         if (i >= 0) this.jointPicks.splice(i, 1);
         else this.jointPicks = [...this.jointPicks.slice(-1), h];
-        this.hint = this.jointPicks.length === 1 ? JOINT_HINT_SECOND : TOOL_HINTS.joint;
+        this.hint = this.jointHingeMode
+          ? this.jointPicks.length === 1 ? HINGE_HINT_SECOND : HINGE_HINT_FIRST
+          : this.jointPicks.length === 1 ? JOINT_HINT_SECOND : TOOL_HINTS.joint;
         this.emit('tool');
         this.redraw();
         if (this.jointPicks.length === 2) this.onJointDialog?.();

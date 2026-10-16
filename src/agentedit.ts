@@ -125,7 +125,8 @@ const LAYER_KEYS: Record<string, string> = {
 const HINGE_KEYS = ['thickness', 'cutLength', 'bridge', 'spacing', 'margin', 'angle', 'waveAmp', 'waveLength', 'diamondAngle'] as const;
 const JOINT_NUM_KEYS = [
   'thickness', 'fingerWidth', 'tenonCount', 'tenonWidth', 'slotOffset', 'lapCount', 'lapDepth', 'snapLip', 'snapLength', 'snapRelief',
-  'hookLength', 'wedgeWidth', 'wedgePull', 'boltDia', 'nutWidth', 'nutHeight', 'boltLength', 'kerf', 'clearance',
+  'hookLength', 'wedgeWidth', 'wedgePull', 'boltDia', 'nutWidth', 'nutHeight', 'boltLength', 'hingeCount', 'pinDia', 'pinPlay', 'hingeWall',
+  'kerf', 'clearance',
 ] as const;
 
 // ---------- Werkzeuge ----------
@@ -757,14 +758,14 @@ export const EDIT_TOOLS: ToolDef[] = [
     name: 'make_joint',
     title: 'Holzverbindung',
     description:
-      'Verbindung an geraden Kanten (Nummern aus list_edges). edges: erste Kante = Zinken/Zapfen, zweite = Gegenstück bzw. Linie für die Schlitze; eine Kante allein geht auch. kind: finger, tenon, lap, snap, hook, wedge, tslot. thickness = Materialdicke (mm). Weitere Werte wie im Dialog: fingerWidth, direction (in/out), swap, tenonCount, tenonWidth, slotOffset, lapCount, lapDepth, snapLip, snapLength, snapRelief, hookLength, hookFlip, wedgeWidth, wedgePull, boltDia, nutWidth, nutHeight, boltLength, kerf, clearance. Die Objekte werden zu Pfaden.',
+      'Verbindung an geraden Kanten (Nummern aus list_edges). edges: erste Kante = Zinken/Zapfen, zweite = Gegenstück bzw. Linie für die Schlitze; eine Kante allein geht auch. kind: finger, tenon, lap, snap, hook, wedge, tslot, lidhinge. lidhinge = Deckelscharnier mit Stift: erste Kante = Oberkante der Rückwand, zweite = Hinterkante des Deckels (beide nötig); beide Platten bekommen Schlitze, die Knöchel entstehen als neues Objekt (hingeCount ungerade, pinDia, pinPlay, hingeWall in mm). thickness = Materialdicke (mm). Weitere Werte wie im Dialog: fingerWidth, direction (in/out), swap, tenonCount, tenonWidth, slotOffset, lapCount, lapDepth, snapLip, snapLength, snapRelief, hookLength, hookFlip, wedgeWidth, wedgePull, boltDia, nutWidth, nutHeight, boltLength, hingeCount, pinDia, pinPlay, hingeWall, kerf, clearance. Die Objekte werden zu Pfaden.',
     tier: Tier.Edit,
     inputSchema: obj({
       edges: {
         type: 'array', minItems: 1, maxItems: 2,
         items: obj({ id: { type: 'integer' }, sub: { type: 'integer' }, seg: { type: 'integer' } }, ['id', 'sub', 'seg']),
       },
-      kind: { type: 'string', enum: ['finger', 'tenon', 'lap', 'snap', 'hook', 'wedge', 'tslot'] },
+      kind: { type: 'string', enum: ['finger', 'tenon', 'lap', 'snap', 'hook', 'wedge', 'tslot', 'lidhinge'] },
       direction: { type: 'string', enum: ['in', 'out'] }, swap: { type: 'boolean' }, hookFlip: { type: 'boolean' },
       ...Object.fromEntries(JOINT_NUM_KEYS.map((k) => [k, { type: 'number' }])),
     }, ['edges', 'kind', 'thickness']),
@@ -779,7 +780,7 @@ export const EDIT_TOOLS: ToolDef[] = [
         if (!isStraight(o, sub, seg)) throw new ToolError(`Kante ${i + 1}: sub ${sub}/seg ${seg} ist keine gerade Kante von Objekt ${o.id} (siehe list_edges)`);
         return { obj: o, m: mul(parent, o.m), sub, seg };
       });
-      const opt: JointOptions = { ...DEFAULT_JOINT, kind: oneOf(a, 'kind', ['finger', 'tenon', 'lap', 'snap', 'hook', 'wedge', 'tslot'] as const) as JointKind };
+      const opt: JointOptions = { ...DEFAULT_JOINT, kind: oneOf(a, 'kind', ['finger', 'tenon', 'lap', 'snap', 'hook', 'wedge', 'tslot', 'lidhinge'] as const) as JointKind };
       for (const k of JOINT_NUM_KEYS) {
         const v = optNum(a, k);
         if (v !== undefined) opt[k] = v;

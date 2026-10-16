@@ -5,7 +5,7 @@ import { computeJoint, EdgePick, isStraight, JointOptions } from '../joints';
 import { invalidate, segments, shapeSubs } from '../geom';
 import { t } from '../i18n';
 import type { Editor } from '../editor';
-import { TOOL_HINTS } from './shared';
+import { HINGE_HINT_FIRST, TOOL_HINTS } from './shared';
 
 export class EditorJoints {
   /** Nächste gerade Kante eines sichtbaren Objekts unter dem Mauszeiger */
@@ -45,9 +45,16 @@ export class EditorJoints {
     const alive = new Set([...leaves(this.doc.objs)].map(([o]) => o));
     return this.jointPicks.filter((p) => alive.has(p.obj) && isStraight(p.obj, p.sub, p.seg));
   }
+  /** Scharnier-Generator: Werkzeug „Verbindung“ mit der Art „Scharnier für Deckel“ */
+  startHingeTool(this: Editor) {
+    this.setTool('joint');
+    this.jointHingeMode = true;
+    this.hint = HINGE_HINT_FIRST;
+    this.emit('tool');
+  }
   clearJointPicks(this: Editor) {
     this.jointPicks = [];
-    this.hint = this.tool === 'joint' ? TOOL_HINTS.joint : this.hint;
+    this.hint = this.tool === 'joint' ? (this.jointHingeMode ? HINGE_HINT_FIRST : TOOL_HINTS.joint) : this.hint;
     this.emit('tool');
     this.redraw();
   }
@@ -63,18 +70,19 @@ export class EditorJoints {
       this.emit('tool');
       return false;
     }
-    this.snapshot(t('Holzverbindung'));
+    const hinge = opt.kind === 'lidhinge';
+    this.snapshot(hinge ? t('Scharnier für Deckel') : t('Holzverbindung'));
     for (const [obj, { m, subs }] of r.changes) {
       obj.shape = { kind: 'path', subs: transformSubs(subs, inv(m)) };
       invalidate(obj.shape);
     }
     if (r.added.length) {
-      // Neue Teile (Keile) auf dem Layer der ersten Kante
+      // Neue Teile (Keile, Scharnier-Knöchel) auf dem Layer der ersten Kante
       const first = this.jointPicks[0]?.obj;
       this.doc.objs.push({ id: newId(), m: IDENT, layer: first?.layer ?? this.currentLayer, shape: { kind: 'path', subs: r.added } });
     }
     this.jointPicks = [];
-    this.hint = t('Verbindung angelegt: {info}.', { info: r.info });
+    this.hint = hinge ? t('Scharnier angelegt: {info}.', { info: r.info }) : t('Verbindung angelegt: {info}.', { info: r.info });
     this.emit('doc');
     this.emit('sel');
     return true;
