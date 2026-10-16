@@ -1,0 +1,12 @@
+[package]
+name = "laserwerk-core"
+version = "0.1.0"
+description = "Rechenkern von Laserwerk ohne Oberfläche: Bildverarbeitung, Rasterzeilen, G-Code"
+license = "GPL-3.0-or-later"
+edition = "2021"
+
+[dependencies]
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+

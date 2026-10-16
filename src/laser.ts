@@ -3,9 +3,10 @@ import type { Editor } from './editor';
 import { $, h, numInput } from './dom';
 import { ICONS } from './icons';
 import { saveText } from './files';
+import { native } from './native';
 import {
   anchorOf, buildJob, Device, estimate, Firmware, FIRMWARES, formatDuration, frameGCode, Job, loadDevices, newDevice, PRESETS,
-  saveDevices, StartFrom, writeGCode,
+  prepareGCode, saveDevices, StartFrom,
 } from './gcode';
 import { isTauri, machine, PortInfo } from './machine';
 import type { Doc, ImageLayer, Layer } from './model';
@@ -124,9 +125,9 @@ export async function startJob(ed: Editor, src?: JobSource) {
   if (nothingToDo(job) || !boundsOk(ed, job)) return;
   job.warnings.forEach((w) => notify(w));
   const est = estimate(job.moves, device);
-  const g = writeGCode(job, device, est, src?.name);
+  const g = await prepareGCode(job, device, est, src?.name);
   notify(t('Job gestartet, geschätzt {total}.', { total: formatDuration(est.total) }));
-  await machine.runJob(g.lines, g.times);
+  await machine.runPrepared(g);
 }
 
 export async function frameJob(ed: Editor, contour: boolean, src?: JobSource) {
@@ -142,8 +143,10 @@ export async function saveGCode(ed: Editor, src?: JobSource) {
   const job = await makeJob(ed, false, src);
   if (nothingToDo(job)) return;
   if (device.startFrom === 'current') notify(t('Hinweis: Die Datei enthält die aktuelle Laserposition als Startpunkt.'));
-  const g = writeGCode(job, device, estimate(job.moves, device), src?.name);
-  await saveText(src ? `${src.name.toLowerCase().replace(/[^a-z0-9äöüß]+/g, '-')}.gcode` : 'projekt.gcode', 'G-Code', 'gcode', 'text/plain', g.lines.join('\n') + '\n');
+  const g = await prepareGCode(job, device, estimate(job.moves, device), src?.name);
+  const name = src ? `${src.name.toLowerCase().replace(/[^a-z0-9äöüß]+/g, '-')}.gcode` : 'projekt.gcode';
+  if (g.lines) await saveText(name, 'G-Code', 'gcode', 'text/plain', g.lines.join('\n') + '\n');
+  else await native('gcode_save', { id: g.id, defaultName: name, filterName: 'G-Code' });
 }
 
 /** Job und Zeitschätzung des Dokuments ohne Ausgabe (für KI-Agenten) */

@@ -87,6 +87,7 @@ const BACKEND_MESSAGES = [
   'Die Steuerung wurde neu gestartet',
   'Alarm, Job abgebrochen',
   'Kein Ordner für Einstellungen',
+  'G-Code nicht mehr vorhanden, bitte den Job erneut starten.',
 ];
 // i18n-keys-end
 

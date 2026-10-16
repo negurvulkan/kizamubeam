@@ -7,13 +7,15 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "i18n:check": "node scripts/i18n-check.mjs"
+    "i18n:check": "node scripts/i18n-check.mjs",
+    "test:core": "node scripts/core-fixtures.mjs && cd src-tauri && cargo test -p laserwerk-core"
   },
   "license": "GPL-3.0-or-later",
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.3",
     "@types/clipper-lib": "^6.4.0",
     "@types/opentype.js": "^1.3.10",
+    "esbuild": "^0.21.5",
     "typescript": "^5.9.3",
     "vite": "^5.4.21"
   },
