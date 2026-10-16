@@ -1,149 +1,153 @@
-# Laserwerk (Arbeitstitel)
+# Laserwerk (working title)
 
-Freie Laser-Software mit der Bedienung von LightBurn als Vorbild: Entwerfen, Bilder bearbeiten und direkt an den Laser senden.
-Stack: Tauri 2, TypeScript (Oberfläche, Editor, G-Code), Rust (Desktop-Hülle, Maschinenanbindung, MCP-Server). Lizenz: GPL-3.0-or-later.
+English · [Deutsch](README.de.md)
 
-## Starten
+Free laser software modeled on the workflow of LightBurn: design, edit images and send jobs straight to the laser.
+Stack: Tauri 2, TypeScript (UI, editor, G-code), Rust (desktop shell, machine connection, MCP server). License: GPL-3.0-or-later (see `LICENSE`). Version: 1.0.0-alpha.
 
-Voraussetzungen: Node.js 20+, Rust (stable), unter Linux zusätzlich `libwebkit2gtk-4.1-dev`, `librsvg2-dev`, `build-essential`, `libssl-dev`
-(siehe https://v2.tauri.app/start/prerequisites/).
+## Getting started
+
+Requirements: Node.js 20+, Rust (stable), on Linux also `libwebkit2gtk-4.1-dev`, `librsvg2-dev`, `build-essential`, `libssl-dev`
+(see https://v2.tauri.app/start/prerequisites/).
 
 ```bash
 npm install
-npm run tauri dev      # Desktop-App mit Live-Neuladen
-npm run dev            # nur die Oberfläche im Browser: http://localhost:1420
-npm run tauri build    # Installationspaket
+npm run tauri dev      # desktop app with live reload
+npm run dev            # UI only, in the browser: http://localhost:1420
+npm run tauri build    # installer package
 ```
 
-## Was Laserwerk kann
+On Windows, `npm run tauri build` only builds the NSIS installer (`.exe`, see `src-tauri/tauri.windows.conf.json`), because the MSI installer does not accept pre-release versions such as `1.0.0-alpha`.
 
-- LightBurn-Layout: Menü, Symbolleiste, Zahlenleiste oben, Werkzeuge links, Schnitte/Layer und Laser rechts, Farbpalette 00–29 plus T1/T2 unten, Statusleiste.
-- Anpassbare Oberfläche wie in LightBurn:
-  - Werkzeugfenster (Schnitte/Layer, Objekte, Laser, Verschieben, Konsole, Material, Kamera) sind einzeln andockbar. Reiter ziehen: auf einen anderen Reiterkopf = als Reiter dazu, an den oberen oder unteren Rand einer Gruppe = darüber bzw. darunter, an den linken Rand neben der Werkzeugleiste = linke Andockleiste, auf die Arbeitsfläche = freies Fenster (verschieben am Kopf, Größe an der Ecke unten rechts, ⇥ oder Doppelklick dockt rechts an).
-  - Größe: Trennlinien zwischen den Fenstern und der Innenrand der Andockleisten lassen sich ziehen. ▾ oder Doppelklick auf den Kopf klappt eine Gruppe ein.
-  - × am Reiter blendet ein Fenster aus; Menü Fenster blendet Fenster und Leisten (Hauptleiste, Werkzeugleiste, Eigenschaftenleiste, Farbpalette, Statusleiste) ein und aus.
-  - Funktionsleisten anpassen (Menü Fenster oder Rechtsklick auf die Hauptleiste bzw. Werkzeugleiste): Aktionen aus allen Bereichen hinzufügen, entfernen, per Ziehen oder ↑/↓ umsortieren, Trennlinien einfügen, Symbolgröße klein/normal/groß; Aktionen ohne Symbol erscheinen als Text. „Standard wiederherstellen“ setzt eine Leiste zurück.
-  - Anordnung und Leisten werden je Nutzer gespeichert (`localStorage`: `laserwerk.layout`, `laserwerk.toolbars`); Fenster → Fenster und Leisten zurücksetzen stellt den Ausgangszustand wieder her.
-- Arbeitsfläche als Maschinenbett in mm (Standard 400 × 400, in den Geräteeinstellungen änderbar), Raster, Lineale, Ursprung unten links, Zoom mit Mausrad, Verschieben mit Leertaste oder mittlerer Maustaste.
-- Zeichnen: Linien und Bézierkurven, Rechteck mit Eckenradius, Ellipse, Polygon und Stern, Text (mehrzeilig, Schriftart, Höhe, Fett, Kursiv, Großbuchstaben, Zeichen- und Zeilenabstand, Ausrichtung).
-- Bearbeiten: Auswahl per Klick und Rahmen (nach rechts umschließend, nach links kreuzend), Verschieben, Skalieren, Drehen mit der Maus (knapp außerhalb einer Ecke ziehen oder zweiter Klick auf die Auswahl; Drehpunkt verschiebbar, Shift 15°, Ctrl 5°, Esc bricht ab), Zahlenfelder mit 9-Punkt-Anker und Formeln mit Einheiten („100/3“, „2in“), Knotenbearbeitung (Knoten per Klick, Shift+Klick, Rahmen oder Ctrl+A auswählen, gemeinsam ziehen oder mit Pfeiltasten schieben; Entf löschen, L Gerade, C Kurve, E Ecke, S glatt, I einfügen, B Pfad am Knoten aufbrechen, T Kante bis zu den Schnittpunkten trimmen), In Pfad umwandeln, Gruppieren, Spiegeln, Ausrichten, Verteilen, Kopieren, Duplizieren, Rückgängig.
-- Fangen (Statusleiste „Fang“ und „Raster“): an Knoten, Mittelpunkten, Zentren, Schnittpunkten und Linien sowie am Raster mit einstellbarer Weite. Ctrl beim Ziehen kehrt das Fangen um, Alt fängt stärker und zeigt Ausrichtungshilfen an anderen Objekten.
-- Arrays (Werkzeuge → Rasterarray, Ctrl+Shift+A, und Kreisarray) mit Live-Vorschau: Kopien in Spalten und Zeilen mit Abstand oder Mittenabstand, Richtung, Versatz und Spiegeln jeder zweiten Zeile/Spalte, bzw. im Kreis um einen Mittelpunkt. Bézierkurven bleiben exakt erhalten.
-- Text auf Pfad (Werkzeuge → Text auf Pfad oder „Auf Pfad“ in der Textleiste): Text und eine Form wählen, der Text folgt Linie, Kurve, Rechteck, Ellipse oder Polygon. Offene Kurven beginnen je nach Ausrichtung am Anfang, in der Mitte oder am Ende, geschlossene Formen am obersten Punkt. In der Textleiste: Versatz entlang der Kurve, Abstand zur Kurve, Seite wechseln, Lösen. Text und Form bleiben verknüpft wie in LightBurn: Wird die Form verschoben oder bearbeitet, folgt der Text; wird nur der Text verschoben, wandert die Form mit. Die Form wird mitgelasert, außer auf einem Werkzeuglayer (T1/T2) oder ausgeblendet; wird sie gelöscht, behält der Text die letzte Kurve.
-- QR-Codes (QR-Symbol in der Werkzeugleiste links oder Werkzeuge → QR-Code …): Text oder Internetadresse, WLAN-Zugang oder Kontakt (vCard), Fehlerkorrektur L/M/Q/H, Größe in mm, „Negativ“ lasert den Hintergrund samt Ruhezone (für dunkle Materialien). Benachbarte Module werden zu geschlossenen Umrissen zusammengefasst, sodass ein Füll-Layer den Code graviert. Doppelklick öffnet den Code wieder zum Bearbeiten; In Pfad umwandeln macht ihn zu normalen Formen.
-- Variabler Text wie in LightBurn („Variabel“ in der Textleiste, im QR-Dialog, Werkzeuge → Variabler Text …): Platzhalter für Seriennummer (`%#`, mit führenden Nullen `%4#`), Datum und Uhrzeit (`%d.%m.%Y`, `%H:%M` …) und Spalten einer CSV-Datei (`%0`, `%1` … oder `%{Überschrift}`; Komma, Semikolon oder Tab). Eine projektweite Nummer ist Seriennummer und CSV-Zeile zugleich; Start, Ende, Schrittweite und „nach jedem Job weiterzählen“ (nach Start und G-Code speichern) im Fenster „Variabler Text“, jedes Objekt mit eigenem Versatz. „Max. Breite“ in der Textleiste staucht zu lange Zeilen. Werkzeuge → Variablen Text festschreiben macht den aktuellen Inhalt zu festem Text. Tests: `npm run test:vartext`.
-- Buchstaben schweißen („Schweißen“ in der Textleiste): überlappende Zeichen verschmelzen zu einer Kontur, z. B. bei Schreibschrift oder engem Zeichenabstand; gilt für Anzeige, Lasern, Export und Umwandeln.
-- Text in Pfad umwandeln (Ctrl+Shift+C) mit den echten Schriftkonturen: in der Desktop-App aus den installierten Systemschriften, im Browser mit Roboto als Ersatz.
-- Boolesche Operationen: Vereinen, Abziehen, Schnittmenge. Unter „Boolesche Optionen“ wird die Basis gewählt (zuerst gewählte, hinterste oder vorderste Form) und ob die Originale erhalten bleiben; im Menü Werkzeuge gibt es zusätzlich „Vordere vom hinteren abziehen“ und „Hintere vom vorderen abziehen“. Texte und Gruppen werden dabei automatisch als Konturen behandelt.
-- Offset (Alt+O) nach außen, innen oder beides, mit runden, spitzen oder abgeschrägten Ecken und Live-Vorschau. Offene Linien bekommen eine geschlossene Kontur.
-- Pfad-Werkzeuge wie in LightBurn, alle Ergebnisse bleiben Bézierkurven:
-  - Pfad schließen (Bearbeiten): schließt offene Pfade, deren Anfang und Ende höchstens 0,5 mm auseinanderliegen. „Pfade mit Toleranz schließen …“ mit Schieberegler bis 20 mm, Gerade einfügen oder Enden zusammenziehen, und Anzeige, wie viele offene Formen geschlossen werden.
-  - Ausgewählte Formen verbinden (Alt+J, Auto-Join): offene Pfade, deren Enden höchstens 0,05 mm auseinanderliegen, werden ein Pfad; treffen sich die Enden einer Kette, wird sie geschlossen.
-  - Zerlegen (Alt+B, Anordnen): Pfade, Formen und Texte in ihre einzelnen Geraden und Kurven aufteilen.
-  - Formen trimmen (Ctrl+K): Mauszeiger auf eine Kurve, der Abschnitt bis zu den nächsten Schnittpunkten wird rot und per Klick entfernt (ohne Schnittpunkt der ganze Pfad). Die Reste werden an den Schnittpunkten mit anliegenden Pfaden verbunden, so wird aus zwei überlappenden Kreisen nach zwei Klicks eine Kontur. Ctrl+Klick verbindet nicht, Shift+Klick behält das entfernte Stück auf dem aktuellen Layer. Gruppen erst auflösen.
-  - Startpunkt setzen (Werkzeuge): Knoten anklicken, dort beginnt der Schnitt; Shift+Klick kehrt die Richtung um, Ctrl+Klick gibt Startpunkt und Richtung wieder der Optimierung frei. Blauer Pfeil = gesetzt, grau = Standard. Ein gesetzter Startpunkt gilt auch mit „Pfad optimieren“ (nur die Reihenfolge der Formen wird dann noch optimiert); bei Kerf-Ausgleich entsteht eine neue Kontur, dort wählt die Optimierung. „Richtung umkehren“ (Bearbeiten) dreht die Laufrichtung.
-- Ergebnisse von Booleschen Operationen und Offset sind wieder Bézierpfade: Ecken und gerade Strecken bleiben erhalten, Rundungen werden mit höchstens 0,02 mm Abweichung als Kurven eingepasst.
-- Verbindungen für gelaserte Bauteile (Werkzeug „Verbindung“): Fingerzinken und Schlitz und Zapfen auf gerade Kanten vorhandener Formen, mit Materialdicke, Kerf und Spiel (negativ = Press-Fit). Kante 1 bekommt Zinken bzw. Zapfen, Kante 2 das Gegenstück bzw. die Schlitze; eine einzelne gezeichnete Linie wird durch die Schlitze ersetzt. Das Ergebnis bleibt ein normaler, bearbeitbarer Pfad.
-- Überblattung (Kreuzverbindung) im selben Werkzeug: beide Kanten bekommen Schlitze in Materialdicke, die Tiefe ist ein Anteil der Plattenbreite (Kante 1 z. B. 50 %, Kante 2 den Rest). Mehrere Schlitze teilen die Kante in gleiche Fächer, etwa für Rastereinsätze und Flaschentrenner.
-- Schnapp- und Hakenverbindung im selben Werkzeug: Schnappzapfen mit zwei federnden Zungen und Rasthaken (Überstand, Hakenlänge und Federschlitz einstellbar) sowie L-förmige Hakenzapfen, deren Schlitz um die Hakenlänge verlängert ist (einstecken, dann schieben).
-- Keilzapfen und T-Slot mit Mutter im selben Werkzeug: Keilzapfen stehen durch die Gegenplatte und haben ein Keilloch; die passenden Keile werden gleich mit angelegt. Beim T-Slot sitzt zwischen je zwei Zapfen ein Schraubenschlitz mit Mutternfenster, die Gegenplatte bekommt die Bohrung (Schraube, Mutter und Schraubenlänge einstellbar).
-- Biegeschnitte / Living Hinges (Werkzeuge → Biegeschnitte): füllt eine gewählte geschlossene Form mit einem Schnittmuster, damit sich die Platte dort biegt. Muster: gerade Schnitte, Wellen, Rauten, Waben, Dreiecke, Flechtmuster und Spirale, mit Live-Vorschau und Startwerten aus der Materialdicke. Die Schnitte sind exakte Linien und Bézierkurven.
-- Farbe ist der Layer: Klick auf eine Palettenfarbe ordnet die Auswahl zu. Layer-Tabelle mit Modus (Linie/Füllen), Speed, Leistung, Air Assist, Ausgabe, Sichtbarkeit und Schnellbearbeitung.
-- Layer-Einstellungen (Doppelklick auf einen Layer, wie der Cut Settings Editor in LightBurn): Kerf-Versatz, Haltestege (Anzahl oder Abstand, innere Formen auslassen), Scanwinkel, Kreuzschraffur, Bidirektional, Überfahrweg, Air Assist (M8 oder M7, aus mit M9; einstellbar in den Geräteeinstellungen). Die Einstellungen liegen als `CutSettings` im Layer (`src/model.ts`).
-- Material-Bibliothek (Fenster „Material“, wie die Material Library in LightBurn): Layer-Einstellungen (wahlweise auch Bild-Einstellungen) je Material und Dicke speichern und auf Layer übernehmen. Austausch über `.lwm`-Dateien (JSON); LightBurn-Bibliotheken (`.clb`) lassen sich einlesen, soweit ihre Felder eine Entsprechung haben.
-- Materialtest (Laser → Materialtest): Raster mit zwei gestuften Werten (z. B. Zeilen Geschwindigkeit, Spalten Leistung) mit Beschriftung, jede Zelle mit eigenem Testlayer. Der Test geht über Vorschau, Rahmen, Start oder G-Code direkt an den Laser, ohne das Dokument zu verändern; die Zellen laufen nach steigender Energie.
-- Objekte-Fenster (rechts unter den Layern, ein- und ausblenden über das Menü Fenster): Baum aus Layern und ihren Objekten, Gruppen aufklappbar, vorderstes Objekt oben. Klick wählt aus (Shift/Ctrl fügt hinzu), die Auswahl auf der Arbeitsfläche wird mitgeführt. Doppelklick auf einen Namen benennt Objekt oder Layer um. Auge: ausblenden (ausgeblendete Objekte werden weder gezeichnet noch gelasert oder exportiert). Schloss: sperren (auf der Arbeitsfläche nicht auswählbar), auch für ganze Layer. Ziehen ändert die Stapelreihenfolge, schiebt Objekte auf einen anderen Layer oder ordnet Layer in der Ausgabereihenfolge um. Name, `hidden` und `locked` stehen im Objekt (`src/model.ts`) und erscheinen in `get_document` des MCP-Servers.
-- Mehrseitige Projekte: Ein Projekt hat eine oder mehrere Seiten (Objekte-Fenster ganz oben, Menü Seiten, Bild ↑/↓ zum Wechseln). Jede Seite hat eigene Objekte; die Layer-Einstellungen gelten für das ganze Projekt. Gezeichnet, bearbeitet, gelasert und exportiert (SVG, G-Code) wird die aktuelle Seite. Seiten lassen sich anlegen, duplizieren, umbenennen (Doppelklick), löschen und per Ziehen umordnen; Objekte zieht man auf eine Seitenzeile, um sie dorthin zu verschieben. Dateiformat ab `version: 2` mit `pages` und `page`; ältere Dateien öffnen sich als Projekt mit einer Seite. MCP: `get_document` (mit `pages`), `switch_page`, `edit_pages`, `move_to_page`.
-- Oberfläche auf Deutsch und Englisch (Ansicht → Sprache). Standard folgt der Systemsprache (andere Systemsprachen bekommen Englisch), die Wahl bleibt gespeichert; englische Begriffe wie in LightBurn.
-- Helles und dunkles Design (Ansicht → Design oder Knopf ganz rechts in der Symbolleiste), Standard folgt dem System. Im dunklen Design werden sehr dunkle Layerfarben auf der Arbeitsfläche aufgehellt.
-- Import (Ctrl+I, Ziehen aus dem Dateimanager oder Ctrl+V aus anderen Programmen): Bilder (PNG, JPG, BMP, GIF, WebP, TIFF), SVG und DXF.
-  - Bilder bekommen ihre Größe aus der Auflösung der Datei (ohne Angabe 254 DPI, zu große werden aufs Bett verkleinert).
-  - TIFF (auch LZW, Deflate, 16 Bit) wird mit utif gelesen und als PNG übernommen; bei mehrseitigen Dateien zählt die erste Seite.
-  - SVG: Pfade inkl. Bögen, Rechtecke, Kreise, Ellipsen, Linien, Polygone, `use`, Transformationen, CSS-Klassen, eingebettete Bilder; Einheiten über `width`/`height` und `viewBox`. Texte werden übersprungen.
-  - DXF: LINE, LWPOLYLINE/POLYLINE mit Bögen, CIRCLE, ARC, ELLIPSE, SPLINE, INSERT (Blöcke), Einheit aus `$INSUNITS`. Einzellinien werden zu zusammenhängenden Pfaden verbunden.
-  - Farben werden auf die nächste Palettenfarbe (= Layer) abgebildet, mehrere Objekte als Gruppe eingefügt.
-- Bildbearbeitung wie in LightBurn: Bilder sind ein eigener Eintrag „Bild“ in der Layer-Tabelle mit Bildmodus (Schwellwert, Geordnet, Atkinson, Floyd-Steinberg, Stucki, Jarvis, Zeitungsdruck/Newsprint, Halbton, Skizze/Sketch, Graustufen), Zeilenabstand/DPI, Negativ, Bidirektional, Überfahrweg, Speed und Leistung. „Bild anpassen“ (Helligkeit, Kontrast, Gamma, Schärfen mit Radius und Entrauschen) mit Vorschau, Original-Vergleich und 1:1-Ausschnitt. Die Arbeitsfläche zeigt das gerasterte Ergebnis in Laserauflösung.
-  - Zeitungsdruck setzt je Rasterzelle (Zellen pro Zoll, Rasterwinkel) einen runden Punkt, dessen Fläche der Helligkeit der Zelle entspricht. Skizze macht Kanten zu dunklen Strichen und lässt gleichmäßige Flächen frei; gelasert wird wie bei Graustufen mit Leistung zwischen Min. und Max.
-  - Bild-Presets in „Bild anpassen“: Anpassungen und Bildmodus (mit Schwellwert, Zellen und Winkel) unter einem Namen speichern, anwenden und löschen. Speed, Leistung und Zeilenabstand gehören zur Material-Bibliothek.
-- Bild zuschneiden und Maske anwenden (Werkzeuge-Menü oder Schaltflächen in der Leiste, wenn ein Bild und Formen gewählt sind): Zuschneiden kürzt das Bild auf den Rahmen der Form, die Maske behält nur das Innere der geschlossenen Formen (auch Text), der Rest wird transparent und nicht gelasert. Das Bild bleibt an seiner Stelle und in Originalauflösung, die Formen werden entfernt, Ctrl+Z macht beides rückgängig.
-- Bild nachzeichnen (Alt+T): Schwellwert, kleine Flecken ignorieren, Glättung, Live-Vorschau. Ergebnis sind Bézierpfade mit erhaltenen Ecken.
-- Bearbeitetes Bild speichern (das geditherte Bild als PNG, so wie es gelasert würde).
-- Maschinenausgabe für FluidNC/GRBL (rechts unten die Fenster Laser, Verschieben und Konsole):
-  - Mehrere Geräte speichern und auswählen (Fenster Laser oben, Laser → Geräte …). Neue Geräte aus Vorlagen gängiger Laser (Swiitol, Ortur, Atomstack, Sculpfun, xTool, Creality Falcon, Two Trees) oder allgemein je Steuerung. Das Bett der Arbeitsfläche folgt dem gewählten Gerät.
-  - Steuerungen: FluidNC, GRBL 1.1, grblHAL (Zeichenzählung, Echtzeitstatus, M4), Marlin (Zeile für Zeile, Position per M114, Inline-Laser `M3 I`, Pause durch Zurückhalten, Stopp mit M410) und Smoothieware (Zeile für Zeile, S 0 … 1). Home, Joggen, Ursprung und Konsolenknöpfe passen sich an.
-  - Verbinden über USB-Seriell oder WLAN (Telnet, Port 23, oder WebSocket, FluidNC Port 81; ist er nicht erreichbar, wird 80 versucht). Status, Position und Laserkopf auf der Arbeitsfläche, Alarme im Klartext.
-  - Start, Pause/Weiter, Stopp (Halt und Reset, Position bleibt erhalten), Rahmen als Rechteck oder Kontur (wahlweise mit schwachem Laser), Home, Zum Nullpunkt.
-  - Starten ab: Absolute Koordinaten, Benutzer-Ursprung oder Aktuelle Position, jeweils mit 9-Punkt-Job-Ursprung. „Nur Auswahl“ lasert nur die ausgewählten Objekte.
-  - G-Code im Lasermodus (M4): Linie mit optimierter Reihenfolge (innere Formen zuerst, kurze Leerwege, bester Startknoten), Füllen mit Zeilenabstand, Scanwinkel, Kreuzschraffur, Überfahrweg und bidirektional, Kerf-Versatz je Objekt, Haltestege als Strecken ohne Leistung, Air Assist je Layer, Bilder in allen Bildmodi (Graustufen mit Leistung zwischen Min. und Max.), Durchgänge, Layer-Reihenfolge. Texte werden mit ihren Schriftkonturen gelasert.
-  - Übertragung mit Zeichenzählung (Empfangspuffer 127 Bytes) im Rust-Kern, Fortschritt mit vergangener und geschätzter Restzeit.
-  - Vorschau (Alt+P) mit Zeitschätzung wie im Bahnplaner von FluidNC (Beschleunigung, Ecken), Abspielen und Zeitschieber, Leerwege, Schattierung nach Leistung, Zoomen und Verschieben. „Hier starten“ (Start Here) lasert den Job ab der Stelle des Zeitschiebers, z. B. nach einem Abbruch: Eilgang mit Laser aus zu dieser Stelle, dann weiter mit Leistung, Vorschub und Air Assist des Layers. Die Vorschau zeigt dabei dieselbe Reihenfolge wie der Job, auch bei „Benutzer-Ursprung“ und „Aktuelle Position“.
-  - Eigene G-Code-Skripte je Gerät (Geräteeinstellungen → G-Code-Skripte): „Vor dem Job“ nach G21, G90 und dem Laser-Modus, „Nach dem Job“ nach M5 und vor dem Programmende (M2 bzw. M400). Gilt für Jobs und gespeicherten G-Code, nicht für Rahmenfahrten.
-  - G-Code speichern, Verschieben-Reiter (Jog in Schritten, Ursprung setzen/löschen, Laser zur Auswahl, Entsperren), Konsole mit Verlauf.
-  - Geräteeinstellungen: Arbeitsbereich, S-Wert für 100 %, Baudrate, WLAN-Adresse, Eilgang und Beschleunigung, Rahmen. „Von der Maschine lesen“ holt Arbeitsbereich, Eilgang, Beschleunigung (FluidNC-Konfiguration bzw. GRBL `$$`) und bei GRBL auch die Leistungsskala `$30`.
-  - Drehachse (Laser → „Drehachse …“ bzw. Laser-Menü → „Drehachse (Rotary) …“, je Gerät): Walzen oder Futter, Rotary am Y-Anschluss (statt Y-Motor) oder als eigene Achse A, B, C oder Z, Achsweg pro Umdrehung (mm bzw. Grad), Walzen- und Objektdurchmesser oder Umfang, Drehrichtung umkehren, Testdrehung (eine Objektumdrehung). Die Y-Richtung des Entwurfs wird in Achsweg umgerechnet, der Vorschub so angepasst, dass die Geschwindigkeit auf der Oberfläche stimmt; das gilt für Jobs, Bilder, Rahmen, Verschieben und „Hier starten“. Eine eigene Achse wird zu Beginn mit `G92 A0` (bzw. B, C, Z) auf die aktuelle Stellung gesetzt, der Rahmen fährt danach zum Start zurück. Im Rotary-Modus prüft Laserwerk nur X gegen das Bett, warnt, wenn der Job höher ist als der Objektumfang, und fragt vor einer Referenzfahrt nach, wenn der Rotary am Y-Anschluss steckt.
-- Kamera (Fenster „Kamera“): USB-Kamera wählen, Bild entzerrt und lagerichtig unter den Objekten auf der Arbeitsfläche, Deckkraft, einmalig oder laufend aktualisieren, als Bild auf T1 einfügen (zum Nachzeichnen). Kalibrieren: 2 × 2 bis 5 × 5 Markierungen lasern (oder als G-Code speichern), im Foto anklicken; daraus werden Lage (Homographie) und ab 3 × 3 die Linsenverzeichnung berechnet, mit Restfehler in mm und entzerrter Kontrollansicht. Mehrere Kameras je Gerät, jede mit eigener Kalibrierung, gleichzeitig verbunden und eingeblendet. Kopfkamera (am Laserkopf): Kalibrierung mit kleinen Markierungen um die Kopfposition, die Bilder landen an der jeweiligen Kopfposition als Mosaik auf der Arbeitsfläche, „Bett erfassen“ bzw. „Auswahl erfassen“ fährt den Bereich ohne Laser ab und setzt ihn aus Einzelbildern zusammen; das Sichtfeld wird an der Kopfposition gestrichelt angezeigt. Unter macOS fragt das System beim ersten Verbinden nach der Kamera-Freigabe.
-- Zugang für KI-Agenten über MCP (Datei → KI-Agenten (MCP)): kleiner HTTP-Server nur auf 127.0.0.1 (Port 47800, `http://127.0.0.1:47800/mcp`), standardmäßig aus, mit Token. Für Clients, die nur stdio sprechen, startet `laserwerk --mcp-stdio` eine Brücke. Vier Stufen: Lesen (Dokument, Layer, Materialien, Geräte, Schriften, Vorschaubild, Zeitschätzung), Entwerfen (Formen, Text, QR-Codes und variabler Text, Boolesche Operationen, Offset, Pfad-Werkzeuge (`path_tool`: schließen, verbinden, zerlegen, Richtung, Startpunkt, trimmen), Arrays, Biegeschnitte, Verbindungen, Layer, Import, Seiten, Dateien; jeder Aufruf ein Undo-Schritt), G-Code und Maschine. Ein Agent sendet nie rohen G-Code: Job, Rahmen und Referenzfahrt fordert er nur an, gestartet wird erst nach Bestätigung in Laserwerk; Jobs müssen im Arbeitsbereich und in den Gerätegrenzen liegen, Anhalten und Stoppen gehen immer, jede Maschinenaktion wird protokolliert. Die Maschinenstufe gilt nur bis zum Beenden der App.
-- Projekt speichern und öffnen (`.lwk`, JSON, Bilder eingebettet), SVG-Export (mit Bildern), automatisches Zwischenspeichern (Bilddaten in IndexedDB).
+## Features
 
-## Noch nicht enthalten
+- LightBurn layout: menu, main toolbar, numeric edits toolbar at the top, tools on the left, Cuts / Layers and Laser on the right, color palette 00–29 plus T1/T2 at the bottom, status bar.
+- Customizable interface as in LightBurn:
+  - Tool windows (Cuts / Layers, Objects, Laser, Move, Console, Material, Camera) can be docked individually. Drag a tab onto another tab header to add it as a tab, onto the top or bottom edge of a group to place it above or below, onto the left edge next to the tools toolbar for the left dock, or onto the workspace to make it a floating window (move by its header, resize at the bottom-right corner, ⇥ or double-click docks it on the right).
+  - Size: the dividers between windows and the inner edge of the docks can be dragged. ▾ or a double-click on the header collapses a group.
+  - × on a tab hides a window; the Window menu shows and hides windows and bars (Main Toolbar, Tools Toolbar, Numeric Edits Toolbar, Color Palette, Status Bar).
+  - Customize toolbars (Window menu or right-click on the main or tools toolbar): add actions from every area, remove them, reorder by dragging or with ↑/↓, insert separators, icon size small/normal/large; actions without an icon appear as text. “Restore defaults” resets a toolbar.
+  - Layout and toolbars are saved per user (`localStorage`: `laserwerk.layout`, `laserwerk.toolbars`); Window → Reset Windows and Toolbars restores the initial state.
+- Workspace as the machine bed in mm (default 400 × 400, adjustable in Device Settings), grid, rulers, origin at the bottom left, zoom with the mouse wheel, pan with the space bar or middle mouse button.
+- Drawing: lines and Bézier curves, rectangle with corner radius, ellipse, polygon and star, text (multi-line, font, height, bold, italic, upper case, letter and line spacing, alignment).
+- Editing: select by click and marquee (to the right: enclosing, to the left: crossing), move, scale, rotate with the mouse (drag just outside a corner or click the selection a second time; movable pivot, Shift 15°, Ctrl 5°, Esc cancels), numeric fields with a 9-point anchor and formulas with units (“100/3”, “2in”), node editing (select nodes by click, Shift+click, marquee or Ctrl+A, drag them together or nudge with the arrow keys; Del deletes, L line, C curve, E corner, S smooth, I insert, B break the path at the node, T trim the edge back to the intersections), Convert to Path, group, mirror, align, distribute, copy, duplicate, undo.
+- Snapping (“Snap” and “Grid” in the status bar): to nodes, midpoints, centers, intersections and lines, and to the grid with adjustable spacing. Ctrl while dragging inverts snapping, Alt snaps more strongly and shows alignment guides on other objects.
+- Arrays (Tools → Grid Array, Ctrl+Shift+A, and Circular Array) with live preview: copies in columns and rows with gap or center spacing, direction, offset and mirroring of every other row/column, or in a circle around a center point. Bézier curves are preserved exactly.
+- Text on a path (Tools → Apply Path to Text, or “On Path” in the text toolbar): select a text and a shape, and the text follows the line, curve, rectangle, ellipse or polygon. Open curves start at the beginning, middle or end depending on alignment, closed shapes at the topmost point. In the text toolbar: offset along the curve, distance from the curve, switch side, detach. Text and shape stay linked as in LightBurn: if the shape is moved or edited, the text follows; if only the text is moved, the shape moves with it. The shape is lasered too, unless it is on a tool layer (T1/T2) or hidden; if it is deleted, the text keeps the last curve.
+- QR codes (QR icon in the tools toolbar on the left, or Tools → QR Code …): text or web address, Wi-Fi access or contact (vCard), error correction L/M/Q/H, size in mm; “Negative Image” lasers the background including the quiet zone (for dark materials). Adjacent modules are merged into closed outlines, so a fill layer engraves the code. A double-click reopens the code for editing; Convert to Path turns it into ordinary shapes.
+- Variable text as in LightBurn (“Variable” in the text toolbar, in the QR dialog, Tools → Variable Text …): placeholders for a serial number (`%#`, with leading zeros `%4#`), date and time (`%d.%m.%Y`, `%H:%M` …) and columns of a CSV file (`%0`, `%1` … or `%{Header}`; comma, semicolon or tab). One project-wide number serves as both serial number and CSV row; start, end, step and auto-advance after each job (after Start and after saving G-code) are set in the “Variable Text” window, and each object has its own offset. “Max width” in the text toolbar condenses lines that are too long. Tools → Bake Variable Text turns the current content into fixed text. Tests: `npm run test:vartext`.
+- Weld letters (“Weld” in the text toolbar): overlapping characters merge into one outline, e.g. for script fonts or tight letter spacing; applies to display, lasering, export and conversion.
+- Convert text to paths (Ctrl+Shift+C) with the real font outlines: in the desktop app from the installed system fonts, in the browser with Roboto as a fallback.
+- Boolean operations: weld, difference, intersection. “Boolean Options” sets the base (first selected, backmost or frontmost shape) and whether the originals are kept; the Tools menu also has “Subtract front from back” and “Subtract back from front”. Texts and groups are automatically treated as outlines.
+- Offset Shapes (Alt+O) outward, inward or both, with round, sharp or beveled corners and live preview. Open lines get a closed outline.
+- Path tools as in LightBurn; all results remain Bézier curves:
+  - Close path (Edit): closes open paths whose start and end are at most 0.5 mm apart. “Close paths with tolerance …” with a slider up to 20 mm, insert a line or pull the ends together, and a count of how many open shapes will be closed.
+  - Auto-join selected shapes (Alt+J): open paths whose ends are at most 0.05 mm apart become one path; if the ends of a chain meet, it is closed.
+  - Break apart (Alt+B, Arrange): split paths, shapes and texts into their individual lines and curves.
+  - Trim shapes (Ctrl+K): hover over a curve, the segment up to the next intersections turns red and is removed with a click (without an intersection, the whole path). The remaining pieces are joined to adjacent paths at the intersections, so two overlapping circles become one outline after two clicks. Ctrl+click does not join, Shift+click keeps the removed piece on the current layer. Ungroup groups first.
+  - Set start point (Tools): click a node and the cut starts there; Shift+click reverses the direction, Ctrl+click hands start point and direction back to the optimizer. Blue arrow = set, gray = default. A set start point also applies with “Optimize path” (only the order of the shapes is still optimized); with kerf compensation a new outline is created, and the optimizer chooses there. “Reverse direction” (Edit) flips the cut direction.
+- Results of Boolean operations and offset are Bézier paths again: corners and straight segments are preserved, and rounded parts are fitted as curves with at most 0.02 mm deviation.
+- Joints for laser-cut parts (“Joint” tool): finger joints and tab-and-slot on straight edges of existing shapes, with material thickness, kerf and clearance (negative = press fit). Edge 1 gets the fingers or tabs, edge 2 the counterpart or the slots; a single drawn line is replaced by the slots. The result stays an ordinary, editable path.
+- Cross-lap joints in the same tool: both edges get slots of material thickness, and the depth is a share of the board width (edge 1 e.g. 50 %, edge 2 the rest). Several slots divide the edge into equal compartments, for grid inserts and bottle dividers, for example.
+- Snap-fit and hook joints in the same tool: snap tabs with two flexible tongues and catch hooks (overhang, hook length and spring slot adjustable), and L-shaped hook tabs whose slot is lengthened by the hook length (insert, then slide).
+- Wedge tenons and T-slots with nuts in the same tool: wedge tenons pass through the mating board and have a wedge hole; matching wedges are created as well. With T-slots, a screw slot with a nut window sits between every two tabs, and the mating board gets the hole (screw, nut and screw length adjustable).
+- Living hinges (Tools → Living Hinge): fills a selected closed shape with a cut pattern so the board bends there. Patterns: straight cuts, waves, diamonds, honeycomb, triangles, weave and spiral, with live preview and starting values derived from the material thickness. The cuts are exact lines and Bézier curves.
+- Color is the layer: clicking a palette color assigns the selection to it. Layer table with mode (Line/Fill), speed, power, air assist, output, visibility and quick editing.
+- Cut Settings (double-click a layer, like the Cut Settings Editor in LightBurn): kerf offset, tabs (count or spacing, skip inner shapes), scan angle, cross-hatch, bidirectional, overscan, air assist (M8 or M7, off with M9; configurable in Device Settings). The settings are stored as `CutSettings` in the layer (`src/model.ts`).
+- Material library (“Material” window, like the Material Library in LightBurn): save cut settings (optionally image settings too) per material and thickness and apply them to layers. Exchange via `.lwm` files (JSON); LightBurn libraries (`.clb`) can be imported as far as their fields have an equivalent.
+- Material test (Laser → Material Test): a grid with two stepped values (e.g. rows speed, columns power) with labels, each cell with its own test layer. The test goes to the laser directly via Preview, Frame, Start or G-code without changing the document; the cells run in order of increasing energy.
+- Objects window (on the right below the layers, shown and hidden via the Window menu): tree of layers and their objects, expandable groups, frontmost object on top. A click selects (Shift/Ctrl adds), and the selection on the workspace follows along. Double-click a name to rename an object or layer. Eye: hide (hidden objects are not drawn, lasered or exported). Lock: lock (not selectable on the workspace), also for whole layers. Dragging changes the stacking order, moves objects to another layer or reorders layers in the output order. Name, `hidden` and `locked` are stored in the object (`src/model.ts`) and appear in the MCP server’s `get_document`.
+- Multi-page projects: a project has one or more pages (top of the Objects window, Pages menu, Page Up/Down to switch). Each page has its own objects; cut settings apply to the whole project. Drawing, editing, lasering and export (SVG, G-code) work on the current page. Pages can be added, duplicated, renamed (double-click), deleted and reordered by dragging; drag objects onto a page row to move them there. File format from `version: 2` with `pages` and `page`; older files open as a project with one page. MCP: `get_document` (with `pages`), `switch_page`, `edit_pages`, `move_to_page`.
+- Interface in German and English (View → Language). The default follows the system language (other system languages get English), the choice is remembered; English terms as in LightBurn.
+- Light and dark theme (View → Theme, or the button at the far right of the toolbar); the default follows the system. In the dark theme, very dark layer colors are lightened on the workspace.
+- Import (Ctrl+I, drag from the file manager, or Ctrl+V from other programs): images (PNG, JPG, BMP, GIF, WebP, TIFF), SVG and DXF.
+  - Images take their size from the file’s resolution (254 DPI if none is given; oversized images are scaled down to the bed).
+  - TIFF (including LZW, Deflate, 16 bit) is read with utif and stored as PNG; for multi-page files the first page is used.
+  - SVG: paths including arcs, rectangles, circles, ellipses, lines, polygons, `use`, transforms, CSS classes, embedded images; units via `width`/`height` and `viewBox`. Texts are skipped.
+  - DXF: LINE, LWPOLYLINE/POLYLINE with arcs, CIRCLE, ARC, ELLIPSE, SPLINE, INSERT (blocks), units from `$INSUNITS`. Individual lines are joined into continuous paths.
+  - Colors are mapped to the nearest palette color (= layer), and multiple objects are inserted as a group.
+- Image editing as in LightBurn: images are a separate “Image” entry in the layer table with image mode (Threshold, Ordered, Atkinson, Floyd-Steinberg, Stucki, Jarvis, Newsprint, Halftone, Sketch, Grayscale), line interval/DPI, negative image, bidirectional, overscan, speed and power. “Adjust Image” (brightness, contrast, gamma, sharpening with radius, and denoise) with preview, comparison with the original and a 1:1 crop view. The workspace shows the rasterized result at laser resolution.
+  - Newsprint places a round dot in each screen cell (cells per inch, screen angle) whose area matches the cell’s brightness. Sketch turns edges into dark strokes and leaves even areas blank; it is lasered like grayscale, with power between min and max.
+  - Image presets in “Adjust Image”: save adjustments and image mode (with threshold, cells and angle) under a name, apply and delete them. Speed, power and line interval belong in the material library.
+- Crop image and apply mask (Tools menu, or buttons in the toolbar when an image and shapes are selected): cropping trims the image to the shape’s bounding box, the mask keeps only the inside of the closed shapes (text too), and the rest becomes transparent and is not lasered. The image stays in place at its original resolution, the shapes are removed, and Ctrl+Z undoes both.
+- Trace Image (Alt+T): threshold, ignore small specks, smoothing, live preview. The result is Bézier paths with preserved corners.
+- Save Processed Bitmap (the dithered image as PNG, exactly as it would be lasered).
+- Machine output for FluidNC/GRBL (Laser, Move and Console windows at the bottom right):
+  - Save and select multiple devices (top of the Laser window, Laser → Devices …). New devices from templates for common lasers (Swiitol, Ortur, Atomstack, Sculpfun, xTool, Creality Falcon, Two Trees) or generic per controller. The workspace bed follows the selected device.
+  - Controllers: FluidNC, GRBL 1.1, grblHAL (character counting, real-time status, M4), Marlin (line by line, position via M114, inline laser `M3 I`, pause by holding back lines, stop with M410) and Smoothieware (line by line, S 0 … 1). Home, jogging, origin and console buttons adapt accordingly.
+  - Connect via USB serial or Wi-Fi (Telnet, port 23, or WebSocket, FluidNC port 81; if it is unreachable, 80 is tried). Status, position and laser head on the workspace, alarms in plain language.
+  - Start, Pause/Resume, Stop (hold and reset, position is kept), Frame as a rectangle or outline (optionally with a low-power laser), Home, Move to origin.
+  - Start from: Absolute Coords, User Origin or Current Position, each with a 9-point job origin. “Cut Selected Graphics” lasers only the selected objects.
+  - G-code in laser mode (M4): lines in optimized order (inner shapes first, short travel moves, best start node), fill with line interval, scan angle, cross-hatch, overscan and bidirectional, kerf offset per object, tabs as segments without power, air assist per layer, images in all image modes (grayscale with power between min and max), passes, layer order. Texts are lasered with their font outlines.
+  - Streaming with character counting (127-byte receive buffer) in the Rust core, progress with elapsed and estimated remaining time.
+  - Preview (Alt+P) with a time estimate like FluidNC’s motion planner (acceleration, corners), playback and time slider, travel moves, shading by power, zoom and pan. “Start Here” lasers the job from the time slider’s position, e.g. after an abort: rapid move with the laser off to that point, then continue with the layer’s power, feed and air assist. The preview shows the same order as the job, also with “User Origin” and “Current Position”.
+  - Custom G-code scripts per device (Device Settings → G-code scripts): “Before the job” after G21, G90 and the laser mode, “After the job” after M5 and before the program end (M2 or M400). Applies to jobs and saved G-code, not to framing.
+  - Save G-code, Move tab (jog in steps, set/clear origin, Move Laser to Selection, Unlock), console with history.
+  - Device Settings: work area, S value for 100 %, baud rate, Wi-Fi address, rapid speed and acceleration, frame. “Read from Machine” fetches work area, rapid speed, acceleration (FluidNC configuration or GRBL `$$`) and, for GRBL, the power scale `$30`.
+  - Rotary (Laser → “Rotary …” or Laser menu → “Rotary Setup …”, per device): roller or chuck, rotary on the Y port (instead of the Y motor) or as a separate A, B, C or Z axis, axis travel per revolution (mm or degrees), roller and object diameter or circumference, reverse direction, test rotation (one object revolution). The design’s Y direction is converted into axis travel, and the feed is adjusted so the speed on the surface is correct; this applies to jobs, images, frame, Move and “Start Here”. A separate axis is set to its current position with `G92 A0` (or B, C, Z) at the start, and the frame returns to the start afterwards. In rotary mode Laserwerk only checks X against the bed, warns when the job is taller than the object’s circumference, and asks for confirmation before homing when the rotary is plugged into the Y port.
+- Camera (“Camera” window): choose a USB camera; the image is undistorted and placed correctly under the objects on the workspace, with opacity, single or continuous updates, and Insert as Image on T1 (for tracing). Calibrate: laser 2 × 2 to 5 × 5 markers (or save them as G-code) and click them in the photo; this computes the placement (homography) and, from 3 × 3, the lens distortion, with the residual error in mm and an undistorted check view. Multiple cameras per device, each with its own calibration, connected and overlaid at the same time. Head camera (on the laser head): calibration with small markers around the head position; images land at the respective head position as a mosaic on the workspace, and “Capture bed” or “Capture selection” scans the area without the laser and stitches it from individual shots; the field of view is shown dashed at the head position. On macOS the system asks for camera permission on the first connection.
+- Access for AI agents via MCP (File → AI Agents (MCP)): a small HTTP server on 127.0.0.1 only (port 47800, `http://127.0.0.1:47800/mcp`), off by default, with a token. For clients that only speak stdio, `laserwerk --mcp-stdio` starts a bridge. Four levels: read (document, layers, materials, devices, fonts, preview image, time estimate), design (shapes, text, QR codes and variable text, Boolean operations, offset, path tools (`path_tool`: close, join, break apart, direction, start point, trim), arrays, living hinges, joints, layers, import, pages, files; each call is one undo step), G-code, and machine. An agent never sends raw G-code: it can only request a job, frame or homing, which starts only after confirmation in Laserwerk; jobs must lie within the work area and device limits, pause and stop always work, and every machine action is logged. The machine level only lasts until the app is closed.
+- Save and open projects (`.lwk`, JSON, images embedded), SVG export (with images), automatic backup (image data in IndexedDB).
 
-Konische Objekte bei der Drehachse (Taper Warp, z. B. Becher).
+## Not yet included
 
-## Übersetzungen
+Tapered objects for the rotary (taper warp, e.g. cups).
 
-Texte stehen im Code auf Deutsch in `t('…')` (Platzhalter in geschweiften Klammern, `t('{n} Bilder', { n })`; Einzahl/Mehrzahl mit `tn('{n} Bild', '{n} Bilder', n)`). Die deutsche Fassung ist zugleich der Schlüssel in den Sprachdateien `src/locales/<sprache>.json`. Fehlt eine Übersetzung, erscheint der deutsche Text. Hat derselbe deutsche Text zwei Bedeutungen, bekommt er einen Kontext nach `|`, z. B. `t('Verbindung|Gerät')`.
+## Translations
 
-- `npm run i18n:check` listet fehlende, unbenutzte und falsch platzierte Einträge (bricht bei Fehlendem mit Fehler ab).
-- `npm run i18n:check -- --write` trägt neue Texte mit leerem Wert ein und entfernt unbenutzte; danach nur noch die leeren Werte übersetzen.
-- Neue Sprache: `src/locales/fr.json` anlegen (z. B. Kopie von `en.json` mit leeren Werten), in `src/i18n.ts` bei `LANGUAGES` und `DICTS` eintragen.
-- Meldungen aus dem Rust-Teil sind deutsch und werden in `src/i18n.ts` (`tBackend`) übersetzt.
+UI texts are written in German in the code inside `t('…')` (placeholders in curly braces, `t('{n} Bilder', { n })`; singular/plural with `tn('{n} Bild', '{n} Bilder', n)`). The German text is also the key in the language files `src/locales/<language>.json`. If a translation is missing, the German text is shown. If the same German text has two meanings, it gets a context after `|`, e.g. `t('Verbindung|Gerät')`.
 
-## Aufbau
+- `npm run i18n:check` lists missing, unused and misplaced entries (fails if anything is missing).
+- `npm run i18n:check -- --write` adds new texts with an empty value and removes unused ones; afterwards only the empty values need translating.
+- New language: create `src/locales/fr.json` (e.g. a copy of `en.json` with empty values) and register it in `LANGUAGES` and `DICTS` in `src/i18n.ts`.
+- Messages from the Rust side are in German and are translated in `src/i18n.ts` (`tBackend`).
 
-| Datei | Inhalt |
+## Structure
+
+| File | Contents |
 |---|---|
-| `src/model.ts` | Datenmodell: Dokument, Objekte, Layer, Matrizen, Palette |
-| `src/geom.ts` | Formen als Bézierpfade, Begrenzungsrahmen, Text-Layout, Treffertest, SVG-Pfade |
-| `src/editor.ts` | Arbeitsfläche: Zeichnen, Werkzeuge, Auswahl, Transformieren, Knoten, Befehle, Undo |
-| `src/ui.ts` | Menü, Aktionen der Funktionsleisten, Eigenschaftenleiste, Layer-Fenster, Palette, Statusleiste, Texteingabe |
-| `src/dock.ts` | Andockbare Fenster: Reiter, Gruppen, freie Fenster, Größe, Ein-/Ausblenden, gespeicherte Anordnung |
-| `src/toolbars.ts` | Anpassbare Funktionsleisten: Aktionen, Belegung, Symbolgröße, Anpassen-Dialog, Leisten ein-/ausblenden |
-| `src/layerdialog.ts` | Layer-Einstellungen (Kerf, Haltestege, Füllen, Air Assist) |
-| `src/fonts.ts` | Schriftdateien laden (Systemschriften über Rust, Ersatzschrift) und Text in Bézierpfade umwandeln (opentype.js) |
-| `src/vartext.ts` | Variabler Text: Platzhalter, CSV einlesen, Weiterzählen |
-| `src/barcode.ts`, `src/qrDialog.ts` | QR-Codes (qrcode-generator, MIT) als geschlossene Umrisse; Dialoge „QR-Code“ und „Variabler Text“ |
-| `src/textpath.ts` | Text auf Pfad: Bogenlänge, Glyphen entlang der Kurve setzen |
-| `src/clip.ts`, `src/curves.ts` | Clipper-Anbindung (Zerlegen, Kurvenrückführung, Buchstaben schweißen) und Bézier-Grundlagen |
-| `src/ops.ts` | Boolesche Operationen und Offset (Clipper) |
-| `src/pathtools.ts` | Pfad-Werkzeuge: Schließen, Auto-Join, Zerlegen, Startpunkt, Schnittpunkte und Trimmen (Bézier exakt geteilt). Tests: `npm run test:paths` |
-| `src/snap.ts` | Fangen: Objektfang (Knoten, Mittelpunkt, Zentrum, Schnittpunkt, Linie) und Ausrichtungshilfen |
-| `src/arrays.ts`, `src/arrayDialogs.ts` | Raster- und Kreisarray mit Dialogen und Live-Vorschau |
-| `src/hinges.ts`, `src/hingeDialog.ts` | Biegeschnitte (Living Hinges): Muster und Dialog |
-| `src/joints.ts`, `src/jointDialog.ts` | Verbindungen: Fingerzinken, Schlitz und Zapfen, Überblattung, Schnapp-, Haken-, Keil- und T-Slot-Verbindung |
-| `src/images.ts` | Bilddaten (außerhalb von Undo, gesichert in IndexedDB), Bildverarbeitung und Dithering, Zwischenspeicher der Ergebnisse |
-| `src/imagePresets.ts` | Bild-Presets (Anpassungen und Bildmodus) im lokalen Speicher |
-| `src/trace.ts` | Bild nachzeichnen: Marching Squares, Vereinfachung, Kurveneinpassung |
-| `src/importers.ts` | SVG- und DXF-Import |
-| `src/fit.ts` | Kurvenrückführung: Linienzüge in Bézierpfade (Ecken erkennen, Schneider-Verfahren) |
-| `src/gcode.ts` | Maschinenausgabe: Job aus dem Dokument (Linie, Füllen, Bilder, Reihenfolge), G-Code, Laufzeitschätzung, Rahmen, Start Here, Start-/End-Skripte, Geräteeinstellungen. Tests: `npm run test:gcode` |
-| `src/camera.ts` | Kamera: Zugriff, Kalibriermodell (Homographie und radiale Verzeichnung, Levenberg-Marquardt), Entzerrung aufs Bett |
-| `src/cameraui.ts` | Kamera-Reiter, Kamerabild auf der Arbeitsfläche, Kalibrier-Assistent mit Markierungen |
-| `src/materials.ts`, `src/materialui.ts` | Material-Bibliothek, `.lwm`-Export/-Import, Einlesen von LightBurn-`.clb`, Reiter „Material“ |
-| `src/materialtest.ts` | Materialtest: Raster mit gestuften Werten und eigenen Testlayern |
-| `src/objectsPanel.ts` | Objekte-Fenster: Seiten, Layer und Objekte als Baum |
-| `src/agent.ts`, `src/agentedit.ts`, `src/agentmachine.ts`, `src/agentutil.ts`, `src/agentui.ts` | Werkzeuge für KI-Agenten (MCP) nach Stufen, Sicherheitsregeln der Maschinenstufe, Einstellungsdialog |
-| `src/machine.ts` | Verbindung zur Maschine aus Sicht der Oberfläche: Zustand, Statusauswertung, Klartext für Alarme, Befehle an Rust |
-| `src/laser.ts` | Fenster Laser, Verschieben und Konsole, Geräteeinstellungen, Vorschau |
-| `src/dom.ts` | DOM-Helfer und Zahlenfelder mit Formeln |
-| `src/i18n.ts`, `src/locales/` | Mehrsprachigkeit: `t()`, Sprachwahl, englische Sprachdatei |
-| `src/files.ts` | Öffnen/Speichern/Importieren (Tauri-Dialoge oder Browser), Ziehen und Einfügen, SVG-Export, bearbeitetes Bild speichern |
-| `src-tauri/` | Rust-Hülle: native Dateidialoge, Dateien lesen/schreiben, Liste und Dateien der Systemschriften (fontdb) |
-| `src-tauri/src/stream.rs` | G-Code-Übertragung mit Zeichenzählung, Statusabfrage, Halt/Reset (mit Tests: `cargo test`) |
-| `src-tauri/src/machine.rs` | Seriell (serialport), Telnet (TCP) und WebSocket, Ereignisse an das Fenster |
-| `src-tauri/src/ws.rs` | WebSocket zur Steuerung (tungstenite) als Byte-Strom für die Übertragung, mit Test gegen ein nachgebildetes FluidNC |
-| `src-tauri/src/agent.rs` | MCP-Server (Streamable HTTP auf 127.0.0.1, Token, Stufen) und stdio-Brücke `--mcp-stdio` |
-| `src-tauri/core/` | Rechenkern ohne Oberfläche (`laserwerk-core`): Bildverarbeitung und Dithering, Rasterzeilen der Bilder, G-Code schreiben. Rechnet wie `images.ts`/`gcode.ts`, die Desktop-App nutzt ihn, der Browser die TypeScript-Fassung. Vergleichstest: `npm run test:core` |
-| `src-tauri/src/native.rs` | Rechenkern für die Oberfläche: Graustufen der Bilder und fertiger G-Code bleiben in Rust |
-| `src/native.ts` | Aufruf des Rechenkerns aus der Oberfläche |
+| `src/model.ts` | Data model: document, objects, layers, matrices, palette |
+| `src/geom.ts` | Shapes as Bézier paths, bounding boxes, text layout, hit testing, SVG paths |
+| `src/editor.ts` | Workspace: drawing, tools, selection, transforms, nodes, commands, undo |
+| `src/ui.ts` | Menu, toolbar actions, numeric edits toolbar, layer window, palette, status bar, text input |
+| `src/dock.ts` | Dockable windows: tabs, groups, floating windows, sizing, show/hide, saved layout |
+| `src/toolbars.ts` | Customizable toolbars: actions, contents, icon size, customize dialog, show/hide bars |
+| `src/layerdialog.ts` | Cut settings (kerf, tabs, fill, air assist) |
+| `src/fonts.ts` | Load font files (system fonts via Rust, fallback font) and convert text to Bézier paths (opentype.js) |
+| `src/vartext.ts` | Variable text: placeholders, CSV import, auto-advance |
+| `src/barcode.ts`, `src/qrDialog.ts` | QR codes (qrcode-generator, MIT) as closed outlines; “QR Code” and “Variable Text” dialogs |
+| `src/textpath.ts` | Text on a path: arc length, placing glyphs along the curve |
+| `src/clip.ts`, `src/curves.ts` | Clipper bindings (flattening, curve refitting, welding letters) and Bézier basics |
+| `src/ops.ts` | Boolean operations and offset (Clipper) |
+| `src/pathtools.ts` | Path tools: close, auto-join, break apart, start point, intersections and trimming (exact Bézier splitting). Tests: `npm run test:paths` |
+| `src/snap.ts` | Snapping: object snap (node, midpoint, center, intersection, line) and alignment guides |
+| `src/arrays.ts`, `src/arrayDialogs.ts` | Grid and circular arrays with dialogs and live preview |
+| `src/hinges.ts`, `src/hingeDialog.ts` | Living hinges: patterns and dialog |
+| `src/joints.ts`, `src/jointDialog.ts` | Joints: finger joints, tab-and-slot, cross-lap, snap-fit, hook, wedge and T-slot joints |
+| `src/images.ts` | Image data (outside undo, backed up in IndexedDB), image processing and dithering, result cache |
+| `src/imagePresets.ts` | Image presets (adjustments and image mode) in local storage |
+| `src/trace.ts` | Trace image: marching squares, simplification, curve fitting |
+| `src/importers.ts` | SVG and DXF import |
+| `src/fit.ts` | Curve refitting: polylines to Bézier paths (corner detection, Schneider’s algorithm) |
+| `src/gcode.ts` | Machine output: job from the document (line, fill, images, order), G-code, runtime estimate, frame, Start Here, start/end scripts, device settings. Tests: `npm run test:gcode` |
+| `src/camera.ts` | Camera: access, calibration model (homography and radial distortion, Levenberg-Marquardt), undistortion onto the bed |
+| `src/cameraui.ts` | Camera tab, camera image on the workspace, calibration wizard with markers |
+| `src/materials.ts`, `src/materialui.ts` | Material library, `.lwm` export/import, reading LightBurn `.clb`, “Material” tab |
+| `src/materialtest.ts` | Material test: grid with stepped values and its own test layers |
+| `src/objectsPanel.ts` | Objects window: pages, layers and objects as a tree |
+| `src/agent.ts`, `src/agentedit.ts`, `src/agentmachine.ts`, `src/agentutil.ts`, `src/agentui.ts` | Tools for AI agents (MCP) by level, safety rules of the machine level, settings dialog |
+| `src/machine.ts` | Machine connection from the UI’s side: state, status parsing, plain-language alarms, commands to Rust |
+| `src/laser.ts` | Laser, Move and Console windows, device settings, preview |
+| `src/dom.ts` | DOM helpers and numeric fields with formulas |
+| `src/i18n.ts`, `src/locales/` | Localization: `t()`, language selection, English language file |
+| `src/files.ts` | Open/save/import (Tauri dialogs or browser), drag and paste, SVG export, save processed bitmap |
+| `src-tauri/` | Rust shell: native file dialogs, reading/writing files, list and files of the system fonts (fontdb) |
+| `src-tauri/src/stream.rs` | G-code streaming with character counting, status queries, hold/reset (with tests: `cargo test`) |
+| `src-tauri/src/machine.rs` | Serial (serialport), Telnet (TCP) and WebSocket, events to the window |
+| `src-tauri/src/ws.rs` | WebSocket to the controller (tungstenite) as a byte stream for streaming, with a test against a simulated FluidNC |
+| `src-tauri/src/agent.rs` | MCP server (Streamable HTTP on 127.0.0.1, token, levels) and stdio bridge `--mcp-stdio` |
+| `src-tauri/core/` | Computation core without UI (`laserwerk-core`): image processing and dithering, image raster lines, writing G-code. Computes the same as `images.ts`/`gcode.ts`; the desktop app uses it, the browser uses the TypeScript version. Comparison test: `npm run test:core` |
+| `src-tauri/src/native.rs` | Computation core for the UI: image grayscale data and finished G-code stay in Rust |
+| `src/native.ts` | Calls into the computation core from the UI |
 
-Intern rechnet der Editor in mm mit y nach unten; angezeigt wird in Maschinenkoordinaten (Ursprung unten links).
+Internally the editor works in mm with y pointing down; the display uses machine coordinates (origin at the bottom left).

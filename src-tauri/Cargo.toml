@@ -1,6 +1,6 @@
 [package]
 name = "laserwerk"
-version = "0.1.0"
+version = "1.0.0-alpha"
 description = "Freie Laser-Software (Prototyp)"
 license = "GPL-3.0-or-later"
 edition = "2021"
