@@ -95,6 +95,29 @@ for (const startFrom of ['absolute', 'user', 'current'] as const) {
   });
 }
 
+// Gesetzter Startpunkt (Set Start Point): die Optimierung beginnt dort und behält die Richtung
+for (const fixed of [false, true]) {
+  await test(`Startpunkt ${fixed ? 'gesetzt: bleibt' : 'frei: nächster Knoten'}`, async () => {
+    const sq = { closed: true, nodes: [{ x: 100, y: 300 }, { x: 120, y: 300 }, { x: 120, y: 320 }, { x: 100, y: 320 }], ...(fixed ? { start: true } : {}) };
+    const ln = { closed: false, nodes: [{ x: 300, y: 300 }, { x: 200, y: 300 }], ...(fixed ? { start: true } : {}) };
+    const objs: Obj[] = [
+      { id: 1, m: [1, 0, 0, 1, 0, 0], layer: 1, shape: { kind: 'path', subs: [sq] } },
+      { id: 2, m: [1, 0, 0, 1, 0, 0], layer: 1, shape: { kind: 'path', subs: [ln] } },
+    ];
+    const doc = loadDoc({ bed: { w: 400, h: 400 }, objs, layers: {} });
+    const device = { ...newDevice({ fw: 'fluidnc' }), startFrom: 'absolute' as const, optimize: true, returnHome: false };
+    const job = await buildJob({ doc, layer: (i: number) => ({ ...defaultLayer(i), mode: 'line' as const }), imgLayer: () => defaultImageLayer(), device });
+    const mv = job.moves;
+    // erste Eilfahrt: zur Ecke des Quadrats
+    const first = [mv.x[0], mv.y[0]];
+    assert.deepEqual(first, fixed ? [100, 100] : [100, 80]);
+    // zweite Eilfahrt: zur Linie; frei am näheren Ende (200), gesetzt am Anfang (300)
+    let k = 1;
+    while (k < mv.n && mv.f[k] !== 0) k++;
+    assert.deepEqual([mv.x[k], mv.y[k]], fixed ? [300, 100] : [200, 100]);
+  });
+}
+
 if (failed) {
   console.log(`${failed} Test(s) fehlgeschlagen`);
   process.exit(1);

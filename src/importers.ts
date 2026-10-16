@@ -114,6 +114,7 @@ export function transformSubs(subs: SubPath[], m: Mat): SubPath[] {
       if (n.smooth) q.smooth = true;
       return q;
     }),
+    ...(sp.start ? { start: true } : {}),
   }));
 }
 

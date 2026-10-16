@@ -162,6 +162,11 @@ function buildMenu(ed: Editor) {
       'sep',
       [t('Alles auswählen'), 'Ctrl+A', () => ed.selectAll()],
       [t('In Pfad umwandeln'), 'Ctrl+Shift+C', () => ed.convertSelToPath()],
+      'sep',
+      [t('Pfad schließen'), '', () => ed.closeSel()],
+      [t('Pfade mit Toleranz schließen …'), '', () => openCloseDialog(ed)],
+      [t('Ausgewählte Formen verbinden'), 'Alt+J', () => ed.joinSel()],
+      [t('Richtung umkehren'), '', () => ed.reverseSel()],
     ]],
     [t('Werkzeuge'), [
       [t('Auswählen'), 'Esc', () => ed.setTool('select')],
@@ -171,6 +176,8 @@ function buildMenu(ed: Editor) {
       [t('Ellipse'), 'Ctrl+E', () => ed.setTool('ellipse')],
       [t('Polygon'), '', () => ed.setTool('polygon')],
       [t('Text'), 'Ctrl+T', () => ed.setTool('text')],
+      [t('Formen trimmen'), 'Ctrl+K', () => ed.setTool('trim')],
+      [t('Startpunkt setzen'), '', () => ed.setTool('start')],
       'sep',
       [t('Vereinen'), '', () => ed.booleanSel('union')],
       [t('Abziehen'), '', () => ed.booleanSel('subtract')],
@@ -197,6 +204,7 @@ function buildMenu(ed: Editor) {
     [t('Anordnen'), [
       [t('Gruppieren'), 'Ctrl+G', () => ed.group()],
       [t('Gruppierung aufheben'), 'Ctrl+U', () => ed.ungroup()],
+      [t('Zerlegen'), 'Alt+B', () => ed.breakApartSel()],
       'sep',
       [t('Horizontal spiegeln'), 'Ctrl+Shift+H', () => ed.mirror(true)],
       [t('Vertikal spiegeln'), 'Ctrl+Shift+V', () => ed.mirror(false)],
@@ -691,8 +699,14 @@ function buildTools(ed: Editor) {
   const joint = iconBtn('joint', t('Verbindung: Fingerzinken, Zapfen, Überblattung, Schnapp-, Haken-, Keil- oder T-Slot-Verbindung auf gerade Kanten anwenden'), () => ed.setTool('joint'));
   joint.dataset.tool = 'joint';
   btns.set('joint', joint);
+  const trim = iconBtn('trim', t('Formen trimmen (Ctrl+K): Abschnitte bis zum nächsten Schnittpunkt anklicken und entfernen'), () => ed.setTool('trim'));
+  trim.dataset.tool = 'trim';
+  btns.set('trim', trim);
+  const start = iconBtn('startpoint', t('Startpunkt setzen: Knoten anklicken, an dem der Schnitt beginnt (Shift: Richtung umkehren)'), () => ed.setTool('start'));
+  start.dataset.tool = 'start';
+  btns.set('start', start);
   const hinge = iconBtn('hinge', t('Biegeschnitte (Living Hinge): gewählte Form mit einem Schnittmuster füllen, damit sich die Platte dort biegen lässt'), () => openHingeDialog(ed));
-  bar.append(...mods, boolOpts, off, ...arrays, joint, hinge);
+  bar.append(...mods, boolOpts, off, trim, start, ...arrays, joint, hinge);
   const refresh = () => {
     btns.forEach((b, t) => b.classList.toggle('on', ed.tool === t));
     mods.forEach((b) => (b.disabled = ed.sel.length < 2));
@@ -765,6 +779,73 @@ function openBooleanDialog(ed: Editor) {
   dlg.addEventListener('keydown', (e) => e.stopPropagation());
   document.body.append(dlg);
   (dlg as HTMLDialogElement).showModal();
+}
+
+// ---------- Pfade mit Toleranz schließen ----------
+
+let closeState = { tol: 1, mode: 'line' as 'line' | 'move' };
+
+function openCloseDialog(ed: Editor) {
+  if (!ed.sel.length) return;
+  const st = { ...closeState };
+  const info = h('div', { class: 'note' });
+  const update = () => {
+    const r = ed.closeStats(st.tol);
+    info.textContent = t('Offene Formen: {open} · werden geschlossen: {closed} · bleiben offen: {rest}', { open: r.open, closed: r.closed, rest: r.open - r.closed });
+  };
+  const val = h('input', { type: 'text', id: 'close-tol', value: dec(String(st.tol)), style: 'width: 64px' }) as HTMLInputElement;
+  const slider = h('input', { type: 'range', min: '0', max: '1', step: '0.001', id: 'close-slider', style: 'flex: 1; min-width: 0' }) as HTMLInputElement;
+  // logarithmisch von 0,01 bis 20 mm
+  const toSlider = (v: number) => String(Math.log(v / 0.01) / Math.log(2000));
+  const fromSlider = (x: number) => Math.round(0.01 * Math.pow(2000, x) * 1000) / 1000;
+  slider.value = toSlider(st.tol);
+  slider.oninput = () => {
+    st.tol = fromSlider(Number(slider.value));
+    val.value = dec(String(st.tol));
+    update();
+  };
+  val.onchange = () => {
+    const v = evalExpr(val.value);
+    if (v && v > 0) {
+      st.tol = v;
+      slider.value = toSlider(v);
+    }
+    val.value = dec(String(st.tol));
+    update();
+  };
+  const radio = (value: 'line' | 'move', label: string) =>
+    h('label', {}, h('input', { type: 'radio', name: 'close-mode', value, checked: st.mode === value, onchange: () => (st.mode = value) }), label);
+  const dlg = h(
+    'dialog',
+    { class: 'offset-dialog close-dialog' },
+    h('h3', {}, t('Pfade mit Toleranz schließen')),
+    h(
+      'div',
+      { class: 'form' },
+      h('label', { for: 'close-tol' }, t('Höchstabstand (mm)')), h('div', { class: 'radios' }, slider, val),
+      h('label', {}, t('Schließen durch')),
+      h('div', { class: 'radios column' }, radio('line', t('Gerade einfügen')), radio('move', t('Enden zusammenziehen'))),
+    ),
+    info,
+    h(
+      'div',
+      { class: 'dialog-buttons' },
+      h('button', { class: 'btn', onclick: () => dlg.close() }, t('Abbrechen')),
+      h('button', {
+        class: 'btn primary',
+        onclick: () => {
+          closeState = st;
+          dlg.close();
+          ed.closeSel(st.tol, st.mode);
+        },
+      }, t('Übernehmen')),
+    ),
+  );
+  dlg.addEventListener('close', () => dlg.remove());
+  dlg.addEventListener('keydown', (e) => e.stopPropagation());
+  document.body.append(dlg);
+  dlg.showModal();
+  update();
 }
 
 // ---------- Offset-Dialog ----------

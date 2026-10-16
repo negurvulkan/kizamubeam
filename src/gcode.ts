@@ -319,6 +319,8 @@ interface Poly {
   closed: boolean;
   /** Haltestege: off[i] = 1 heißt, die Strecke von pts[i] zum nächsten Punkt wird ohne Laser gefahren */
   off?: Uint8Array;
+  /** Startpunkt und Richtung vom Nutzer gesetzt: die Optimierung beginnt hier und kehrt nicht um */
+  fixed?: boolean;
 }
 
 const FLATTEN_TOL = 0.01;
@@ -346,7 +348,7 @@ function flatten(sp: SubPath, m: Mat): Poly {
       b = pts[pts.length - 1];
     if (Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6) pts.pop();
   }
-  return { pts, closed: sp.closed && pts.length > 2 };
+  return { pts, closed: sp.closed && pts.length > 2, ...(sp.start ? { fixed: true } : {}) };
 }
 
 function emptyBox(): Box {
@@ -443,7 +445,11 @@ function orderPolys(polys: Poly[], from: Pt): Poly[] {
         dy = Math.max(b.y0 - cur.y, 0, cur.y - b.y1);
       if (dx * dx + dy * dy >= bestD) continue;
       const p = polys[i];
-      if (p.closed) {
+      if (p.fixed) {
+        // gesetzter Startpunkt: nur dort beginnen, Richtung bleibt
+        const d = (p.pts[0].x - cur.x) ** 2 + (p.pts[0].y - cur.y) ** 2;
+        if (d < bestD) [bestD, best, bestIdx, bestRev] = [d, i, 0, false];
+      } else if (p.closed) {
         for (let j = 0; j < p.pts.length; j++) {
           const d = (p.pts[j].x - cur.x) ** 2 + (p.pts[j].y - cur.y) ** 2;
           if (d < bestD) [bestD, best, bestIdx, bestRev] = [d, i, j, false];
@@ -479,11 +485,11 @@ const midOf = (b: Box): Pt => ({ x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 });
 /** Geschlossene Form ab Punkt k beginnen lassen (Haltestege wandern mit) */
 function startAt(p: Poly, k: number): Poly {
   const pts = p.pts.slice(k).concat(p.pts.slice(0, k));
-  if (!p.off) return { pts, closed: p.closed };
+  if (!p.off) return { pts, closed: p.closed, fixed: p.fixed };
   const off = new Uint8Array(p.off.length);
   off.set(p.off.subarray(k));
   off.set(p.off.subarray(0, k), p.off.length - k);
-  return { pts, closed: p.closed, off };
+  return { pts, closed: p.closed, off, fixed: p.fixed };
 }
 
 // ---------- Kerf und Haltestege ----------
@@ -552,7 +558,7 @@ export function addTabs(p: Poly, T: TabSettings): Poly {
     }
     off.push(inTab((last + d1) / 2) ? 1 : 0);
   }
-  return { pts, closed: true, off: Uint8Array.from(off) };
+  return { pts, closed: true, off: Uint8Array.from(off), fixed: p.fixed };
 }
 
 /** Haltestege für alle geschlossenen Formen eines Layers; innere Formen auf Wunsch auslassen */
