@@ -23,6 +23,9 @@ export interface Action {
   dyn?: () => { icon?: string; label?: string };
   /** Kleiner Knopf (Optionen zu einem Nachbarn) */
   small?: boolean;
+  /** Knopfgruppe: zeigt die zuletzt benutzte Aktion, der Pfeil daneben klappt die übrigen auf.
+   *  Kleine Aktionen (Optionen) erscheinen nur in der Liste und werden nicht zur gezeigten. */
+  items?: string[];
 }
 
 export type BarId = 'main' | 'tools';
@@ -31,9 +34,13 @@ export type BarKey = BarId | 'numbar' | 'palette' | 'status';
 type IconSize = 's' | 'm' | 'l';
 
 interface Config {
+  /** Version der gespeicherten Belegung (2: Knopfgruppen) */
+  v: number;
   bars: Record<BarId, string[]>;
   size: Record<BarId, IconSize>;
   hidden: BarKey[];
+  /** Zuletzt benutzte Aktion je Knopfgruppe */
+  groups: Record<string, string>;
 }
 
 const KEY = 'kizamubeam.toolbars';
@@ -43,6 +50,8 @@ const BAR_EL: Record<BarKey, string> = { main: '#toolbar', tools: '#tools', numb
 const actions = new Map<string, Action>();
 let defaults: Record<BarId, string[]> = { main: [], tools: [] };
 let cfg: Config;
+/** Ersatz alter Einzelknopf-Folgen durch Knopfgruppen in gespeicherten Leisten (Version 1 → 2) */
+let migrations: [string[], string][] = [];
 
 export const barNames = (): Record<BarKey, string> => ({
   main: t('Hauptleiste'),
@@ -53,9 +62,10 @@ export const barNames = (): Record<BarKey, string> => ({
 });
 
 /** Aktionen und Standardbelegung festlegen, gespeicherte Anpassung laden und die Leisten aufbauen */
-export function initToolbars(list: Action[], def: Record<BarId, string[]>) {
+export function initToolbars(list: Action[], def: Record<BarId, string[]>, migrate: [string[], string][] = []) {
   list.forEach((a) => actions.set(a.id, a));
   defaults = def;
+  migrations = migrate;
   cfg = load();
   for (const k of Object.keys(BAR_EL) as BarKey[]) applyHidden(k);
   renderBar('main');
@@ -71,16 +81,45 @@ export function initToolbars(list: Action[], def: Record<BarId, string[]>) {
 /** Aktivierung und Zustand aller Knöpfe nachziehen (nach Auswahl- oder Werkzeugwechsel) */
 export function refreshBars() {
   for (const id of ['main', 'tools'] as BarId[])
-    for (const b of $(BAR_EL[id]).querySelectorAll<HTMLButtonElement>('[data-action]')) {
-      const a = actions.get(b.dataset.action!)!;
+    for (const el of $(BAR_EL[id]).querySelectorAll<HTMLElement>('[data-action]')) {
+      const g = actions.get(el.dataset.action!)!;
+      // Knopfgruppe: der Hauptknopf zeigt die zuletzt benutzte Aktion
+      const a = g.items ? groupCurrent(g) : g;
+      const b = (g.items ? el.firstElementChild : el) as HTMLButtonElement;
+      if (g.items && b.dataset.cur !== a.id) {
+        b.dataset.cur = a.id;
+        paint(b, a);
+      }
       if (a.enabled) b.disabled = !a.enabled();
+      else b.disabled = false;
       if (a.on) b.classList.toggle('on', a.on());
+      else b.classList.remove('on');
       if (a.dyn) {
         const d = a.dyn();
         if (d.icon && b.dataset.icon !== d.icon) ((b.innerHTML = ICONS[d.icon]), (b.dataset.icon = d.icon));
         if (d.label) b.title = d.label;
       }
+      if (g.items) (el.lastElementChild as HTMLElement).title = t('Weitere: {name}', { name: g.label });
     }
+}
+
+/** Die Aktion, die eine Knopfgruppe gerade zeigt */
+function groupCurrent(g: Action): Action {
+  const id = cfg.groups[g.id];
+  return actions.get(id && g.items!.includes(id) ? id : g.items!.find((x) => !actions.get(x)?.small)!)!;
+}
+
+/** Symbol bzw. Kurztext und Tooltip einer Aktion auf einen Knopf setzen */
+function paint(b: HTMLElement, a: Action) {
+  b.className = `ib${a.icon ? '' : ' text'}${a.small ? ' small' : ''}`;
+  b.title = a.label;
+  if (a.icon) {
+    b.innerHTML = ICONS[a.icon];
+    b.dataset.icon = a.icon;
+  } else {
+    b.textContent = a.short ?? a.label;
+    delete b.dataset.icon;
+  }
 }
 
 export const isBarHidden = (k: BarKey) => cfg.hidden.includes(k);
@@ -103,20 +142,36 @@ function applyHidden(k: BarKey) {
 }
 
 function load(): Config {
-  const c: Config = { bars: { main: [...defaults.main], tools: [...defaults.tools] }, size: { main: 'm', tools: 'm' }, hidden: [] };
+  const c: Config = { v: 2, bars: { main: [...defaults.main], tools: [...defaults.tools] }, size: { main: 'm', tools: 'm' }, hidden: [], groups: {} };
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) || 'null');
     if (raw && typeof raw === 'object') {
       for (const id of ['main', 'tools'] as BarId[]) {
-        if (Array.isArray(raw.bars?.[id])) c.bars[id] = raw.bars[id].filter((x: unknown) => x === SEP || actions.has(x as string));
+        if (Array.isArray(raw.bars?.[id])) {
+          let list: string[] = raw.bars[id];
+          if (!(raw.v >= 2)) list = migrate(list);
+          c.bars[id] = list.filter((x) => x === SEP || actions.has(x));
+        }
         if (['s', 'm', 'l'].includes(raw.size?.[id])) c.size[id] = raw.size[id];
       }
       if (Array.isArray(raw.hidden)) c.hidden = raw.hidden.filter((x: unknown) => (x as string) in BAR_EL);
+      if (raw.groups && typeof raw.groups === 'object')
+        for (const [g, a] of Object.entries(raw.groups)) if (actions.get(g)?.items?.includes(a as string)) c.groups[g] = a as string;
     }
   } catch {
     /* Speicher nicht verfügbar oder kaputt: Standard */
   }
   return c;
+}
+
+/** Ältere Belegung: zusammenhängende Folgen von Einzelknöpfen, die jetzt eine Knopfgruppe sind, ersetzen.
+ *  Selbst zusammengestellte Folgen bleiben, wie sie sind. */
+function migrate(list: string[]): string[] {
+  const out = [...list];
+  for (const [seq, group] of migrations)
+    for (let i = 0; i + seq.length <= out.length; i++)
+      if (seq.every((x, k) => out[i + k] === x)) out.splice(i, seq.length, group);
+  return out;
 }
 
 function save() {
@@ -137,11 +192,18 @@ function renderBar(id: BarId) {
       continue;
     }
     const a = actions.get(x)!;
-    const b = h('button', { class: `ib${a.icon ? '' : ' text'}${a.small ? ' small' : ''}`, title: a.label, onclick: () => a.run() });
-    if (a.icon) {
-      b.innerHTML = ICONS[a.icon];
-      b.dataset.icon = a.icon;
-    } else b.textContent = a.short ?? a.label;
+    if (a.items) {
+      const main = h('button', { onclick: () => groupCurrent(a).run() });
+      paint(main, groupCurrent(a));
+      main.dataset.cur = groupCurrent(a).id;
+      const more = h('button', { class: 'ib-more', onclick: () => groupMenu(id, a, wrap) }, '▾');
+      const wrap = h('div', { class: 'ib-group' }, main, more);
+      wrap.dataset.action = a.id;
+      bar.append(wrap);
+      continue;
+    }
+    const b = h('button', { onclick: () => a.run() });
+    paint(b, a);
     b.dataset.action = a.id;
     bar.append(b);
   }
@@ -157,6 +219,55 @@ function setBar(id: BarId, list: string[]) {
   cfg.bars[id] = out;
   save();
   renderBar(id);
+}
+
+// ---------- Aufgeklappte Knopfgruppe ----------
+
+/** Tooltip als Menüeintrag: Erklärung nach dem Doppelpunkt weglassen, Tastenkürzel rechts */
+function menuLabel(label: string) {
+  const name = label.split(': ')[0];
+  const m = /^(.*?) \(([^()]{1,14})\)$/.exec(name);
+  return [h('span', { title: label }, m ? m[1] : name), m ? h('kbd', {}, m[2]) : null];
+}
+
+function groupMenu(bar: BarId, g: Action, anchor: HTMLElement) {
+  if (document.querySelector(`.ctx-menu[data-group="${g.id}"]`)) return document.querySelector('.ctx-menu')?.remove();
+  document.querySelector('.ctx-menu')?.remove();
+  const close = () => (menu.remove(), document.removeEventListener('mousedown', outside, true));
+  const outside = (e: MouseEvent) => !menu.contains(e.target as Node) && !anchor.contains(e.target as Node) && close();
+  const cur = groupCurrent(g).id;
+  const menu = h('div', { class: 'ctx-menu menu-items group-menu with-checks' });
+  menu.dataset.group = g.id;
+  for (const id of g.items!) {
+    const a = actions.get(id);
+    if (!a) continue;
+    if (a.small) menu.append(h('hr'));
+    const b = h('button', {
+      disabled: a.enabled ? !a.enabled() : false,
+      onclick: () => {
+        close();
+        if (!a.small) {
+          cfg.groups[g.id] = a.id;
+          save();
+          refreshBars();
+        }
+        a.run();
+      },
+    },
+      h('span', { class: 'check-mark' }, id === cur ? '✓' : ''),
+      h('span', { class: 'tb-icon', html: a.icon ? ICONS[a.icon] : '' }),
+      ...menuLabel(a.dyn?.().label ?? a.label),
+    );
+    menu.append(b);
+  }
+  const r = anchor.getBoundingClientRect();
+  document.body.append(menu);
+  // Hauptleiste: unter der Gruppe; Werkzeugleiste: rechts daneben
+  const x = bar === 'main' ? r.left : r.right + 2;
+  const y = bar === 'main' ? r.bottom + 2 : r.top;
+  menu.style.left = `${Math.max(0, Math.min(x, window.innerWidth - menu.offsetWidth - 4))}px`;
+  menu.style.top = `${Math.max(0, Math.min(y, window.innerHeight - menu.offsetHeight - 4))}px`;
+  document.addEventListener('mousedown', outside, true);
 }
 
 // ---------- Kontextmenü einer Leiste ----------
@@ -208,11 +319,14 @@ export function openToolbarDialog(start: BarId = 'main') {
   const avail = h('div', { class: 'tb-list' });
   const current = h('div', { class: 'tb-list' });
 
-  const row = (a: Action | null, extra: Record<string, unknown>) =>
-    h('div', { class: 'tb-row', ...extra },
-      a ? h('span', { class: `tb-icon${a.icon ? '' : ' text'}`, html: a.icon ? ICONS[a.icon] : '' }, a.icon ? null : a.short ?? '') : h('span', { class: 'tb-icon' }),
+  const row = (a: Action | null, extra: Record<string, unknown>) => {
+    // Knopfgruppen zeigen das Symbol der Aktion, die sie gerade tragen
+    const ic = a?.items ? groupCurrent(a) : a;
+    return h('div', { class: 'tb-row', ...extra },
+      ic ? h('span', { class: `tb-icon${ic.icon ? '' : ' text'}`, html: ic.icon ? ICONS[ic.icon] : '' }, ic.icon ? null : ic.short ?? '') : h('span', { class: 'tb-icon' }),
       h('span', {}, a ? a.label : t('— Trennlinie —')),
     );
+  };
 
   const add = (id: string) => {
     const list = [...cfg.bars[bar]];
