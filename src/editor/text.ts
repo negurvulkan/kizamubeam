@@ -31,7 +31,7 @@ export class EditorText {
   /** Inhalt oder Einstellungen eines QR-Codes ändern; die Größe bleibt um die Mitte erhalten */
   updateBarcode(this: Editor, o: Obj, patch: Partial<BarcodeShape>) {
     if (o.shape.kind !== 'barcode') return;
-    this.snapshot();
+    this.snapshot(t('QR-Code ändern'));
     const old = o.shape.size;
     Object.assign(o.shape, patch);
     if (patch.vt === undefined && 'vt' in patch) delete o.shape.vt;
@@ -109,7 +109,7 @@ export class EditorText {
   bakeVarText(this: Editor): number {
     const objs = this.varTextObjs(false).filter((o) => [...leaves(this.sel)].some(([l]) => l === o));
     if (!objs.length) return 0;
-    this.snapshot();
+    this.snapshot(t('Variablen Text festschreiben'));
     for (const o of objs) {
       const s = o.shape;
       if (s.kind === 'text') s.text = shownText(s);
@@ -133,7 +133,7 @@ export class EditorText {
     Object.assign(this.textDefaults, Object.fromEntries(Object.entries(patch).filter(([k]) => k !== 'text' && k !== 'path' && k !== 'vt' && k !== 'maxW')));
     const ts = this.selTexts();
     if (!ts.length) return;
-    this.snapshot();
+    this.snapshot(t('Text-Eigenschaften'));
     ts.forEach((o) => {
       Object.assign(o.shape, patch);
       this.touch(o.shape);
@@ -168,7 +168,7 @@ export class EditorText {
     const det = to.m[0] * to.m[3] - to.m[1] * to.m[2];
     const sub = linkCurve(po.shape);
     if (!sub || Math.abs(det) < 1e-12) return false;
-    this.snapshot();
+    this.snapshot(t('Text auf Pfad'));
     // Drehung des Texts verwerfen (die Glyphen folgen ohnehin der Kurve), Größe und Spiegelung bleiben.
     // So liegt „oben“ bei geschlossenen Formen auch oben auf der Arbeitsfläche.
     const sx = Math.hypot(to.m[0], to.m[1]),
@@ -232,7 +232,7 @@ export class EditorText {
   removePathFromText(this: Editor) {
     const ts = this.selTexts().filter((o) => (o.shape as TextShape).path);
     if (!ts.length) return;
-    this.snapshot();
+    this.snapshot(t('Text vom Pfad lösen'));
     for (const o of ts) {
       delete (o.shape as TextShape).path;
       this.touch(o.shape);
@@ -244,7 +244,7 @@ export class EditorText {
   updateTextPath(this: Editor, patch: Partial<Omit<TextPath, 'sub'>>) {
     const ts = this.selTexts().filter((o) => (o.shape as TextShape).path);
     if (!ts.length) return;
-    this.snapshot();
+    this.snapshot(t('Text auf Pfad ändern'));
     for (const o of ts) {
       Object.assign((o.shape as TextShape).path!, patch);
       this.touch(o.shape);

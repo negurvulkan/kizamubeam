@@ -8,6 +8,7 @@ import { onFontLoaded } from './fonts';
 import { EdgePick } from './joints';
 import { Box, boundsOf, hitLeaf } from './geom';
 import { AlignGuide, SnapHit, SnapSet } from './snap';
+import { History } from './history';
 import { Tool, RULER, CANVAS_THEMES, HANDLE_OFF, Drag, NodeHover, SegHover, TOOL_HINTS } from './editor/shared';
 import { EditorCommands } from './editor/commands';
 import { EditorDocument } from './editor/document';
@@ -23,6 +24,7 @@ import { EditorRender } from './editor/render';
 import { EditorShapeOps } from './editor/shapeops';
 import { EditorSnapping } from './editor/snapping';
 import { EditorText } from './editor/text';
+import { t } from './i18n';
 
 export type { Tool } from './editor/shared';
 export { RULER, TOOL_HINTS } from './editor/shared';
@@ -66,8 +68,8 @@ export class Editor {
   nodeSelObj: Obj | null = null;
   hint = '';
 
-  undo: string[] = [];
-  redo: string[] = [];
+  /** Rückgängig-Verlauf mit benannten Schritten (Verlaufsfenster, höchstens 200) */
+  readonly history = new History();
   clipboard: Obj[] = [];
   drag: Drag | null = null;
   space = false;
@@ -344,7 +346,7 @@ export class Editor {
     return Math.hypot(q.x - sx, q.y - sy) < 8;
   }
   startRotate(wp: Pt) {
-    this.snapshot();
+    this.snapshot(t('Drehen'));
     const c = this.rotationCenter()!;
     this.drag = { type: 'rotate', center: c, a0: Math.atan2(wp.y - c.y, wp.x - c.x), orig: this.sel.map((o) => o.m), angle: 0 };
   }

@@ -11,7 +11,8 @@
     "test:core": "node scripts/core-fixtures.mjs && cd src-tauri && cargo test -p laserwerk-core",
     "test:gcode": "node scripts/run-ts.mjs scripts/gcode-test.ts",
     "test:paths": "node scripts/run-ts.mjs scripts/pathtools-test.ts",
-    "test:vartext": "node scripts/run-ts.mjs scripts/vartext-test.ts"
+    "test:vartext": "node scripts/run-ts.mjs scripts/vartext-test.ts",
+    "test:history": "node scripts/run-ts.mjs scripts/history-test.ts"
   },
   "license": "GPL-3.0-or-later",
   "devDependencies": {

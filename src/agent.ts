@@ -11,6 +11,7 @@ import { deviceList, jobInfo } from './laser';
 import { agentLog, Args, describe, findObj, json, layerInfo, log, machineBox, onAgentLog, pageList, r3, Tier, ToolDef, ToolError } from './agentutil';
 import { EDIT_TOOLS } from './agentedit';
 import { GCODE_TOOLS, MACHINE_TOOLS, requestState } from './agentmachine';
+import { t } from './i18n';
 
 export { agentLog, onAgentLog };
 
@@ -231,7 +232,7 @@ async function handle(ed: Editor, req: RpcRequest): Promise<object> {
       // Meldungen des Editors gehören zum jeweiligen Aufruf
       if (def.tier === Tier.Edit) ed.hint = '';
       // Änderungen eines Aufrufs bilden genau einen Undo-Schritt; die übrigen Stufen ändern das Dokument nicht
-      const r = def.tier !== Tier.Edit || def.ownUndo ? await def.run(ed, args) : await ed.batch(() => def.run(ed, args));
+      const r = def.tier !== Tier.Edit || def.ownUndo ? await def.run(ed, args) : await ed.batch(() => def.run(ed, args), t('KI-Agent: {tool}', { tool: name }));
       log({ time: new Date(), tool: name, summary: summarize(args), ok: true });
       return { result: { content: Array.isArray(r) ? r : json(r) } };
     } catch (e) {

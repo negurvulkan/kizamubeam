@@ -23,7 +23,7 @@ export class EditorHinges {
       this.emit('tool');
       return false;
     }
-    this.snapshot();
+    this.snapshot(t('Biegeschnitte'));
     const res: Obj = { id: newId(), m: IDENT, layer: inputs[0].layer, shape: { kind: 'path', subs: r.subs } };
     const z = inputs.map((o) => this.doc.objs.indexOf(o));
     const idx = opt.keepOutline ? Math.max(...z) + 1 : Math.min(...z);
