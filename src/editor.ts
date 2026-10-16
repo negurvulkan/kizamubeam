@@ -5,7 +5,7 @@ import {
   TextPath, TextShape, translate, visibleLeaves, homeLayer,
 } from './model';
 import { ArcLength } from './textpath';
-import { addAsset, adjustedGray, assetUrl, displayCanvas, onImageReady, registerAsset, restoreAssets, sourceSize } from './images';
+import { addAsset, adjustedGray, assetImage, assetUrl, displayCanvas, onImageReady, registerAsset, restoreAssets, sourceSize } from './images';
 import { ImportResult, transformSubs } from './importers';
 import { traceGray, TraceOptions } from './trace';
 import { BoolBase, BoolOp, booleanOp, OffsetOptions, offsetOp, orderForBoolean } from './ops';
@@ -2406,6 +2406,82 @@ export class Editor {
     if (!objs.length) return;
     if (snapshot) this.snapshot();
     for (const o of objs) if (o.shape.kind === 'image') o.shape.adjust = { ...o.shape.adjust, ...patch };
+    this.emit('doc');
+  }
+
+  /**
+   * Bild mit den übrigen gewählten Formen zuschneiden (auf deren Rahmen) oder maskieren (nur das Innere der
+   * geschlossenen Formen bleibt, der Rest wird transparent und damit nicht gelasert), wie in LightBurn.
+   * Das Bild bekommt neue Bilddaten in Originalauflösung und bleibt an seiner Stelle; die Formen werden entfernt,
+   * damit sie nicht versehentlich mitgeschnitten werden. Ein Undo-Schritt.
+   */
+  async cropImageSel(mask: boolean) {
+    const imgs = this.selImages();
+    const shapes = this.sel.filter((o) => o.shape.kind !== 'image');
+    const say = (msg: string) => {
+      this.hint = msg;
+      this.emit('tool');
+    };
+    if (imgs.length !== 1 || !shapes.length)
+      return say(mask ? t('Für die Maske ein Bild und eine oder mehrere geschlossene Formen auswählen.') : t('Zum Zuschneiden ein Bild und eine Form darüber auswählen.'));
+    const o = imgs[0],
+      s = o.shape as ImageShape;
+    const img = assetImage(s.asset),
+      src = sourceSize(s.asset);
+    if (!img || !src) return say(t('Das Bild ist noch nicht geladen.'));
+    // Welt → Bildpunkte des Originals
+    const toPx = mul([src.w / s.w, 0, 0, src.h / s.h, 0, 0], inv(o.m));
+    const subs: SubPath[] = [];
+    for (const sh of shapes)
+      for (const [leaf, m] of leaves([sh])) {
+        const local = leaf.shape.kind === 'text' ? textOutline(leaf.shape)?.subs ?? [] : leaf.shape.kind === 'image' ? [] : shapeSubs(leaf.shape);
+        subs.push(...transformSubs(local.filter((sp) => sp.nodes.length > 1 && (sp.closed || !mask)), mul(toPx, m)));
+      }
+    if (!subs.length) return say(mask ? t('Die gewählten Formen sind nicht geschlossen.') : t('Die gewählten Formen haben keine Kontur.'));
+    // Rahmen der Formen (Kurven abgetastet), begrenzt auf das Bild
+    let bx0 = Infinity,
+      by0 = Infinity,
+      bx1 = -Infinity,
+      by1 = -Infinity;
+    const add = (p: Pt) => {
+      bx0 = Math.min(bx0, p.x);
+      by0 = Math.min(by0, p.y);
+      bx1 = Math.max(bx1, p.x);
+      by1 = Math.max(by1, p.y);
+    };
+    for (const sp of subs) {
+      add(sp.nodes[0]);
+      for (const g of segments(sp)) {
+        if (!g.curve) add(g.b);
+        else for (let i = 1; i <= 32; i++) add(bezierPt(g.a, g.c1, g.c2, g.b, i / 32));
+      }
+    }
+    const x0 = Math.max(0, Math.floor(bx0 + 1e-6)),
+      y0 = Math.max(0, Math.floor(by0 + 1e-6)),
+      x1 = Math.min(src.w, Math.ceil(bx1 - 1e-6)),
+      y1 = Math.min(src.h, Math.ceil(by1 - 1e-6));
+    if (x1 - x0 < 1 || y1 - y0 < 1) return say(t('Die Formen liegen nicht über dem Bild.'));
+    const c = document.createElement('canvas');
+    c.width = x1 - x0;
+    c.height = y1 - y0;
+    const ctx = c.getContext('2d')!;
+    ctx.drawImage(img, -x0, -y0);
+    if (mask) {
+      ctx.globalCompositeOperation = 'destination-in';
+      ctx.translate(-x0, -y0);
+      ctx.fill(subsToPath2D(subs), 'evenodd');
+    }
+    const a = await addAsset(c.toDataURL('image/png'));
+    this.snapshot();
+    const kx = s.w / src.w,
+      ky = s.h / src.h;
+    o.m = mul(o.m, translate(x0 * kx, y0 * ky));
+    o.shape = { ...s, asset: a.id, w: c.width * kx, h: c.height * ky, pxW: a.w, pxH: a.h };
+    this.doc.objs = this.doc.objs.filter((x) => !shapes.includes(x));
+    this.setSel([o]);
+    this.hint = mask
+      ? t('Maske angewendet: {w} × {h} Pixel bleiben, die Masken-Formen wurden entfernt (Ctrl+Z macht es rückgängig).', { w: c.width, h: c.height })
+      : t('Bild zugeschnitten auf {w} × {h} Pixel, die Form wurde entfernt (Ctrl+Z macht es rückgängig).', { w: c.width, h: c.height });
     this.emit('doc');
   }
 

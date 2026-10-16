@@ -1,7 +1,7 @@
 // Maschinenausgabe: aus dem Dokument einen Job berechnen (Linien, Füllen, Bilder), G-Code schreiben,
 // Laufzeit schätzen und Rahmenfahrten erzeugen. Alles in Maschinenkoordinaten (mm, Ursprung unten links, y nach oben).
 import ClipperLib from 'clipper-lib';
-import { apply, Doc, ImageLayer, ImageShape, inv, Layer, visibleLeaves, Mat, mul, normalizeLayer, Obj, Pt, SubPath, TabSettings } from './model';
+import { apply, Doc, ImageLayer, ImageShape, inv, isGrayMode, Layer, visibleLeaves, Mat, mul, normalizeLayer, Obj, Pt, SubPath, TabSettings } from './model';
 import { bezierPt, segments, shapeSubs } from './geom';
 import { loadFont, textToSubs } from './fonts';
 import { nativeScanLines, outputGrid, processImage } from './images';
@@ -704,7 +704,7 @@ export function scanLines(v: Uint8Array | Uint8ClampedArray, w: number, h: numbe
   const stepY = aligned ? (b.y1 - b.y0) / rows : L.interval;
   const nx = Math.max(1, Math.round((b.x1 - b.x0) / stepX)),
     ny = Math.max(1, Math.round((b.y1 - b.y0) / stepY));
-  const gray = L.dither === 'grayscale';
+  const gray = isGrayMode(L.dither);
   const pmax = L.power / 100,
     pmin = Math.min(L.minPower, L.power) / 100;
   const out: { y: number; runs: Run[] }[] = [];

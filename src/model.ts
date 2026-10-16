@@ -101,7 +101,7 @@ export interface ImageShape {
   adjust: ImageAdjust;
 }
 
-export type DitherMode = 'threshold' | 'ordered' | 'atkinson' | 'floyd' | 'stucki' | 'jarvis' | 'halftone' | 'grayscale';
+export type DitherMode = 'threshold' | 'ordered' | 'atkinson' | 'floyd' | 'stucki' | 'jarvis' | 'newsprint' | 'halftone' | 'sketch' | 'grayscale';
 
 export const DITHER_MODES: [DitherMode, string][] = [
   ['threshold', t('Schwellwert')],
@@ -110,7 +110,9 @@ export const DITHER_MODES: [DitherMode, string][] = [
   ['floyd', t('Dither (Floyd-Steinberg)')],
   ['stucki', t('Stucki')],
   ['jarvis', t('Jarvis')],
+  ['newsprint', t('Zeitungsdruck (Newsprint)')],
   ['halftone', t('Halbton')],
+  ['sketch', t('Skizze (Sketch)')],
   ['grayscale', t('Graustufen')],
 ];
 
@@ -127,12 +129,17 @@ export interface ImageLayer {
   bidirectional: boolean;
   /** Überfahrweg in % der Geschwindigkeit */
   overscan: number;
-  /** Halbton: Zellen pro Zoll und Rasterwinkel */
+  /** Halbton und Zeitungsdruck: Zellen pro Zoll und Rasterwinkel */
   cells: number;
   angle: number;
   /** Schwellwert-Verfahren: Grenze 0 … 255 */
   threshold: number;
 }
+
+/** Verfahren mit veränderlicher Leistung (Min. bis Max.); alle anderen brennen mit Max. oder gar nicht */
+export const isGrayMode = (d: DitherMode) => d === 'grayscale' || d === 'sketch';
+/** Verfahren mit Rasterzellen (Zellen pro Zoll, Rasterwinkel) */
+export const isCellMode = (d: DitherMode) => d === 'halftone' || d === 'newsprint';
 
 export function defaultImageLayer(): ImageLayer {
   return {

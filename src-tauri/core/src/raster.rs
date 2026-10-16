@@ -208,11 +208,20 @@ fn kernel(mode: &str) -> (&'static [(isize, usize, f64)], f64) {
     }
 }
 
+/// Skizze: Kantenstärke unter dieser Schwelle bleibt weiß (Rauschen), darüber wird sie verstärkt
+const SKETCH_FLOOR: f64 = 4.0;
+const SKETCH_GAIN: f64 = 2.0;
+
+/// Verfahren mit veränderlicher Leistung (Min. bis Max.); alle anderen brennen mit Max. oder gar nicht
+pub fn is_gray_mode(mode: &str) -> bool {
+    mode == "grayscale" || mode == "sketch"
+}
+
 /// Dithering-Einstellungen
 pub struct DitherOptions<'a> {
     pub mode: &'a str,
     pub threshold: f64,
-    /// Halbton: Zellengröße in Ausgabepunkten und Winkel in Grad
+    /// Halbton und Zeitungsdruck: Zellengröße in Ausgabepunkten und Winkel in Grad
     pub cell_px: f64,
     pub angle: f64,
 }
@@ -227,7 +236,7 @@ fn clamp_u8(v: f64) -> u8 {
 }
 
 /// Graustufen in Ausgabewerte umsetzen: 0 = volle Leistung (schwarz), 255 = aus.
-/// Bei allen Verfahren außer Graustufen sind die Werte nur 0 oder 255.
+/// Bei allen Verfahren außer Graustufen und Skizze sind die Werte nur 0 oder 255.
 pub fn dither(g: &[f32], w: usize, h: usize, o: &DitherOptions) -> Vec<u8> {
     let mut out = vec![0u8; w * h];
     match o.mode {
@@ -252,6 +261,53 @@ pub fn dither(g: &[f32], w: usize, h: usize, o: &DitherOptions) -> Vec<u8> {
                     let v = (-xf * sa + yf * ca) * f;
                     let spot = (u.cos() + v.cos()) * 0.25 + 0.5;
                     *d = if spot > g[y * w + x] as f64 / 255.0 { 0 } else { 255 };
+                }
+            });
+        }
+        "newsprint" => {
+            // Zeitungsdruck: ein runder Punkt je Zelle eines gedrehten Rasters, seine Fläche entspricht der mittleren
+            // Dunkelheit der Zelle. Ab 50 % wachsen die Punkte zusammen und es bleiben helle Punkte in den Zellecken.
+            let cell = o.cell_px.max(2.0);
+            let bl = blur(g, w, h, js_round(cell / 4.0).max(1.0) as usize);
+            let a = (o.angle * std::f64::consts::PI) / 180.0;
+            let (ca, sa) = (a.cos(), a.sin());
+            out.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
+                let yf = y as f64;
+                for (x, d) in row.iter_mut().enumerate() {
+                    let xf = x as f64;
+                    let u = (xf * ca + yf * sa) / cell;
+                    let v = (-xf * sa + yf * ca) / cell;
+                    let cu = u.floor() + 0.5;
+                    let cv = v.floor() + 0.5;
+                    // Zellmitte zurück ins Bild, dort die (geglättete) Helligkeit lesen
+                    let px = ((cu * ca - cv * sa) * cell).floor().max(0.0).min(w as f64 - 1.0) as usize;
+                    let py = ((cu * sa + cv * ca) * cell).floor().max(0.0).min(h as f64 - 1.0) as usize;
+                    let dark = (1.0 - bl[py * w + px] as f64 / 255.0).clamp(0.0, 1.0);
+                    let (du, dv) = (u - cu, v - cv);
+                    let black = if dark <= 0.5 {
+                        du * du + dv * dv < dark / std::f64::consts::PI
+                    } else {
+                        let eu = 0.5 - du.abs();
+                        let ev = 0.5 - dv.abs();
+                        eu * eu + ev * ev >= (1.0 - dark) / std::f64::consts::PI
+                    };
+                    *d = if black { 0 } else { 255 };
+                }
+            });
+        }
+        "sketch" => {
+            // Skizze: Kanten (Sobel auf leicht geglättetem Bild) werden zu dunklen Strichen, gleichmäßige Flächen
+            // bleiben weiß. Die Werte sind Graustufen, gelasert wird mit veränderlicher Leistung.
+            let b = blur(g, w, h, 1);
+            let at = |x: isize, y: isize| b[y.clamp(0, h as isize - 1) as usize * w + x.clamp(0, w as isize - 1) as usize] as f64;
+            out.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
+                let y = y as isize;
+                for (x, d) in row.iter_mut().enumerate() {
+                    let x = x as isize;
+                    let gx = at(x + 1, y - 1) + 2.0 * at(x + 1, y) + at(x + 1, y + 1) - (at(x - 1, y - 1) + 2.0 * at(x - 1, y) + at(x - 1, y + 1));
+                    let gy = at(x - 1, y + 1) + 2.0 * at(x, y + 1) + at(x + 1, y + 1) - (at(x - 1, y - 1) + 2.0 * at(x, y - 1) + at(x + 1, y - 1));
+                    let mag = (gx * gx + gy * gy).sqrt() / 4.0;
+                    *d = clamp_u8(255.0 - (mag - SKETCH_FLOOR).max(0.0) * SKETCH_GAIN);
                 }
             });
         }
@@ -340,7 +396,7 @@ pub fn scan_lines(v: &[u8], cols: usize, rows: usize, sw: f64, sh: f64, m: &Mat,
     let step_y = if aligned { (y1 - y0) / rows as f64 } else { l.interval };
     let nx = js_round((x1 - x0) / step_x).max(1.0) as usize;
     let ny = js_round((y1 - y0) / step_y).max(1.0) as usize;
-    let gray = l.dither == "grayscale";
+    let gray = is_gray_mode(&l.dither);
     let pmax = l.power / 100.0;
     let pmin = l.min_power.min(l.power) / 100.0;
     (0..ny)

@@ -42,12 +42,16 @@ npm run tauri build    # Installationspaket
 - Mehrseitige Projekte: Ein Projekt hat eine oder mehrere Seiten (Objekte-Fenster ganz oben, Menü Seiten, Bild ↑/↓ zum Wechseln). Jede Seite hat eigene Objekte; die Layer-Einstellungen gelten für das ganze Projekt. Gezeichnet, bearbeitet, gelasert und exportiert (SVG, G-Code) wird die aktuelle Seite. Seiten lassen sich anlegen, duplizieren, umbenennen (Doppelklick), löschen und per Ziehen umordnen; Objekte zieht man auf eine Seitenzeile, um sie dorthin zu verschieben. Dateiformat ab `version: 2` mit `pages` und `page`; ältere Dateien öffnen sich als Projekt mit einer Seite. MCP: `get_document` (mit `pages`), `switch_page`, `edit_pages`, `move_to_page`.
 - Oberfläche auf Deutsch und Englisch (Ansicht → Sprache). Standard folgt der Systemsprache (andere Systemsprachen bekommen Englisch), die Wahl bleibt gespeichert; englische Begriffe wie in LightBurn.
 - Helles und dunkles Design (Ansicht → Design oder Knopf ganz rechts in der Symbolleiste), Standard folgt dem System. Im dunklen Design werden sehr dunkle Layerfarben auf der Arbeitsfläche aufgehellt.
-- Import (Ctrl+I, Ziehen aus dem Dateimanager oder Ctrl+V aus anderen Programmen): Bilder (PNG, JPG, BMP, GIF, WebP), SVG und DXF.
+- Import (Ctrl+I, Ziehen aus dem Dateimanager oder Ctrl+V aus anderen Programmen): Bilder (PNG, JPG, BMP, GIF, WebP, TIFF), SVG und DXF.
   - Bilder bekommen ihre Größe aus der Auflösung der Datei (ohne Angabe 254 DPI, zu große werden aufs Bett verkleinert).
+  - TIFF (auch LZW, Deflate, 16 Bit) wird mit utif gelesen und als PNG übernommen; bei mehrseitigen Dateien zählt die erste Seite.
   - SVG: Pfade inkl. Bögen, Rechtecke, Kreise, Ellipsen, Linien, Polygone, `use`, Transformationen, CSS-Klassen, eingebettete Bilder; Einheiten über `width`/`height` und `viewBox`. Texte werden übersprungen.
   - DXF: LINE, LWPOLYLINE/POLYLINE mit Bögen, CIRCLE, ARC, ELLIPSE, SPLINE, INSERT (Blöcke), Einheit aus `$INSUNITS`. Einzellinien werden zu zusammenhängenden Pfaden verbunden.
   - Farben werden auf die nächste Palettenfarbe (= Layer) abgebildet, mehrere Objekte als Gruppe eingefügt.
-- Bildbearbeitung wie in LightBurn: Bilder sind ein eigener Eintrag „Bild“ in der Layer-Tabelle mit Bildmodus (Schwellwert, Geordnet, Atkinson, Floyd-Steinberg, Stucki, Jarvis, Halbton, Graustufen), Zeilenabstand/DPI, Negativ, Bidirektional, Überfahrweg, Speed und Leistung. „Bild anpassen“ (Helligkeit, Kontrast, Gamma, Schärfen mit Radius und Entrauschen) mit Vorschau, Original-Vergleich und 1:1-Ausschnitt. Die Arbeitsfläche zeigt das gerasterte Ergebnis in Laserauflösung.
+- Bildbearbeitung wie in LightBurn: Bilder sind ein eigener Eintrag „Bild“ in der Layer-Tabelle mit Bildmodus (Schwellwert, Geordnet, Atkinson, Floyd-Steinberg, Stucki, Jarvis, Zeitungsdruck/Newsprint, Halbton, Skizze/Sketch, Graustufen), Zeilenabstand/DPI, Negativ, Bidirektional, Überfahrweg, Speed und Leistung. „Bild anpassen“ (Helligkeit, Kontrast, Gamma, Schärfen mit Radius und Entrauschen) mit Vorschau, Original-Vergleich und 1:1-Ausschnitt. Die Arbeitsfläche zeigt das gerasterte Ergebnis in Laserauflösung.
+  - Zeitungsdruck setzt je Rasterzelle (Zellen pro Zoll, Rasterwinkel) einen runden Punkt, dessen Fläche der Helligkeit der Zelle entspricht. Skizze macht Kanten zu dunklen Strichen und lässt gleichmäßige Flächen frei; gelasert wird wie bei Graustufen mit Leistung zwischen Min. und Max.
+  - Bild-Presets in „Bild anpassen“: Anpassungen und Bildmodus (mit Schwellwert, Zellen und Winkel) unter einem Namen speichern, anwenden und löschen. Speed, Leistung und Zeilenabstand gehören zur Material-Bibliothek.
+- Bild zuschneiden und Maske anwenden (Werkzeuge-Menü oder Schaltflächen in der Leiste, wenn ein Bild und Formen gewählt sind): Zuschneiden kürzt das Bild auf den Rahmen der Form, die Maske behält nur das Innere der geschlossenen Formen (auch Text), der Rest wird transparent und nicht gelasert. Das Bild bleibt an seiner Stelle und in Originalauflösung, die Formen werden entfernt, Ctrl+Z macht beides rückgängig.
 - Bild nachzeichnen (Alt+T): Schwellwert, kleine Flecken ignorieren, Glättung, Live-Vorschau. Ergebnis sind Bézierpfade mit erhaltenen Ecken.
 - Bearbeitetes Bild speichern (das geditherte Bild als PNG, so wie es gelasert würde).
 - Maschinenausgabe für FluidNC/GRBL (Laser-Panel rechts unten mit den Reitern Laser, Verschieben, Konsole):
@@ -68,7 +72,7 @@ npm run tauri build    # Installationspaket
 
 ## Noch nicht enthalten
 
-Kopfkamera und mehrere Kameras gleichzeitig, Drehachse (Rotary). Bei Bildern fehlen noch Zuschneiden/Maske, TIFF, die Verfahren Newsprint und Sketch sowie Bild-Presets.
+Kopfkamera und mehrere Kameras gleichzeitig, Drehachse (Rotary).
 
 ## Übersetzungen
 
@@ -97,6 +101,7 @@ Texte stehen im Code auf Deutsch in `t('…')` (Platzhalter in geschweiften Klam
 | `src/hinges.ts`, `src/hingeDialog.ts` | Biegeschnitte (Living Hinges): Muster und Dialog |
 | `src/joints.ts`, `src/jointDialog.ts` | Verbindungen: Fingerzinken, Schlitz und Zapfen, Überblattung, Schnapp-, Haken-, Keil- und T-Slot-Verbindung |
 | `src/images.ts` | Bilddaten (außerhalb von Undo, gesichert in IndexedDB), Bildverarbeitung und Dithering, Zwischenspeicher der Ergebnisse |
+| `src/imagePresets.ts` | Bild-Presets (Anpassungen und Bildmodus) im lokalen Speicher |
 | `src/trace.ts` | Bild nachzeichnen: Marching Squares, Vereinfachung, Kurveneinpassung |
 | `src/importers.ts` | SVG- und DXF-Import |
 | `src/fit.ts` | Kurvenrückführung: Linienzüge in Bézierpfade (Ecken erkennen, Schneider-Verfahren) |

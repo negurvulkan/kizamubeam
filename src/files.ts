@@ -120,7 +120,7 @@ export async function exportSvg(ed: Editor) {
 
 // ---------- Import ----------
 
-const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'];
+const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp', 'tif', 'tiff'];
 const IMPORT_EXT = ['svg', 'dxf', ...IMAGE_EXT];
 const MIME: Record<string, string> = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', bmp: 'image/bmp', gif: 'image/gif', webp: 'image/webp',
@@ -147,8 +147,13 @@ export async function importBytesOrThrow(ed: Editor, name: string, bytes: Uint8A
     await ed.importVectors(importDxf(new TextDecoder().decode(bytes)), name);
     return;
   }
+  if (ext === 'tif' || ext === 'tiff' || isTiff(bytes)) {
+    const { dataUrl, dpi } = await decodeTiff(bytes);
+    await ed.importImage(dataUrl, dpi, name);
+    return;
+  }
   const mime = MIME[ext] ?? sniffImage(bytes);
-  if (!mime) throw new Error(t('Dateiformat wird nicht unterstützt (SVG, DXF, PNG, JPG, BMP, GIF, WebP).'));
+  if (!mime) throw new Error(t('Dateiformat wird nicht unterstützt (SVG, DXF, PNG, JPG, BMP, GIF, WebP, TIFF).'));
   await ed.importImage(await bytesToDataUrl(bytes, mime), readDpi(bytes), name);
 }
 
@@ -159,6 +164,39 @@ export async function importBytes(ed: Editor, name: string, bytes: Uint8Array) {
   } catch (e) {
     alert(t('{name} konnte nicht importiert werden: {message}', { name, message: (e as Error).message }));
   }
+}
+
+const isTiff = (b: Uint8Array) => (b[0] === 0x49 && b[1] === 0x49 && b[2] === 42 && b[3] === 0) || (b[0] === 0x4d && b[1] === 0x4d && b[2] === 0 && b[3] === 42);
+
+/**
+ * TIFF lesen (die Webansicht kann es meist nicht) und als PNG weitergeben, damit Projektdatei, Browser und
+ * Desktop-App dasselbe Bild sehen. Bei mehrseitigen Dateien zählt die erste Seite. Auflösung aus XResolution.
+ */
+async function decodeTiff(bytes: Uint8Array): Promise<{ dataUrl: string; dpi: number | null }> {
+  const UTIF = (await import('utif')).default;
+  const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  let ifd;
+  try {
+    ifd = UTIF.decode(buf).find((d) => typeof d.t256 !== 'undefined');
+    if (ifd) UTIF.decodeImage(buf, ifd);
+  } catch {
+    ifd = undefined;
+  }
+  if (!ifd || !ifd.width || !ifd.height) throw new Error(t('TIFF-Datei konnte nicht gelesen werden.'));
+  const rgba = UTIF.toRGBA8(ifd);
+  const c = document.createElement('canvas');
+  c.width = ifd.width;
+  c.height = ifd.height;
+  const ctx = c.getContext('2d')!;
+  const img = ctx.createImageData(ifd.width, ifd.height);
+  img.data.set(rgba.subarray(0, img.data.length));
+  ctx.putImageData(img, 0, 0);
+  // XResolution (282) je ResolutionUnit (296): 2 = Zoll (Standard), 3 = Zentimeter, 1 = ohne Einheit
+  const first = (v: unknown) => (Array.isArray(v) ? Number(v[0]) : NaN);
+  const res = first(ifd.t282);
+  const unit = first(ifd.t296);
+  const dpi = res > 0 && unit !== 1 ? (unit === 3 ? res * 2.54 : res) : null;
+  return { dataUrl: c.toDataURL('image/png'), dpi };
 }
 
 function sniffImage(b: Uint8Array): string | null {
