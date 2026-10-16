@@ -72,12 +72,13 @@ export interface Device {
   /** Arbeitsbereich in mm */
   bedW: number;
   bedH: number;
-  /** Verbindung: USB-Seriell oder Netzwerk (Telnet, z. B. FluidNC Port 23) */
-  conn: 'serial' | 'tcp';
+  /** Verbindung: USB-Seriell oder Netzwerk (Telnet, z. B. FluidNC Port 23, oder WebSocket, FluidNC Port 81) */
+  conn: 'serial' | 'tcp' | 'ws';
   port: string;
   baud: number;
   host: string;
   tcpPort: number;
+  wsPort: number;
   /** S-Wert für 100 % Leistung (FluidNC/GRBL meist 1000, Marlin 255, Smoothieware 1) */
   sMax: number;
   /** Eilgang in mm/min (für Zeitschätzung und Leerwege) */
@@ -100,6 +101,9 @@ export interface Device {
   frameSpeed: number;
   /** Befehl für Air Assist an (aus immer mit M9): M8 = Flood, M7 = Mist */
   airCmd: 'M8' | 'M7';
+  /** Eigene G-Code-Zeilen vor dem Job (nach Einheiten und Laser-Modus) und nach dem Job (nach Laser aus) */
+  startScript: string;
+  endScript: string;
   /** Grenzen für Jobs, die ein KI-Agent anfordert: höchste Leistung in %, kleinste Geschwindigkeit in mm/min (0 = keine) */
   agentMaxPower: number;
   agentMinSpeed: number;
@@ -116,6 +120,7 @@ export const DEFAULT_DEVICE: Device = {
   baud: 115200,
   host: 'fluidnc.local',
   tcpPort: 23,
+  wsPort: 81,
   sMax: 1000,
   rapid: 6000,
   accel: 1500,
@@ -130,6 +135,8 @@ export const DEFAULT_DEVICE: Device = {
   framePower: 1,
   frameSpeed: 3000,
   airCmd: 'M8',
+  startScript: '',
+  endScript: '',
   agentMaxPower: 100,
   agentMinSpeed: 0,
 };
@@ -237,6 +244,37 @@ export class Moves {
   lastY() {
     return this.n ? this.y[this.n - 1] : this.y0;
   }
+}
+
+/**
+ * „Start Here“: Job ab einer Stelle fortsetzen. Eilgang zum Punkt bei Anteil frac der Bewegung i,
+ * dann der Rest dieser Bewegung und alle folgenden. Liegt die Stelle in einem Eilgang, geht es an dessen Ziel weiter.
+ */
+export function startHere(mv: Moves, i: number, frac: number): Moves {
+  const out = new Moves(mv.x0, mv.y0);
+  if (i < 0 || i >= mv.n) return out;
+  const ax = i ? mv.x[i - 1] : mv.x0,
+    ay = i ? mv.y[i - 1] : mv.y0;
+  const f = mv.f[i] > 0 ? Math.min(1, Math.max(0, frac)) : 1;
+  out.push(ax + (mv.x[i] - ax) * f, ay + (mv.y[i] - ay) * f, 0, 0, mv.layer[i]);
+  if (f < 1) out.push(mv.x[i], mv.y[i], mv.f[i], mv.s[i], mv.layer[i]);
+  for (let k = i + 1; k < mv.n; k++) out.push(mv.x[k], mv.y[k], mv.f[k], mv.s[k], mv.layer[k]);
+  return out;
+}
+
+/** Wird bei diesen Bewegungen überhaupt gelasert? */
+export function burns(mv: Moves): boolean {
+  for (let i = 0; i < mv.n; i++) if (mv.f[i] > 0 && mv.s[i] > 0) return true;
+  return false;
+}
+
+/** Gleiche Bahnen, nur um offset verschoben (Vorschau gegen den Job zum Lasern) */
+export function sameMoves(a: Moves, b: Moves, offset: Pt): boolean {
+  if (a.n !== b.n) return false;
+  const e = 1e-6;
+  for (let i = 0; i < a.n; i++)
+    if (a.f[i] !== b.f[i] || a.s[i] !== b.s[i] || a.layer[i] !== b.layer[i] || Math.abs(a.x[i] + offset.x - b.x[i]) > e || Math.abs(a.y[i] + offset.y - b.y[i]) > e) return false;
+  return true;
 }
 
 export interface Box {
@@ -774,7 +812,8 @@ export async function buildJob(inp: JobInput): Promise<Job> {
   // 2. Verschiebung nach „Starten ab“
   const jb = finite(bounds);
   let offset: Pt = { x: 0, y: 0 };
-  if (jb && !inp.forPreview && device.startFrom !== 'absolute') {
+  // Auch für die Vorschau: so ergibt sich dieselbe Reihenfolge wie beim Lasern (sie hängt vom Startpunkt ab)
+  if (jb && device.startFrom !== 'absolute') {
     const a = anchorOf(jb, device.jobOrigin);
     const target = device.startFrom === 'current' && inp.position ? inp.position : { x: 0, y: 0 };
     offset = { x: target.x - a.x, y: target.y - a.y };
@@ -789,7 +828,7 @@ export async function buildJob(inp: JobInput): Promise<Job> {
         }
 
   // 3. Bewegungen je Layer in Ausgabereihenfolge
-  const start: Pt = device.startFrom === 'current' && inp.position && !inp.forPreview ? inp.position : { x: 0, y: 0 };
+  const start: Pt = device.startFrom === 'current' && inp.position ? inp.position : { x: 0, y: 0 };
   const mv = new Moves(start.x, start.y);
   const order = [...buckets.keys()].sort((a, b) => (layerOf(a).priority ?? a) - (layerOf(b).priority ?? b) || a - b);
   for (const li of order) {
@@ -836,6 +875,16 @@ export async function buildJob(inp: JobInput): Promise<Job> {
     }
   }
   if (mv.n && device.returnHome) mv.push(start.x, start.y, 0, 0, -1);
+  // Vorschau: dieselben Bahnen an ihrer Lage auf dem Bett zeigen
+  if (inp.forPreview && (offset.x || offset.y)) {
+    for (let i = 0; i < mv.n; i++) {
+      mv.x[i] -= offset.x;
+      mv.y[i] -= offset.y;
+    }
+    mv.x0 -= offset.x;
+    mv.y0 -= offset.y;
+    offset = { x: 0, y: 0 };
+  }
 
   // 4. Ausdehnung und Kontur
   const ob = jb ? { x0: jb.x0 + offset.x, y0: jb.y0 + offset.y, x1: jb.x1 + offset.x, y1: jb.y1 + offset.y } : null;
@@ -994,8 +1043,21 @@ function gcodeHeader(job: Job, d: Device, est: Estimate, name: string): string[]
   if (job.bounds) out.push(t('; Bereich: X {x0} … {x1}, Y {y0} … {y1} mm', { x0: num(job.bounds.x0), x1: num(job.bounds.x1), y0: num(job.bounds.y0), y1: num(job.bounds.y1) }));
   const fw = FIRMWARES[d.fw];
   out.push(t('; Gerät: {name} ({label})', { name: d.name, label: fw.label }));
-  out.push('G21', 'G90', ...fw.laserOn);
+  out.push('G21', 'G90', ...fw.laserOn, ...scriptLines(d.startScript));
   return out;
+}
+
+/** Zeilen eines Skripts aus den Geräteeinstellungen, ohne Leerzeilen */
+export function scriptLines(s: string | undefined): string[] {
+  return (s ?? '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+}
+
+/** Ende des Jobs: Laser aus, dann das eigene End-Skript, dann Programmende der Steuerung (M2, M400) */
+export function gcodeFooter(d: Device): string[] {
+  const f = FIRMWARES[d.fw].footer;
+  const end = scriptLines(d.endScript);
+  const k = f.indexOf('M5');
+  return k < 0 ? [...f, ...end] : [...f.slice(0, k + 1), ...end, ...f.slice(k + 1)];
 }
 
 /**
@@ -1005,7 +1067,6 @@ function gcodeHeader(job: Job, d: Device, est: Estimate, name: string): string[]
 export function gcodeLines(mv: Moves, d: Device, est: Estimate, airList: number[], header: string[]): GCode {
   const lines: string[] = [...header];
   const times: number[] = header.map(() => 0);
-  const fw = FIRMWARES[d.fw];
   let g = -1,
     cx = mv.x0,
     cy = mv.y0,
@@ -1051,7 +1112,7 @@ export function gcodeLines(mv: Moves, d: Device, est: Estimate, airList: number[
     lines.push(l.trim());
     times.push(est.t[i]);
   }
-  for (const l of [...(air ? ['M9'] : []), ...fw.footer]) {
+  for (const l of [...(air ? ['M9'] : []), ...gcodeFooter(d)]) {
     lines.push(l);
     times.push(est.total);
   }
@@ -1076,7 +1137,7 @@ export async function prepareGCode(job: Job, d: Device, est: Estimate, name = 'L
   if (hasNative()) {
     try {
       const mv = job.moves;
-      const params = JSON.stringify({ x0: mv.x0, y0: mv.y0, sMax: d.sMax, air: job.air, airCmd: d.airCmd || 'M8', header, footer: FIRMWARES[d.fw].footer, total: est.total });
+      const params = JSON.stringify({ x0: mv.x0, y0: mv.y0, sMax: d.sMax, air: job.air, airCmd: d.airCmd || 'M8', header, footer: gcodeFooter(d), total: est.total });
       const buf = await native<ArrayBuffer>('gcode_prepare', packMoves(mv, est.t, params));
       const head = new Uint32Array(buf, 0, 2);
       return { id: head[0], lines: null, count: head[1], times: new Float64Array(buf, 8), total: est.total };

@@ -98,6 +98,8 @@ export function describe(ed: Editor, o: Obj, parent: Mat, detail: boolean): Reco
       break;
     case 'text':
       Object.assign(out, { text: s.text, font: s.font, size: r3(s.size * sy), bold: s.bold, italic: s.italic, align: s.align });
+      if (s.weld) out.weld = true;
+      if (s.path) out.onPath = { offset: r3(s.path.offset), distance: r3(s.path.dist), flip: s.path.flip, shape: s.path.link ?? null };
       break;
     case 'image':
       Object.assign(out, { file: s.name ?? null, pixels: `${s.pxW}×${s.pxH}` });

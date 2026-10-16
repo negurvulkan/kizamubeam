@@ -5,8 +5,8 @@ import { ICONS } from './icons';
 import { saveText } from './files';
 import { native } from './native';
 import {
-  anchorOf, buildJob, Device, estimate, Firmware, FIRMWARES, formatDuration, frameGCode, Job, loadDevices, newDevice, PRESETS,
-  prepareGCode, saveDevices, StartFrom,
+  anchorOf, buildJob, burns, Device, estimate, Firmware, FIRMWARES, formatDuration, frameGCode, Job, loadDevices, Moves, newDevice, PRESETS,
+  prepareGCode, sameMoves, saveDevices, StartFrom, startHere,
 } from './gcode';
 import { isTauri, machine, PortInfo } from './machine';
 import type { Doc, ImageLayer, Layer } from './model';
@@ -130,6 +130,33 @@ export async function startJob(ed: Editor, src?: JobSource) {
   const g = await prepareGCode(job, device, est, src?.name);
   notify(t('Job gestartet, geschätzt {total}.', { total: formatDuration(est.total) }));
   await machine.runPrepared(g);
+}
+
+/**
+ * „Start Here“: den Job ab einer Stelle der Vorschau lasern. preview sind die Bewegungen der Vorschau,
+ * die Stelle ist Bewegung i bei Anteil frac. Der Job wird neu berechnet und muss zur Vorschau passen.
+ */
+export async function startJobAt(ed: Editor, preview: Moves, i: number, frac: number, src?: JobSource): Promise<boolean> {
+  if (!canRun()) return false;
+  const job = await makeJob(ed, false, src);
+  if (nothingToDo(job) || !boundsOk(ed, job)) return false;
+  if (!sameMoves(preview, job.moves, job.offset)) {
+    notify(t('Die Vorschau passt nicht mehr zum Job (z. B. weil sich die Laserposition geändert hat). Bitte die Vorschau neu öffnen.'), true);
+    return false;
+  }
+  const total = estimate(job.moves, device).total;
+  job.moves = startHere(job.moves, i, frac);
+  if (!burns(job.moves)) {
+    notify(t('Ab dieser Stelle gibt es nichts mehr zu lasern.'), true);
+    return false;
+  }
+  job.warnings.forEach((w) => notify(w));
+  const est = estimate(job.moves, device);
+  const at = formatDuration(Math.max(0, total - est.total));
+  const g = await prepareGCode(job, device, est, t('{name} ab {at}', { name: src?.name ?? 'Laserwerk', at }));
+  notify(t('Job ab {at} gestartet, geschätzt {total}.', { at, total: formatDuration(est.total) }));
+  await machine.runPrepared(g);
+  return true;
 }
 
 export async function frameJob(ed: Editor, contour: boolean, src?: JobSource) {
@@ -301,6 +328,7 @@ function laserTab(ed: Editor): HTMLElement {
 
   let ports: PortInfo[] = [];
   const NET = '__net__';
+  const NET_WS = '__ws__';
   const fillPorts = () => {
     portSel.textContent = '';
     const names = ports.map((p) => p.name);
@@ -311,10 +339,12 @@ function laserTab(ed: Editor): HTMLElement {
     }
     if (!names.length) portSel.append(h('option', { value: '', disabled: true }, t('Keine serielle Schnittstelle gefunden')));
     portSel.append(h('option', { value: NET }, t('WLAN: {address}', { address: `${device.host}:${device.tcpPort}` })));
-    portSel.value = device.conn === 'tcp' ? NET : device.port || names[0] || NET;
+    portSel.append(h('option', { value: NET_WS }, t('WLAN (WebSocket): {address}', { address: `${device.host}:${device.wsPort}` })));
+    portSel.value = device.conn === 'tcp' ? NET : device.conn === 'ws' ? NET_WS : device.port || names[0] || NET;
   };
   const applyPortChoice = () => {
     if (portSel.value === NET) device.conn = 'tcp';
+    else if (portSel.value === NET_WS) device.conn = 'ws';
     else if (portSel.value) ((device.conn = 'serial'), (device.port = portSel.value));
     deviceChanged();
   };
@@ -541,6 +571,7 @@ export function openDeviceDialog(ed: Editor, target: Device = device, onDone?: (
   rows.push(h('label', {}, t('Anschluss')), h('select', { onchange: (e: Event) => (d.conn = (e.target as HTMLSelectElement).value as Device['conn']) },
     h('option', { value: 'serial', selected: d.conn === 'serial' }, t('USB (seriell)')),
     h('option', { value: 'tcp', selected: d.conn === 'tcp' }, t('WLAN (Telnet)')),
+    h('option', { value: 'ws', selected: d.conn === 'ws' }, t('WLAN (WebSocket)')),
   ));
   // Schnittstelle frei eintragbar (z. B. COM3, /dev/ttyUSB0), erkannte Schnittstellen als Vorschlag
   const portList = h('datalist', { id: `ports-${Math.random().toString(36).slice(2)}` });
@@ -554,6 +585,7 @@ export function openDeviceDialog(ed: Editor, target: Device = device, onDone?: (
   rows.push(h('label', {}, t('Baudrate')), baud);
   text(t('WLAN-Adresse'), () => d.host, (v) => (d.host = v.trim()));
   num(t('Telnet-Port'), () => d.tcpPort, (v) => (d.tcpPort = Math.round(v)));
+  num(t('WebSocket-Port'), () => d.wsPort, (v) => (d.wsPort = Math.round(v)), t('FluidNC: 81; ist er nicht erreichbar, wird 80 versucht'));
   bool(t('Beim Verbinden referenzieren'), () => d.homeOnConnect, (v) => (d.homeOnConnect = v), t('Nach dem Verbinden eine Referenzfahrt starten'));
   head(t('Bewegung (für die Zeitschätzung)'));
   const rapid = num(t('Eilgang (mm/min)'), () => d.rapid, (v) => (d.rapid = v));
@@ -568,6 +600,15 @@ export function openDeviceDialog(ed: Editor, target: Device = device, onDone?: (
     h('option', { value: 'M8', selected: d.airCmd !== 'M7' }, t('M8 (Flood, üblich)')),
     h('option', { value: 'M7', selected: d.airCmd === 'M7' }, 'M7 (Mist)'),
   ));
+  head(t('G-Code-Skripte'));
+  const script = (label: string, title: string, get: () => string, set: (v: string) => void) => {
+    const el = h('textarea', { class: 'script', rows: 3, spellcheck: false, placeholder: t('Eine Zeile je Befehl'), oninput: (e: Event) => set((e.target as HTMLTextAreaElement).value) }) as HTMLTextAreaElement;
+    el.value = get();
+    rows.push(h('label', { class: 'wide', title }, label), el);
+  };
+  script(t('Vor dem Job'), t('Wird nach G21, G90 und dem Laser-Modus gesendet, vor der ersten Bewegung'), () => d.startScript, (v) => (d.startScript = v));
+  script(t('Nach dem Job'), t('Wird nach dem Ausschalten des Lasers (M5) gesendet, vor dem Programmende'), () => d.endScript, (v) => (d.endScript = v));
+  rows.push(h('div', { class: 'note wide' }, t('Gilt für Jobs und gespeicherten G-Code, nicht für Rahmenfahrten. Die Zeilen werden unverändert gesendet.')));
   head(t('KI-Agenten'));
   const limit = (label: string, title: string, get: () => number, set: (v: number) => void) => {
     const el = numInput('', (v) => {
@@ -726,6 +767,24 @@ export async function openPreview(ed: Editor, src?: JobSource) {
   const slider = h('input', { type: 'range', min: '0', max: '1000', value: '1000', step: '1' }) as HTMLInputElement;
   const timeTxt = h('span', { class: 'preview-time' });
   const playBtn = h('button', { class: 'btn', title: t('Abspielen') }, h('span', { html: ICONS.play }));
+  const hereBtn = h('button', {
+    class: 'btn',
+    title: t('Den Job ab der Stelle des Schiebereglers lasern, z. B. nach einem Abbruch'),
+    onclick: async () => {
+      setPlaying(false);
+      const i = indexAt(time);
+      const t0 = i ? est.t[i - 1] : 0,
+        t1 = i < mv.n ? est.t[i] : t0;
+      const frac = t1 > t0 ? (time - t0) / (t1 - t0) : 0;
+      if (await startJobAt(ed, mv, i, frac, src)) dlg.close();
+    },
+  }, t('Hier starten')) as HTMLButtonElement;
+  const updateHere = () => {
+    const why = runBlocker();
+    hereBtn.disabled = !!why;
+    hereBtn.title = why ?? t('Den Job ab der Stelle des Schiebereglers lasern, z. B. nach einem Abbruch');
+  };
+  const offMachine = machine.on(updateHere);
   const speedSel = h('select', { title: t('Abspielgeschwindigkeit') },
     ...[1, 2, 5, 10, 20, 50, 100, 200].map((v) => h('option', { value: String(v), selected: v === 10 }, `${v}×`)),
   ) as HTMLSelectElement;
@@ -757,7 +816,7 @@ export async function openPreview(ed: Editor, src?: JobSource) {
         ),
       ),
     ),
-    h('div', { class: 'preview-bar' }, playBtn, slider, timeTxt, speedSel),
+    h('div', { class: 'preview-bar' }, playBtn, slider, timeTxt, speedSel, hereBtn),
   );
   document.body.append(dlg);
   dlg.addEventListener('keydown', (e) => e.stopPropagation());
@@ -960,8 +1019,10 @@ export async function openPreview(ed: Editor, src?: JobSource) {
   cv.addEventListener('dblclick', () => (fit(), render()));
   const ro = new ResizeObserver(() => (fit(), render()));
   ro.observe(cv);
+  updateHere();
   dlg.addEventListener('close', () => {
     playing = false;
+    offMachine();
     ro.disconnect();
     dlg.remove();
   });

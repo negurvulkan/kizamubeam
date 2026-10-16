@@ -1,6 +1,9 @@
 // Geometrie: Formen in Pfade umwandeln, Begrenzungsrahmen, Text-Layout, Treffertest.
 import { apply, IDENT, inv, mul, Mat, Node, Obj, Pt, Shape, SubPath, TextShape } from './model';
 import { loadedFont, onFontLoaded, textLines, textToSubs } from './fonts';
+import { bezierPt, segments } from './curves';
+
+export { bezierPt, segments };
 
 export interface Box {
   x: number;
@@ -114,27 +117,6 @@ export function worldPath(s: Shape, m: Mat): Path2D {
   return p;
 }
 
-export function bezierPt(a: Pt, c1: Pt, c2: Pt, b: Pt, t: number): Pt {
-  const u = 1 - t;
-  return {
-    x: u * u * u * a.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * b.x,
-    y: u * u * u * a.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * b.y,
-  };
-}
-
-/** Segmente eines Unterpfads: [a, b, c1, c2, isCurve, indexA, indexB] */
-export function segments(sp: SubPath) {
-  const out: { a: Node; b: Node; c1: Pt; c2: Pt; curve: boolean; ia: number; ib: number }[] = [];
-  const n = sp.nodes.length;
-  const last = sp.closed ? n : n - 1;
-  for (let i = 0; i < last; i++) {
-    const a = sp.nodes[i],
-      b = sp.nodes[(i + 1) % n];
-    out.push({ a, b, c1: a.cout ?? a, c2: b.cin ?? b, curve: !!(a.cout || b.cin), ia: i, ib: (i + 1) % n });
-  }
-  return out;
-}
-
 function samplePoints(subs: SubPath[]): Pt[] {
   const pts: Pt[] = [];
   for (const sp of subs) {
@@ -218,10 +200,21 @@ export function textLayout(t: TextShape): TextLayout {
   if (maxX - minX < BASE * 0.2) maxX = minX + BASE * 0.2; // leere Zeile bleibt anklickbar
   const top = -BASE * 0.8,
     bottom = (raw.length - 1) * lh + BASE * 0.22;
-  const box = { x: minX * k, y: top * k, w: (maxX - minX) * k, h: (bottom - top) * k };
+  let box = { x: minX * k, y: top * k, w: (maxX - minX) * k, h: (bottom - top) * k };
+  // Text auf Pfad: Rahmen aus den gesetzten Konturen, solange die Schrift lädt aus der Kurve
+  if (t.path) box = subsBox(textOutline(t)?.subs ?? [t.path.sub]) ?? box;
   const lay = { k, font, spacing, lines, box };
   layoutCache.set(t, lay);
   return lay;
+}
+function subsBox(subs: SubPath[]): Box | null {
+  const pts = samplePoints(subs);
+  if (!pts.length) return null;
+  const xs = pts.map((p) => p.x),
+    ys = pts.map((p) => p.y);
+  const x = Math.min(...xs),
+    y = Math.min(...ys);
+  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
 }
 export function invalidateText(t: TextShape) {
   layoutCache.delete(t);
@@ -319,6 +312,15 @@ function hitCtx() {
 export function hitLeaf(o: Obj, m: Mat, p: Pt, tol: number, inside: boolean): boolean {
   const s = o.shape;
   if (s.kind === 'text') {
+    // Text auf Pfad: die Konturen treffen (der Rahmen umfasst oft viel leere Fläche, z. B. bei einem Kreis)
+    const ol = s.path ? textOutline(s) : null;
+    if (ol) {
+      const ctx = hitCtx();
+      const wp = new Path2D();
+      wp.addPath(ol.path, new DOMMatrix(m));
+      ctx.lineWidth = tol * 2 + s.size * 0.25 * Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]));
+      return ctx.isPointInPath(wp, p.x, p.y, 'nonzero') || ctx.isPointInStroke(wp, p.x, p.y);
+    }
     const q = apply(inv(m), p.x, p.y);
     const b = textLayout(s).box;
     const t = tol / Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]) || 1);

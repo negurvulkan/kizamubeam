@@ -181,7 +181,8 @@ export const EDIT_TOOLS: ToolDef[] = [
       text: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, font: { type: 'string' }, size: { type: 'number' },
       bold: { type: 'boolean' }, italic: { type: 'boolean' }, upper: { type: 'boolean', description: 'In Großbuchstaben' },
       align: { type: 'string', enum: ['left', 'center', 'right'] }, letterSpacing: { type: 'number', description: 'Zusätzlicher Zeichenabstand (mm)' },
-      lineSpacing: { type: 'number', description: 'Zusätzlicher Zeilenabstand (mm)' }, layer: LAYER, rotation: ROT,
+      lineSpacing: { type: 'number', description: 'Zusätzlicher Zeilenabstand (mm)' },
+      weld: { type: 'boolean', description: 'Buchstaben schweißen: überlappende Zeichen zu einer Kontur verschmelzen' }, layer: LAYER, rotation: ROT,
     }, ['text', 'x', 'y']),
     run: (ed, a) => {
       if (typeof a.text !== 'string' || !a.text.trim()) throw new ToolError('„text“ ist leer');
@@ -194,6 +195,7 @@ export const EDIT_TOOLS: ToolDef[] = [
         align: oneOf(a, 'align', ['left', 'center', 'right'] as const, 'left'),
         hSpace: num(a, 'letterSpacing', { def: 0 }), vSpace: num(a, 'lineSpacing', { def: 0 }),
       };
+      if (bool(a, 'weld', false)) shape.weld = true;
       const p = W(ed, num(a, 'x'), num(a, 'y'));
       const o = addObj(ed, shape, translate(p.x, p.y), layerOf(ed, a));
       const rot = num(a, 'rotation', { def: 0 });
@@ -205,12 +207,13 @@ export const EDIT_TOOLS: ToolDef[] = [
     name: 'edit_object',
     title: 'Objekt ändern',
     description:
-      'Ändert Eigenschaften eines Objekts (auch in Gruppen). Alle Typen: name (leer = Standardname), hidden (ausgeblendet: nicht gezeichnet und nicht gelasert), locked (auf der Arbeitsfläche nicht auswählbar; nur oberste Ebene). Text: text, font, size (mm auf dem Bett), bold, italic, upper, align, letterSpacing, lineSpacing. Rechteck: cornerRadius. Vieleck: sides, star, innerRatio. Lage und Größe ändert transform.',
+      'Ändert Eigenschaften eines Objekts (auch in Gruppen). Alle Typen: name (leer = Standardname), hidden (ausgeblendet: nicht gezeichnet und nicht gelasert), locked (auf der Arbeitsfläche nicht auswählbar; nur oberste Ebene). Text: text, font, size (mm auf dem Bett), bold, italic, upper, align, letterSpacing, lineSpacing, weld (Buchstaben schweißen); bei Text auf Pfad (apply_path_to_text) pathOffset (Verschiebung entlang der Kurve, mm), pathDistance (Abstand der Grundlinie, mm, positiv nach oben), pathFlip (andere Seite), removePath (wieder gerade). Rechteck: cornerRadius. Vieleck: sides, star, innerRatio. Lage und Größe ändert transform.',
     tier: Tier.Edit,
     inputSchema: obj({
       id: { type: 'integer' }, name: { type: 'string' }, hidden: { type: 'boolean' }, locked: { type: 'boolean' }, text: { type: 'string' }, font: { type: 'string' }, size: { type: 'number' }, bold: { type: 'boolean' },
       italic: { type: 'boolean' }, upper: { type: 'boolean' }, align: { type: 'string', enum: ['left', 'center', 'right'] },
-      letterSpacing: { type: 'number' }, lineSpacing: { type: 'number' }, cornerRadius: { type: 'number' },
+      letterSpacing: { type: 'number' }, lineSpacing: { type: 'number' }, weld: { type: 'boolean' }, pathOffset: { type: 'number' },
+      pathDistance: { type: 'number' }, pathFlip: { type: 'boolean' }, removePath: { type: 'boolean' }, cornerRadius: { type: 'number' },
       sides: { type: 'integer', minimum: 3, maximum: 200 }, star: { type: 'boolean' }, innerRatio: { type: 'number' },
     }, ['id']),
     run: (ed, a) => {
@@ -226,7 +229,10 @@ export const EDIT_TOOLS: ToolDef[] = [
         if (!ed.doc.objs.includes(o)) throw new ToolError('Sperren geht nur bei Objekten der obersten Ebene (nicht in Gruppen)');
         props.locked = a.locked === true;
       }
-      const SHAPE_KEYS = ['text', 'font', 'size', 'bold', 'italic', 'upper', 'align', 'letterSpacing', 'lineSpacing', 'cornerRadius', 'sides', 'star', 'innerRatio'];
+      const SHAPE_KEYS = [
+        'text', 'font', 'size', 'bold', 'italic', 'upper', 'align', 'letterSpacing', 'lineSpacing', 'weld', 'pathOffset', 'pathDistance', 'pathFlip', 'removePath',
+        'cornerRadius', 'sides', 'star', 'innerRatio',
+      ];
       const shapeChange = SHAPE_KEYS.some((k) => a[k] !== undefined);
       if (Object.keys(props).length) ed.setObjProps([o], props);
       if (!shapeChange) {
@@ -247,6 +253,15 @@ export const EDIT_TOOLS: ToolDef[] = [
         if (a.align !== undefined) s.align = oneOf(a, 'align', ['left', 'center', 'right'] as const);
         s.hSpace = optNum(a, 'letterSpacing') ?? s.hSpace;
         s.vSpace = optNum(a, 'lineSpacing') ?? s.vSpace;
+        if (a.weld !== undefined) s.weld = a.weld === true;
+        if (a.removePath === true) delete s.path;
+        const pathKeys = ['pathOffset', 'pathDistance', 'pathFlip'].filter((k) => a[k] !== undefined);
+        if (pathKeys.length) {
+          if (!s.path) throw new ToolError('Der Text liegt auf keinem Pfad; erst apply_path_to_text');
+          s.path.offset = optNum(a, 'pathOffset') ?? s.path.offset;
+          s.path.dist = optNum(a, 'pathDistance') ?? s.path.dist;
+          if (a.pathFlip !== undefined) s.path.flip = a.pathFlip === true;
+        }
       } else if (s.kind === 'rect') {
         const r = optNum(a, 'cornerRadius', { min: 0 });
         if (r !== undefined) s.r = Math.min(r / (Math.min(Math.hypot(m[0], m[1]), Math.hypot(m[2], m[3])) || 1), Math.min(s.w, s.h) / 2);
@@ -464,6 +479,22 @@ export const EDIT_TOOLS: ToolDef[] = [
       };
       await ed.offsetSel(opt, bool(a, 'keep_originals', true));
       return result(ed, before);
+    },
+  },
+  {
+    name: 'apply_path_to_text',
+    title: 'Text auf Pfad',
+    description:
+      'Lässt einen Text einer Form folgen (Linie/Pfad, Rechteck, Ellipse, Polygon), wie „Apply Path to Text“ in LightBurn. Text und Form bleiben verknüpft: Wird die Form verschoben oder geändert, folgt der Text; wird nur der Text verschoben, wandert die Form mit. Die Form wird mitgelasert (auf Layer T1/T2 legen oder ausblenden, wenn nicht); wird sie gelöscht, behält der Text die letzte Kurve. Offene Kurven: Anfang/Mitte/Ende je nach align des Texts; geschlossene Formen: oberster Punkt. Feinjustieren mit edit_object (pathOffset, pathDistance, pathFlip).',
+    tier: Tier.Edit,
+    inputSchema: obj({ textId: { type: 'integer' }, shapeId: { type: 'integer' } }, ['textId', 'shapeId']),
+    run: (ed, a) => {
+      const [to, so] = topObjs(ed, [num(a, 'textId', { int: true }), num(a, 'shapeId', { int: true })]);
+      if (to.shape.kind !== 'text') throw new ToolError(`Objekt ${to.id} ist kein Text`);
+      if (!['path', 'rect', 'ellipse', 'polygon'].includes(so.shape.kind)) throw new ToolError(`Objekt ${so.id} (${so.shape.kind}) taugt nicht als Kurve`);
+      ed.setSel([to, so]);
+      if (!ed.applyPathToText()) throw new ToolError(ed.hint || 'Text auf Pfad nicht möglich');
+      return { object: describe(ed, to, IDENT, false), note: 'Die Form ist mit dem Text verknüpft und wird mitgelasert, außer auf Layer T1/T2 oder ausgeblendet.' };
     },
   },
   {

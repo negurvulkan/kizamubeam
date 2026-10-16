@@ -200,6 +200,11 @@ body {
 }
 
 /* Zahlenfelder */
+/* Breite Leisten (z. B. Text auf Pfad) lassen sich seitlich schieben statt abgeschnitten zu werden */
+#numbar {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
 #numbar label,
 .field {
   display: inline-flex;
@@ -1528,4 +1533,13 @@ table.layers td:nth-child(2) {
 }
 .note.error {
   color: #d03030;
+}
+.device-dialog .form .wide,
+.device-dialog .form textarea.script {
+  grid-column: 1 / -1;
+}
+.device-dialog textarea.script {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+  resize: vertical;
 }

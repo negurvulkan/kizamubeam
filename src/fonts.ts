@@ -2,6 +2,8 @@
 // Desktop: Systemschriften über Rust (fontdb). Browser: lokale Schriften (falls erlaubt), sonst Roboto als Ersatz.
 import opentype from 'opentype.js';
 import { Node, SubPath, TextShape } from './model';
+import { PlacedGlyph, placeOnPath } from './textpath';
+import { weldGlyphs } from './clip';
 import roboto400 from '@fontsource/roboto/files/roboto-latin-400-normal.woff?inline';
 import roboto700 from '@fontsource/roboto/files/roboto-latin-700-normal.woff?inline';
 import roboto400i from '@fontsource/roboto/files/roboto-latin-400-italic.woff?inline';
@@ -120,10 +122,16 @@ export async function systemFonts(): Promise<string[] | null> {
  * Gleiche Anordnung wie die Anzeige: Grundlinie der ersten Zeile bei y = 0, Zeilenhöhe 1,2 × Größe + Zeilenabstand.
  */
 export function textToSubs(t: TextShape, font: opentype.Font): SubPath[] {
-  const subs: SubPath[] = [];
+  const scale = t.size / font.unitsPerEm;
+  const glyphs: PlacedGlyph[] = [];
   for (const ln of textLines(t, font))
-    ln.glyphs.forEach((g, i) => subs.push(...commandsToSubs(g.getPath(ln.xs[i], ln.y, t.size).commands)));
-  return subs;
+    ln.glyphs.forEach((g, i) => {
+      const subs = commandsToSubs(g.getPath(ln.xs[i], ln.y, t.size).commands);
+      if (subs.length) glyphs.push({ subs, cx: ln.xs[i] + ((g.advanceWidth ?? 0) * scale) / 2, y: ln.y });
+    });
+  // Text auf Pfad: jede Glyphe für sich auf die Kurve setzen
+  const placed = t.path && t.path.sub.nodes.length > 1 ? placeOnPath(glyphs, t.path, t.align) : glyphs.map((g) => g.subs);
+  return t.weld ? weldGlyphs(placed) : placed.flat();
 }
 
 /** Zeilen mit Glyphen und deren x-Positionen (mm); x/w ist die Zeilenbreite nach Vorschub */
