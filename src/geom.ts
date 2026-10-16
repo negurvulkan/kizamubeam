@@ -2,6 +2,8 @@
 import { apply, IDENT, inv, mul, Mat, Node, Obj, Pt, Shape, SubPath, TextShape } from './model';
 import { loadedFont, onFontLoaded, textLines, textToSubs } from './fonts';
 import { bezierPt, segments } from './curves';
+import { shownText } from './vartext';
+import { barcodeExtent, barcodeOutline } from './barcode';
 
 export { bezierPt, segments };
 
@@ -19,6 +21,8 @@ export function shapeSubs(s: Shape): SubPath[] {
   switch (s.kind) {
     case 'path':
       return s.subs;
+    case 'barcode':
+      return barcodeOutline(s).subs;
     case 'image':
       // Umriss des Bildes (für Begrenzung, Auswahl und Rahmen)
       return [{ closed: true, nodes: [{ x: 0, y: 0 }, { x: s.w, y: 0 }, { x: s.w, y: s.h }, { x: 0, y: s.h }] }];
@@ -100,6 +104,8 @@ export function subsToPath2D(subs: SubPath[], p = new Path2D()): Path2D {
 const localCache = new WeakMap<Shape, Path2D>();
 /** Lokaler Pfad, zwischengespeichert pro Form-Objekt. Nach Änderung invalidate() aufrufen. */
 export function localPath(s: Shape): Path2D {
+  // QR-Codes mit variablem Inhalt ändern sich ohne touch(); barcode.ts prüft selbst, ob der Inhalt noch passt
+  if (s.kind === 'barcode') return barcodeOutline(s).path;
   let p = localCache.get(s);
   if (!p) {
     p = subsToPath2D(shapeSubs(s));
@@ -151,9 +157,10 @@ export interface TextLayout {
   box: Box;
 }
 
-let layoutCache = new WeakMap<TextShape, TextLayout>();
+// Beide Zwischenspeicher merken sich den angezeigten Text: Variabler Text ändert sich ohne touch()
+let layoutCache = new WeakMap<TextShape, TextLayout & { shown: string }>();
 /** Schriftkonturen je Text: dieselbe Geometrie wie bei Umwandeln in Pfad, Offset und Booleschen Operationen */
-let outlineCache = new WeakMap<TextShape, { subs: SubPath[]; path: Path2D }>();
+let outlineCache = new WeakMap<TextShape, { subs: SubPath[]; path: Path2D; shown: string }>();
 onFontLoaded(() => {
   layoutCache = new WeakMap();
   outlineCache = new WeakMap();
@@ -161,25 +168,27 @@ onFontLoaded(() => {
 
 /** Konturen des Texts in lokalen mm, sobald die Schrift geladen ist; vorher null */
 export function textOutline(t: TextShape): { subs: SubPath[]; path: Path2D } | null {
+  const shown = shownText(t);
   let o = outlineCache.get(t);
-  if (o) return o;
+  if (o && o.shown === shown) return o;
   const f = loadedFont(t.font, t.bold, t.italic);
   if (!f) return null;
   const subs = textToSubs(t, f.font);
-  o = { subs, path: subsToPath2D(subs) };
+  o = { subs, path: subsToPath2D(subs), shown };
   outlineCache.set(t, o);
   return o;
 }
 export function textLayout(t: TextShape): TextLayout {
+  const shown = shownText(t);
   const cached = layoutCache.get(t);
-  if (cached) return cached;
+  if (cached && cached.shown === shown) return cached;
   const ctx = measureCtx();
   const k = t.size / BASE;
   const font = fontString(t);
   ctx.font = font;
   const spacing = t.hSpace / k;
   const lh = BASE * 1.2 + t.vSpace / k;
-  const raw = (t.upper ? t.text.toUpperCase() : t.text).split('\n');
+  const raw = (t.upper ? shown.toUpperCase() : shown).split('\n');
   let minX = Infinity,
     maxX = -Infinity;
   const lines = raw.map((text, i) => {
@@ -203,7 +212,7 @@ export function textLayout(t: TextShape): TextLayout {
   let box = { x: minX * k, y: top * k, w: (maxX - minX) * k, h: (bottom - top) * k };
   // Text auf Pfad: Rahmen aus den gesetzten Konturen, solange die Schrift lädt aus der Kurve
   if (t.path) box = subsBox(textOutline(t)?.subs ?? [t.path.sub]) ?? box;
-  const lay = { k, font, spacing, lines, box };
+  const lay = { k, font, spacing, lines, box, shown };
   layoutCache.set(t, lay);
   return lay;
 }
@@ -326,10 +335,14 @@ export function hitLeaf(o: Obj, m: Mat, p: Pt, tol: number, inside: boolean): bo
     const t = tol / Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]) || 1);
     return q.x >= b.x - t && q.x <= b.x + b.w + t && q.y >= b.y - t && q.y <= b.y + b.h + t;
   }
-  if (s.kind === 'image') {
+  if (s.kind === 'image' || s.kind === 'barcode') {
+    // Bilder und QR-Codes: die ganze Fläche trifft (einzelne Module wären zu kleine Ziele)
     const q = apply(inv(m), p.x, p.y);
     const t = tol / Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]) || 1);
-    return q.x >= -t && q.x <= s.w + t && q.y >= -t && q.y <= s.h + t;
+    const e = s.kind === 'image' ? { lo: 0, hi: 0 } : barcodeExtent(s);
+    const x1 = s.kind === 'image' ? s.w : e.hi,
+      y1 = s.kind === 'image' ? s.h : e.hi;
+    return q.x >= e.lo - t && q.x <= x1 + t && q.y >= e.lo - t && q.y <= y1 + t;
   }
   const ctx = hitCtx();
   const wp = worldPath(s, m);

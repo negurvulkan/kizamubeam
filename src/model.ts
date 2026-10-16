@@ -68,6 +68,7 @@ export type Shape =
   | { kind: 'path'; subs: SubPath[] }
   | TextShape
   | ImageShape
+  | BarcodeShape
   | { kind: 'group'; children: Obj[] };
 
 /** Bildanpassungen je Bild (wie „Adjust Image“ in LightBurn) */
@@ -166,6 +167,51 @@ export interface TextShape {
   weld?: boolean;
   /** Text auf Pfad: die Grundlinie folgt dieser Kurve */
   path?: TextPath;
+  /** Variabler Text: Platzhalter wie %# (Seriennummer), %Y (Jahr) oder %0 (CSV-Spalte) werden ersetzt */
+  vt?: VarTextRef;
+  /** Höchstbreite in mm: breitere Zeilen werden waagerecht gestaucht (0/fehlt = aus) */
+  maxW?: number;
+}
+
+/** Variabler Text an einem Objekt (Text oder Barcode) */
+export interface VarTextRef {
+  /** Wird zur aktuellen Nummer addiert (z. B. für mehrere Schilder in einem Job) */
+  offset: number;
+}
+
+/** Projektweite Einstellungen für variablen Text (wie das Fenster „Variable Text“ in LightBurn) */
+export interface VarText {
+  start: number;
+  end: number;
+  /** Aktuelle Nummer: Seriennummer und Zeile der CSV-Datei */
+  current: number;
+  /** Schrittweite beim Weiterzählen */
+  advance: number;
+  /** Nach jedem gestarteten Job und jeder gespeicherten G-Code-Datei weiterzählen */
+  autoAdvance: boolean;
+  /** Geladene CSV-Datei */
+  csv?: { name: string; header: string[] | null; rows: string[][] };
+}
+
+export type QrLevel = 'L' | 'M' | 'Q' | 'H';
+
+/** QR-Code. Lokale Fläche 0..size × 0..size in mm (nur die Module; die Ruhezone liegt außen herum). */
+export interface BarcodeShape {
+  kind: 'barcode';
+  type: 'qr';
+  /** Inhalt (bei variablem Text mit Platzhaltern) */
+  data: string;
+  /** Fehlerkorrektur */
+  ec: QrLevel;
+  /** Kantenlänge in mm */
+  size: number;
+  /** Negativ: Hintergrund samt Ruhezone wird gelasert, die Module bleiben stehen (z. B. für dunkle Materialien) */
+  invert: boolean;
+  /** Breite der Ruhezone in Modulen (nur bei Negativ gelasert) */
+  quiet: number;
+  vt?: VarTextRef;
+  /** Eingabefelder des Dialogs (Art des Inhalts, WLAN-Daten …), damit Bearbeiten sie wieder zeigt */
+  form?: Record<string, string>;
 }
 
 /** Kurve für Text auf Pfad, in lokalen Koordinaten des Texts (Kopie der gewählten Form) */
@@ -318,6 +364,8 @@ export interface Doc {
    */
   objs: Obj[];
   layers: Record<number, Layer>;
+  /** Variabler Text: Zähler und CSV-Daten des Projekts */
+  vt?: VarText;
   /** Nur in Projektdateien: Bilddaten (Asset-ID → data:-URL) */
   assets?: Record<string, string>;
 }

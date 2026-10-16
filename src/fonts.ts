@@ -4,6 +4,7 @@ import opentype from 'opentype.js';
 import { Node, SubPath, TextShape } from './model';
 import { PlacedGlyph, placeOnPath } from './textpath';
 import { weldGlyphs } from './clip';
+import { shownText } from './vartext';
 import roboto400 from '@fontsource/roboto/files/roboto-latin-400-normal.woff?inline';
 import roboto700 from '@fontsource/roboto/files/roboto-latin-700-normal.woff?inline';
 import roboto400i from '@fontsource/roboto/files/roboto-latin-400-italic.woff?inline';
@@ -127,26 +128,43 @@ export function textToSubs(t: TextShape, font: opentype.Font): SubPath[] {
   for (const ln of textLines(t, font))
     ln.glyphs.forEach((g, i) => {
       const subs = commandsToSubs(g.getPath(ln.xs[i], ln.y, t.size).commands);
-      if (subs.length) glyphs.push({ subs, cx: ln.xs[i] + ((g.advanceWidth ?? 0) * scale) / 2, y: ln.y });
+      // Gestauchte Zeile (Höchstbreite): Glyphe um ihren Anfang waagerecht zusammenschieben
+      if (ln.sx !== 1) for (const sp of subs) for (const n of sp.nodes) squeezeNode(n, ln.xs[i], ln.sx);
+      if (subs.length) glyphs.push({ subs, cx: ln.xs[i] + ((g.advanceWidth ?? 0) * scale * ln.sx) / 2, y: ln.y });
     });
   // Text auf Pfad: jede Glyphe für sich auf die Kurve setzen
   const placed = t.path && t.path.sub.nodes.length > 1 ? placeOnPath(glyphs, t.path, t.align) : glyphs.map((g) => g.subs);
   return t.weld ? weldGlyphs(placed) : placed.flat();
 }
 
-/** Zeilen mit Glyphen und deren x-Positionen (mm); x/w ist die Zeilenbreite nach Vorschub */
+function squeezeNode(n: Node, x0: number, sx: number) {
+  n.x = x0 + (n.x - x0) * sx;
+  if (n.cin) n.cin.x = x0 + (n.cin.x - x0) * sx;
+  if (n.cout) n.cout.x = x0 + (n.cout.x - x0) * sx;
+}
+
+/**
+ * Zeilen mit Glyphen und deren x-Positionen (mm); x/w ist die Zeilenbreite nach Vorschub.
+ * sx < 1: Die Zeile ist breiter als die Höchstbreite und wird um diesen Faktor gestaucht.
+ */
 export function textLines(t: TextShape, font: opentype.Font) {
   const size = t.size;
   const scale = size / font.unitsPerEm;
   const lh = size * 1.2 + t.vSpace;
-  const lines = (t.upper ? t.text.toUpperCase() : t.text).split('\n');
+  const text = shownText(t);
+  const lines = (t.upper ? text.toUpperCase() : text).split('\n');
   return lines.map((line, li) => {
     const glyphs = font.stringToGlyphs(line);
-    const advances = glyphs.map((g, i) => {
+    let advances = glyphs.map((g, i) => {
       const kern = i < glyphs.length - 1 ? font.getKerningValue(g, glyphs[i + 1]) : 0;
       return ((g.advanceWidth ?? 0) + kern) * scale + (i < glyphs.length - 1 ? t.hSpace : 0);
     });
-    const w = advances.reduce((a, b) => a + b, 0);
+    let w = advances.reduce((a, b) => a + b, 0);
+    const sx = t.maxW && t.maxW > 0 && w > t.maxW ? t.maxW / w : 1;
+    if (sx !== 1) {
+      advances = advances.map((a) => a * sx);
+      w = t.maxW!;
+    }
     let x = t.align === 'left' ? 0 : t.align === 'center' ? -w / 2 : -w;
     const x0 = x;
     const xs = advances.map((adv) => {
@@ -154,7 +172,7 @@ export function textLines(t: TextShape, font: opentype.Font) {
       x += adv;
       return cur;
     });
-    return { glyphs, xs, x: x0, w, y: li * lh };
+    return { glyphs, xs, x: x0, w, y: li * lh, sx };
   });
 }
 

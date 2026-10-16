@@ -10,6 +10,7 @@ export const ICONS: Record<string, string> = {
   ellipse: svg('<ellipse cx="12" cy="12" rx="8.5" ry="6.5"/>'),
   polygon: svg('<path d="M12 3.5l8 5.8-3 9.2H7l-3-9.2z"/>'),
   text: svg('<path d="M5 6V4h14v2M12 4v16M9 20h6"/>'),
+  qr: svg('<rect x="3.5" y="3.5" width="6" height="6"/><rect x="14.5" y="3.5" width="6" height="6"/><rect x="3.5" y="14.5" width="6" height="6"/><path d="M14 14h3v3h-3zM18 18h2.5v2.5H18zM14 19.5h2M19.5 14v2" fill="currentColor"/>'),
   new: svg('<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>'),
   open: svg('<path d="M3 7h6l2 2h10v10H3z"/>'),
   save: svg('<path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/>'),
