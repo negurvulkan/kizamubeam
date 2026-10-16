@@ -1,4 +1,4 @@
-//! Maschinenanbindung für die Oberfläche: Verbindung über USB-Seriell oder Telnet (z. B. FluidNC, Port 23),
+//! Maschinenanbindung für die Oberfläche: Verbindung über USB-Seriell, Telnet (z. B. FluidNC, Port 23) oder WebSocket (ws.rs),
 //! Ereignisse an das Fenster, Befehle aus dem Fenster an den Übertragungs-Thread (stream.rs).
 
 use crate::stream::{Cmd, Events, Protocol, Streamer};
@@ -124,6 +124,10 @@ pub async fn machine_connect(
             s.set_write_timeout(Some(Duration::from_secs(5))).map_err(|e| e.to_string())?;
             let _ = s.set_nodelay(true);
             std::thread::spawn(move || Streamer::new(s, events, busy, Protocol { telnet: true, sync, realtime, poll }).run(rx));
+        }
+        "ws" => {
+            let ws = crate::ws::connect(&host, tcp_port)?;
+            std::thread::spawn(move || Streamer::new(ws, events, busy, Protocol { telnet: false, sync, realtime, poll }).run(rx));
         }
         _ => return Err(format!("Unbekannte Verbindungsart „{kind}“")),
     }

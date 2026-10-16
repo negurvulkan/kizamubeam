@@ -203,12 +203,13 @@ class Machine {
     try {
       await this.listen();
       const { invoke } = await import('@tauri-apps/api/core');
-      const where = d.conn === 'serial' ? d.port : `${d.host}:${d.tcpPort}`;
+      const netPort = d.conn === 'ws' ? d.wsPort : d.tcpPort;
+      const where = d.conn === 'serial' ? d.port : `${d.conn === 'ws' ? 'ws://' : ''}${d.host}:${netPort}`;
       this.log(t('Verbinde mit {where} …', { where }));
       const fw = FIRMWARES[d.fw];
       this.fw = fw;
       await invoke('machine_connect', {
-        kind: d.conn, port: d.port, baud: d.baud, host: d.host, tcpPort: d.tcpPort,
+        kind: d.conn, port: d.port, baud: d.baud, host: d.host, tcpPort: netPort,
         sync: fw.sync, realtime: fw.realtime, poll: fw.poll,
       });
       this.connected = true;

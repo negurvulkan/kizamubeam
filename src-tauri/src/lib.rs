@@ -2,6 +2,7 @@ pub mod agent;
 mod machine;
 mod native;
 mod stream;
+mod ws;
 
 use std::sync::OnceLock;
 use tauri_plugin_dialog::DialogExt;
