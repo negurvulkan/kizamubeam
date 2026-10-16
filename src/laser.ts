@@ -1,6 +1,6 @@
 // Laser-Panel (Laser, Verschieben, Konsole), Geräteeinstellungen, Vorschau und G-Code-Ausgabe.
 import type { Editor } from './editor';
-import { $, h, numInput } from './dom';
+import { h, numInput } from './dom';
 import { ICONS } from './icons';
 import { saveText } from './files';
 import { native } from './native';
@@ -12,6 +12,7 @@ import { isTauri, machine, PortInfo } from './machine';
 import type { Doc, ImageLayer, Layer } from './model';
 import { materialTab } from './materialui';
 import { cameraTab } from './cameraui';
+import { dockWindow, windowBody } from './dock';
 import { dec, locale, t, tBackend, tn } from './i18n';
 
 const store = loadDevices();
@@ -192,30 +193,16 @@ export const deviceList = () => ({ devices: store.devices, current: device.id })
 // ---------- Laser-Panel ----------
 
 export function buildLaser(ed: Editor) {
-  const panel = $('#laser-panel');
-  const title = panel.querySelector('.panel-title') as HTMLElement;
-  const body = $('#laser');
   applyBed(ed);
-  const tabs: [string, HTMLElement][] = [
-    [t('Laser'), laserTab(ed)],
-    [t('Verschieben'), moveTab(ed)],
-    [t('Konsole'), consoleTab()],
-    [t('Material'), materialTab(ed)],
-    [t('Kamera'), cameraTab(ed)],
+  // Jeder Bereich ist ein eigenes Fenster (andockbar, als Reiter stapelbar, siehe dock.ts)
+  const wins: [string, string, HTMLElement, (() => void)?][] = [
+    ['laser', t('Laser'), laserTab(ed)],
+    ['move', t('Verschieben'), moveTab(ed)],
+    ['console', t('Konsole'), consoleTab(), () => windowBody('console').querySelector('input')?.focus()],
+    ['material', t('Material'), materialTab(ed)],
+    ['camera', t('Kamera'), cameraTab(ed)],
   ];
-  title.textContent = '';
-  title.classList.add('tabs');
-  tabs.forEach(([name, el], i) => {
-    const b = h('button', { class: i === 0 ? 'cur' : '' }, name);
-    b.addEventListener('click', () => {
-      title.querySelectorAll('button').forEach((x) => x.classList.toggle('cur', x === b));
-      tabs.forEach(([, e]) => (e.hidden = e !== el));
-      if (name === 'Konsole') el.querySelector('input')?.focus();
-    });
-    title.append(b);
-    el.hidden = i !== 0;
-    body.append(el);
-  });
+  for (const [id, title, el, onShow] of wins) dockWindow(id, title, { onShow }).append(el);
   // Laserkopf auf der Arbeitsfläche
   machine.on((e) => {
     if (e.type !== 'status' && e.type !== 'connection') return;

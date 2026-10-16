@@ -85,8 +85,24 @@ body {
 }
 #app {
   display: grid;
-  grid-template-rows: 24px 36px 34px 1fr 26px 22px;
+  /* Leisten lassen sich ausblenden (Menü Fenster): Zeilenhöhen kommen von den Leisten selbst */
+  grid-template-rows: auto auto auto 1fr auto auto;
   height: 100%;
+}
+#menubar {
+  height: 24px;
+}
+#toolbar {
+  min-height: 36px;
+}
+#numbar {
+  height: 34px;
+}
+#palette {
+  height: 26px;
+}
+#status {
+  height: 22px;
 }
 .bar {
   display: flex;
@@ -276,10 +292,13 @@ select:focus {
 /* Hauptbereich */
 #main {
   display: grid;
-  grid-template-columns: 40px 1fr 310px;
+  grid-template-columns: auto auto 1fr auto;
   min-height: 0;
 }
 #tools {
+  width: 40px;
+  overflow-y: auto;
+  scrollbar-width: none;
   background: var(--panel);
   border-right: 1px solid var(--line);
   display: flex;
@@ -330,50 +349,11 @@ select:focus {
   padding-top: 3px;
 }
 
-/* Rechte Panels */
-#right {
-  display: flex;
-  flex-direction: column;
-  border-left: 1px solid var(--line);
-  background: var(--panel);
-  min-height: 0;
-}
-.panel {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-#layers-panel {
-  flex: 1 1 60%;
-  border-bottom: 1px solid var(--line);
-}
-/* Mit dem Objekte-Fenster: Layer-Tabelle nur so hoch wie nötig, der Rest gehört den Objekten */
-#right:has(#objects-panel:not(.collapsed)) #layers-panel {
-  flex: 0 1 auto;
-  max-height: 45%;
-}
-#objects-panel {
-  flex: 1 1 0;
-  min-height: 150px;
-  border-bottom: 1px solid var(--line);
-}
-#objects-panel.collapsed {
-  flex: 0 0 auto;
-}
-#objects-panel.collapsed .panel-body {
-  display: none;
-}
-#objects-panel > .panel-title {
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-#objects-panel .panel-body {
+/* Objekte-Fenster */
+#objects {
   padding: 4px 0;
-  flex: 1 1 auto;
 }
-#objects-panel .empty {
+#objects .empty {
   padding: 0 8px;
 }
 .ot-chev-title {
@@ -512,15 +492,6 @@ select:focus {
   margin: 4px 8px;
   font: inherit;
   align-self: flex-start;
-}
-#laser-panel {
-  flex: 0 0 auto;
-}
-.panel-title {
-  background: var(--title);
-  border-bottom: 1px solid var(--line);
-  padding: 4px 8px;
-  font-weight: 600;
 }
 .panel-body {
   padding: 6px 8px;
@@ -718,11 +689,8 @@ dialog kbd {
 
 /* Schmale Fenster: rechte Panels ausblenden, Leisten seitlich scrollbar */
 @media (max-width: 820px) {
-  #main {
-    grid-template-columns: 40px 1fr;
-  }
-  #right {
-    display: none;
+  .dock {
+    display: none !important;
   }
   .bar {
     overflow-x: auto;
@@ -887,25 +855,6 @@ label.check {
   }
 }
 
-/* Laser-Panel: Reiter Laser, Verschieben, Konsole */
-.panel-title.tabs {
-  display: flex;
-  gap: 2px;
-  padding: 0 4px;
-}
-.panel-title.tabs button {
-  font: inherit;
-  font-weight: 600;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: none;
-  color: var(--muted);
-  padding: 4px 8px 3px;
-}
-.panel-title.tabs button.cur {
-  color: var(--text);
-  border-bottom-color: var(--accent);
-}
 .laser-status {
   gap: 8px;
 }
@@ -1401,15 +1350,6 @@ table.layers td:nth-child(2) {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Fünf Reiter im Laser-Panel: enger setzen, notfalls seitlich scrollen */
-.panel-title.tabs {
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.panel-title.tabs button {
-  padding: 4px 5px 3px;
-  white-space: nowrap;
-}
 
 .joint-dialog [hidden] {
   display: none !important;
@@ -1623,4 +1563,398 @@ table.layers td:nth-child(2) {
 }
 .vt-dialog details {
   margin-top: 10px;
+}
+
+/* ---------- Andockbare Fenster (dock.ts) ---------- */
+.dock {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+}
+/* Feste Spalten: ausgeblendete Leisten dürfen die Arbeitsfläche nicht verschieben */
+#tools {
+  grid-column: 1;
+}
+#dock-left {
+  grid-column: 2;
+  border-right: 1px solid var(--line);
+}
+#stage {
+  grid-column: 3;
+}
+#dock-right {
+  grid-column: 4;
+  border-left: 1px solid var(--line);
+}
+.dock.empty {
+  display: none;
+}
+/* Beim Ziehen eines Reiters zeigen leere Andockleisten einen schmalen Ablagestreifen */
+body.dock-dragging .dock.empty {
+  display: flex;
+  width: 28px;
+  background: var(--accent-soft);
+}
+body.dock-dragging,
+body.dock-dragging * {
+  cursor: grabbing !important;
+}
+body.dock-resizing,
+body.dock-resizing * {
+  user-select: none;
+}
+body.dock-resizing #canvas {
+  pointer-events: none;
+}
+.dock-group {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.dock-group.collapsed > .dg-content {
+  display: none;
+}
+.dg-head {
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  flex-wrap: wrap;
+  background: var(--title);
+  border-bottom: 1px solid var(--line);
+  padding: 0 2px 0 2px;
+  flex: none;
+}
+.dg-tab {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 26px;
+  padding: 0 5px;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  cursor: grab;
+  touch-action: none;
+}
+.dg-tab.cur {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.dg-badge {
+  font-weight: 400;
+}
+.dg-badge:empty {
+  display: none;
+}
+.dg-close,
+.dg-btn {
+  align-self: center;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  padding: 0 4px;
+  line-height: 1;
+  border-radius: 3px;
+}
+.dg-close {
+  display: none;
+  font-size: 14px;
+  margin-right: -4px;
+}
+.dg-tab.cur .dg-close {
+  display: inline;
+}
+.dg-close:hover,
+.dg-btn:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+.dg-fill {
+  flex: 1;
+  min-width: 8px;
+}
+.dg-content {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.dg-content > .win-body {
+  flex: 1 1 auto;
+}
+.dock-split {
+  flex: none;
+  height: 5px;
+  margin: -2px 0;
+  position: relative;
+  z-index: 2;
+  cursor: row-resize;
+  border-top: 2px solid transparent;
+  border-bottom: 2px solid transparent;
+  background: var(--line);
+  background-clip: content-box;
+}
+.dock-split:hover {
+  background-color: var(--accent);
+}
+.dock-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 3;
+}
+.dock-edge.right {
+  left: -3px;
+}
+.dock-edge.left {
+  right: -3px;
+}
+.dock-edge:hover {
+  background: var(--accent);
+  opacity: 0.5;
+}
+/* Freie Fenster */
+#dock-floats {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 15;
+}
+.dock-group.floating {
+  position: absolute;
+  pointer-events: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  box-shadow: 0 6px 22px var(--shadow);
+}
+.dock-group.floating > .dg-head {
+  cursor: move;
+}
+.float-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, var(--line) 50%, var(--line) 60%, transparent 60%, transparent 75%, var(--line) 75%, var(--line) 85%, transparent 85%);
+}
+.dock-group.floating.collapsed .float-resize {
+  display: none;
+}
+.dock-ghost {
+  position: fixed;
+  z-index: 100;
+  pointer-events: none;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 3px 8px;
+  font-weight: 600;
+  box-shadow: 0 3px 10px var(--shadow);
+}
+.dock-mark {
+  position: fixed;
+  z-index: 99;
+  pointer-events: none;
+  background: var(--accent);
+  opacity: 0.22;
+  border: 2px solid var(--accent);
+  border-radius: 3px;
+}
+
+/* ---------- Anpassbare Funktionsleisten (toolbars.ts) ---------- */
+.ib.text {
+  width: auto;
+  padding: 0 6px;
+  font: inherit;
+  color: var(--icon);
+}
+.bar[data-size='s'] .ib:not(.text),
+#tools[data-size='s'] .ib:not(.text) {
+  width: 24px;
+  height: 24px;
+}
+.bar[data-size='s'] .ib svg,
+#tools[data-size='s'] .ib svg {
+  width: 16px;
+  height: 16px;
+}
+.bar[data-size='l'] .ib:not(.text),
+#tools[data-size='l'] .ib:not(.text) {
+  width: 40px;
+  height: 40px;
+}
+.bar[data-size='l'] .ib svg,
+#tools[data-size='l'] .ib svg {
+  width: 28px;
+  height: 28px;
+}
+#toolbar[data-size='l'] {
+  min-height: 46px;
+}
+#tools[data-size='s'] {
+  width: 32px;
+}
+#tools[data-size='l'] {
+  width: 50px;
+}
+#tools .ib.text {
+  width: calc(100% - 4px);
+  height: auto;
+  min-height: 24px;
+  padding: 2px;
+  font-size: 10px;
+  white-space: normal;
+  line-height: 1.1;
+}
+/* Viele Knöpfe in der Hauptleiste: in eine zweite Zeile umbrechen statt abschneiden */
+#toolbar {
+  flex-wrap: wrap;
+  white-space: normal;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+.bar-empty {
+  padding: 0 8px;
+  font-size: 11px;
+}
+#tools /* Viele Knöpfe in der Hauptleiste: in eine zweite Zeile umbrechen statt abschneiden */
+#toolbar {
+  flex-wrap: wrap;
+  white-space: normal;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+.bar-empty {
+  writing-mode: vertical-rl;
+  padding: 8px 0;
+}
+.menu-items.with-checks button {
+  justify-content: flex-start;
+}
+.menu-items.with-checks button > span:not(.check-mark) {
+  flex: 1;
+}
+.check-mark {
+  width: 18px;
+  flex: none;
+  color: var(--accent);
+}
+.ctx-menu {
+  display: block;
+  position: fixed;
+  z-index: 50;
+  top: auto;
+}
+.toolbar-dialog {
+  width: min(720px, 94vw);
+}
+.tb-top {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.tb-top label {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.tb-cols {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 8px;
+}
+.tb-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.tb-head {
+  font-weight: 600;
+}
+.tb-mid {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+}
+.tb-list {
+  height: 340px;
+  overflow-y: auto;
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+.tb-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-top: 2px solid transparent;
+  border-bottom: 2px solid transparent;
+}
+.tb-row > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tb-row.sel {
+  background: var(--accent-soft);
+}
+.tb-row.used > span:last-child {
+  color: var(--muted);
+}
+.tb-row.drop-before {
+  border-top-color: var(--accent);
+}
+.tb-row.drop-after {
+  border-bottom-color: var(--accent);
+}
+.tb-icon {
+  width: 22px;
+  flex: none;
+  display: inline-flex;
+  justify-content: center;
+  font-size: 9px;
+  color: var(--icon);
+}
+.tb-icon.text {
+  width: auto;
+  min-width: 22px;
+  max-width: 64px;
+  overflow: hidden;
+  padding: 0 3px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+.tb-icon svg {
+  width: 18px;
+  height: 18px;
+}
+.tb-cat {
+  padding: 4px 6px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface-2);
+}
+.tb-btns {
+  display: flex;
+  gap: 4px;
+}
+.tb-hint {
+  padding: 8px;
 }

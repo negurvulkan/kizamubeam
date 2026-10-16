@@ -17,7 +17,9 @@ import { openMaterialTestDialog } from './materialtest';
 import { BoolBase } from './ops';
 import { agentStatus, openAgentDialog } from './agentui';
 import { startAgentBridge } from './agent';
-import { buildObjectsPanel, toggleObjectsPanel } from './objectsPanel';
+import { buildObjectsPanel } from './objectsPanel';
+import { dockWindow, initDock, isHidden, resetLayout, toggleWindow, windowList } from './dock';
+import { Action, BarKey, barNames, initToolbars, isBarHidden, openToolbarDialog, refreshBars, SEP, showAllBars, toggleBar } from './toolbars';
 import { dec, LangPref, LANGUAGES, setLangPref, t, tn } from './i18n';
 
 const FONT_CANDIDATES = [
@@ -86,13 +88,15 @@ function initTheme(ed: Editor) {
 export function buildUI(ed: Editor) {
   translateStatic();
   initTheme(ed);
-  buildMenu(ed);
-  buildToolbar(ed);
+  dockWindow('cuts', t('Schnitte / Layer'), { bodyId: 'layers' });
+  dockWindow('objects', t('Objekte'), { bodyId: 'objects' });
+  buildBars(ed);
   buildNumbar(ed);
-  buildTools(ed);
   buildLayers(ed);
   buildObjectsPanel(ed);
   buildLaser(ed);
+  initDock();
+  buildMenu(ed);
   buildPalette(ed);
   buildStatus(ed);
   startAgentBridge(ed);
@@ -127,15 +131,14 @@ function changeLanguage(ed: Editor, p: LangPref) {
 /** Feste Texte aus index.html */
 function translateStatic() {
   document.title = 'Laserwerk';
-  $('#layers-panel .panel-title').textContent = t('Schnitte / Layer');
-  $('#laser-panel .panel-title').textContent = t('Laser');
   ($('#texteditor textarea') as HTMLTextAreaElement).placeholder = t('Text eingeben …');
   $('#texteditor .hint').textContent = t('Enter: neue Zeile · Ctrl+Enter oder Esc: fertig');
 }
 
 // ---------- Menü ----------
 
-type MenuItem = [label: string, key: string, action: () => void] | 'sep';
+/** checked: Häkchen vor dem Eintrag (z. B. sichtbare Fenster) */
+type MenuItem = [label: string, key: string, action: () => void, checked?: () => boolean] | 'sep';
 
 function buildMenu(ed: Editor) {
   const menus: [string, MenuItem[]][] = [
@@ -251,7 +254,6 @@ function buildMenu(ed: Editor) {
       [t('Verkleinern'), '-', () => ed.zoomAt(0.8)],
       'sep',
       [t('Drahtgitter / Gefüllt'), 'Alt+W', () => ((ed.filled = !ed.filled), ed.emit('view'))],
-      [t('Objekte-Fenster ein/aus'), '', () => toggleObjectsPanel()],
       'sep',
       [t('Design: wie System'), '', () => applyTheme(ed, 'system')],
       [t('Design: hell'), '', () => applyTheme(ed, 'light')],
@@ -259,6 +261,14 @@ function buildMenu(ed: Editor) {
       'sep',
       [t('Sprache: wie System'), '', () => changeLanguage(ed, 'system')],
       ...LANGUAGES.map(([code, name]): MenuItem => [`${t('Sprache')}: ${name}`, '', () => changeLanguage(ed, code)]),
+    ]],
+    [t('Fenster'), [
+      ...windowList().map(({ id, title }): MenuItem => [title, '', () => toggleWindow(id), () => !isHidden(id)]),
+      'sep',
+      ...(Object.entries(barNames()) as [BarKey, string][]).map(([k, name]): MenuItem => [name, '', () => toggleBar(k), () => !isBarHidden(k)]),
+      'sep',
+      [t('Funktionsleisten anpassen …'), '', () => openToolbarDialog()],
+      [t('Fenster und Leisten zurücksetzen'), '', () => (resetLayout(), showAllBars())],
     ]],
     [t('Hilfe'), [[t('Tastenkürzel'), 'F1', () => showHelp()]]],
   ];
@@ -272,25 +282,36 @@ function buildMenu(ed: Editor) {
     const box = h('div', { class: 'menu' });
     const btn = h('button', {}, title);
     const list = h('div', { class: 'menu-items' });
+    const checks: (() => void)[] = [];
     for (const it of items) {
       if (it === 'sep') list.append(h('hr'));
-      else
-        list.append(
-          h('button', { onclick: () => (close(), it[2]()) }, h('span', {}, it[0]), it[1] ? h('kbd', {}, it[1]) : null),
-        );
+      else {
+        const b = h('button', { onclick: () => (close(), it[2]()) }, h('span', {}, it[0]), it[1] ? h('kbd', {}, it[1]) : null);
+        const checked = it[3];
+        if (checked) {
+          const mark = h('span', { class: 'check-mark' });
+          b.prepend(mark);
+          checks.push(() => (mark.textContent = checked() ? '✓' : ''));
+        }
+        list.append(b);
+      }
     }
+    list.classList.toggle('with-checks', checks.length > 0);
+    const open = () => {
+      checks.forEach((f) => f());
+      box.classList.add('open');
+      openMenu = box;
+    };
     btn.addEventListener('mousedown', (e) => {
       e.stopPropagation();
       if (openMenu === box) return close();
       close();
-      box.classList.add('open');
-      openMenu = box;
+      open();
     });
     btn.addEventListener('mouseenter', () => {
       if (openMenu && openMenu !== box) {
         close();
-        box.classList.add('open');
-        openMenu = box;
+        open();
       }
     });
     box.append(btn, list);
@@ -340,75 +361,6 @@ function showHelp() {
   dlg.addEventListener('close', () => dlg.remove());
   document.body.append(dlg);
   dlg.showModal();
-}
-
-// ---------- Hauptleiste ----------
-
-function buildToolbar(ed: Editor) {
-  const bar = $('#toolbar');
-  const needSel: HTMLButtonElement[] = [];
-  const needMulti: HTMLButtonElement[] = [];
-  const needThree: HTMLButtonElement[] = [];
-  const add = (list: HTMLButtonElement[] | null, ...args: Parameters<typeof iconBtn>) => {
-    const b = iconBtn(...args);
-    list?.push(b);
-    bar.append(b);
-    return b;
-  };
-  add(null, 'new', t('Neu (rückgängig machbar)'), () => ed.newDocument());
-  add(null, 'open', t('Öffnen'), () => openProject(ed));
-  add(null, 'save', t('Speichern'), () => saveProject(ed));
-  add(null, 'import', t('Importieren: Bilder, SVG, DXF (Ctrl+I)'), () => importFile(ed));
-  add(null, 'export', t('Als SVG exportieren'), () => exportSvg(ed));
-  bar.append(sep());
-  add(null, 'undo', t('Rückgängig (Ctrl+Z)'), () => ed.doUndo());
-  add(null, 'redo', t('Wiederholen (Ctrl+Y)'), () => ed.doRedo());
-  bar.append(sep());
-  add(needSel, 'cut', t('Ausschneiden (Ctrl+X)'), () => ed.cut());
-  add(needSel, 'copy', t('Kopieren (Ctrl+C)'), () => ed.copy());
-  add(null, 'paste', t('Einfügen (Ctrl+V)'), () => ed.paste());
-  add(needSel, 'delete', t('Löschen (Entf)'), () => ed.deleteSel());
-  bar.append(sep());
-  add(null, 'zoomin', t('Vergrößern (+)'), () => ed.zoomAt(1.25));
-  add(null, 'zoomout', t('Verkleinern (-)'), () => ed.zoomAt(0.8));
-  add(null, 'zoompage', t('Ganze Seite (Ctrl+0)'), () => ed.zoomPage());
-  add(needSel, 'zoomsel', t('Auf Auswahl zoomen'), () => ed.zoomSelection());
-  bar.append(sep());
-  add(null, 'preview', t('Vorschau (Alt+P)'), () => openPreview(ed));
-  add(null, 'settings', t('Geräteeinstellungen'), () => openDeviceDialog(ed));
-  bar.append(sep());
-  add(needMulti, 'group', t('Gruppieren (Ctrl+G)'), () => ed.group());
-  add(needSel, 'ungroup', t('Gruppierung aufheben (Ctrl+U)'), () => ed.ungroup());
-  add(needSel, 'mirrorh', t('Horizontal spiegeln (Ctrl+Shift+H)'), () => ed.mirror(true));
-  add(needSel, 'mirrorv', t('Vertikal spiegeln (Ctrl+Shift+V)'), () => ed.mirror(false));
-  add(needSel, 'rotccw', t('90° gegen Uhrzeigersinn (,)'), () => ed.rotateBy(90));
-  add(needSel, 'rotcw', t('90° im Uhrzeigersinn (.)'), () => ed.rotateBy(-90));
-  add(needSel, 'tolines', t('In Pfad umwandeln (Ctrl+Shift+C)'), () => ed.convertSelToPath());
-  bar.append(sep());
-  add(needMulti, 'alignl', t('Links ausrichten (L)'), () => ed.align('left'));
-  add(needMulti, 'alignhc', t('Mitten horizontal ausrichten (C)'), () => ed.align('hcenter'));
-  add(needMulti, 'alignr', t('Rechts ausrichten (R)'), () => ed.align('right'));
-  add(needMulti, 'alignt', t('Oben ausrichten (T)'), () => ed.align('top'));
-  add(needMulti, 'alignvc', t('Mitten vertikal ausrichten (E)'), () => ed.align('vcenter'));
-  add(needMulti, 'alignb', t('Unten ausrichten (B)'), () => ed.align('bottom'));
-  add(needThree, 'disth', t('Horizontal verteilen'), () => ed.distribute(true));
-  add(needThree, 'distv', t('Vertikal verteilen'), () => ed.distribute(false));
-  bar.append(sep());
-  const themeBtn = add(null, 'moon', '', () => applyTheme(ed, isDark() ? 'light' : 'dark'));
-  const refreshTheme = () => {
-    themeBtn.innerHTML = isDark() ? ICONS.sun : ICONS.moon;
-    themeBtn.title = isDark() ? t('Helles Design') : t('Dunkles Design');
-  };
-  themeListeners.add(refreshTheme);
-  refreshTheme();
-  const refresh = () => {
-    const n = ed.sel.length;
-    needSel.forEach((b) => (b.disabled = n < 1));
-    needMulti.forEach((b) => (b.disabled = n < 2));
-    needThree.forEach((b) => (b.disabled = n < 3));
-  };
-  ed.on((w) => (w === 'sel' || w === 'doc') && refresh());
-  refresh();
 }
 
 // ---------- Numerik-, Form- und Textleiste ----------
@@ -661,61 +613,118 @@ function buildNumbar(ed: Editor) {
   refresh();
 }
 
-// ---------- Werkzeugleiste links ----------
+// ---------- Funktionsleisten (anpassbar, siehe toolbars.ts) ----------
 
-function buildTools(ed: Editor) {
-  const bar = $('#tools');
-  const tools: [Tool, string, string][] = [
-    ['select', 'select', t('Auswählen (Esc)')],
-    ['node', 'node', t('Knoten bearbeiten (Ctrl+`)')],
-    ['line', 'line', t('Linien zeichnen (Ctrl+L)')],
-    ['rect', 'rect', t('Rechteck (Ctrl+R)')],
-    ['ellipse', 'ellipse', t('Ellipse (Ctrl+E)')],
-    ['polygon', 'polygon', t('Polygon')],
-    ['text', 'text', t('Text (Ctrl+T)')],
+function buildBars(ed: Editor) {
+  const n = () => ed.sel.length;
+  const sel1 = () => n() >= 1;
+  const sel2 = () => n() >= 2;
+  const sel3 = () => n() >= 3;
+  const F = t('Datei'),
+    B = t('Bearbeiten'),
+    V = t('Ansicht'),
+    A = t('Anordnen'),
+    W = t('Werkzeuge'),
+    M = t('Formen ändern'),
+    I = t('Bilder'),
+    S = t('Seiten'),
+    L = t('Laser');
+  const tool = (id: Tool, icon: string, label: string): Action => ({ id: `tool:${id}`, cat: W, icon, label, run: () => ed.setTool(id), on: () => ed.tool === id });
+  const list: Action[] = [
+    { id: 'new', cat: F, icon: 'new', label: t('Neu (rückgängig machbar)'), run: () => ed.newDocument() },
+    { id: 'open', cat: F, icon: 'open', label: t('Öffnen'), run: () => openProject(ed) },
+    { id: 'save', cat: F, icon: 'save', label: t('Speichern'), run: () => saveProject(ed) },
+    { id: 'import', cat: F, icon: 'import', label: t('Importieren: Bilder, SVG, DXF (Ctrl+I)'), run: () => importFile(ed) },
+    { id: 'export', cat: F, icon: 'export', label: t('Als SVG exportieren'), run: () => exportSvg(ed) },
+    { id: 'undo', cat: B, icon: 'undo', label: t('Rückgängig (Ctrl+Z)'), run: () => ed.doUndo() },
+    { id: 'redo', cat: B, icon: 'redo', label: t('Wiederholen (Ctrl+Y)'), run: () => ed.doRedo() },
+    { id: 'cut', cat: B, icon: 'cut', label: t('Ausschneiden (Ctrl+X)'), run: () => ed.cut(), enabled: sel1 },
+    { id: 'copy', cat: B, icon: 'copy', label: t('Kopieren (Ctrl+C)'), run: () => ed.copy(), enabled: sel1 },
+    { id: 'paste', cat: B, icon: 'paste', label: t('Einfügen (Ctrl+V)'), run: () => ed.paste() },
+    { id: 'duplicate', cat: B, short: t('Dupl.'), label: t('Duplizieren (Ctrl+D)'), run: () => ed.duplicate(), enabled: sel1 },
+    { id: 'delete', cat: B, icon: 'delete', label: t('Löschen (Entf)'), run: () => ed.deleteSel(), enabled: sel1 },
+    { id: 'selectall', cat: B, short: t('Alle'), label: t('Alles auswählen (Ctrl+A)'), run: () => ed.selectAll() },
+    { id: 'tolines', cat: B, icon: 'tolines', label: t('In Pfad umwandeln (Ctrl+Shift+C)'), run: () => ed.convertSelToPath(), enabled: sel1 },
+    { id: 'closepath', cat: M, short: t('Schließen|Pfad'), label: t('Pfad schließen'), run: () => ed.closeSel(), enabled: sel1 },
+    { id: 'join', cat: M, short: t('Verbinden|Pfade'), label: t('Ausgewählte Formen verbinden (Alt+J)'), run: () => ed.joinSel(), enabled: sel2 },
+    { id: 'breakapart', cat: M, short: t('Zerlegen'), label: t('Zerlegen (Alt+B)'), run: () => ed.breakApartSel(), enabled: sel1 },
+    { id: 'reverse', cat: M, short: t('Umkehren'), label: t('Richtung umkehren'), run: () => ed.reverseSel(), enabled: sel1 },
+    { id: 'zoomin', cat: V, icon: 'zoomin', label: t('Vergrößern (+)'), run: () => ed.zoomAt(1.25) },
+    { id: 'zoomout', cat: V, icon: 'zoomout', label: t('Verkleinern (-)'), run: () => ed.zoomAt(0.8) },
+    { id: 'zoompage', cat: V, icon: 'zoompage', label: t('Ganze Seite (Ctrl+0)'), run: () => ed.zoomPage() },
+    { id: 'zoomsel', cat: V, icon: 'zoomsel', label: t('Auf Auswahl zoomen'), run: () => ed.zoomSelection(), enabled: sel1 },
+    { id: 'wire', cat: V, short: t('Gefüllt'), label: t('Drahtgitter / Gefüllt (Alt+W)'), run: () => ((ed.filled = !ed.filled), ed.emit('view')), on: () => ed.filled },
+    {
+      id: 'theme', cat: V, icon: 'moon', label: t('Dunkles Design'), run: () => applyTheme(ed, isDark() ? 'light' : 'dark'),
+      dyn: () => (isDark() ? { icon: 'sun', label: t('Helles Design') } : { icon: 'moon', label: t('Dunkles Design') }),
+    },
+    { id: 'group', cat: A, icon: 'group', label: t('Gruppieren (Ctrl+G)'), run: () => ed.group(), enabled: sel2 },
+    { id: 'ungroup', cat: A, icon: 'ungroup', label: t('Gruppierung aufheben (Ctrl+U)'), run: () => ed.ungroup(), enabled: sel1 },
+    { id: 'mirrorh', cat: A, icon: 'mirrorh', label: t('Horizontal spiegeln (Ctrl+Shift+H)'), run: () => ed.mirror(true), enabled: sel1 },
+    { id: 'mirrorv', cat: A, icon: 'mirrorv', label: t('Vertikal spiegeln (Ctrl+Shift+V)'), run: () => ed.mirror(false), enabled: sel1 },
+    { id: 'rotccw', cat: A, icon: 'rotccw', label: t('90° gegen Uhrzeigersinn (,)'), run: () => ed.rotateBy(90), enabled: sel1 },
+    { id: 'rotcw', cat: A, icon: 'rotcw', label: t('90° im Uhrzeigersinn (.)'), run: () => ed.rotateBy(-90), enabled: sel1 },
+    { id: 'alignl', cat: A, icon: 'alignl', label: t('Links ausrichten (L)'), run: () => ed.align('left'), enabled: sel2 },
+    { id: 'alignhc', cat: A, icon: 'alignhc', label: t('Mitten horizontal ausrichten (C)'), run: () => ed.align('hcenter'), enabled: sel2 },
+    { id: 'alignr', cat: A, icon: 'alignr', label: t('Rechts ausrichten (R)'), run: () => ed.align('right'), enabled: sel2 },
+    { id: 'alignt', cat: A, icon: 'alignt', label: t('Oben ausrichten (T)'), run: () => ed.align('top'), enabled: sel2 },
+    { id: 'alignvc', cat: A, icon: 'alignvc', label: t('Mitten vertikal ausrichten (E)'), run: () => ed.align('vcenter'), enabled: sel2 },
+    { id: 'alignb', cat: A, icon: 'alignb', label: t('Unten ausrichten (B)'), run: () => ed.align('bottom'), enabled: sel2 },
+    { id: 'disth', cat: A, icon: 'disth', label: t('Horizontal verteilen'), run: () => ed.distribute(true), enabled: sel3 },
+    { id: 'distv', cat: A, icon: 'distv', label: t('Vertikal verteilen'), run: () => ed.distribute(false), enabled: sel3 },
+    tool('select', 'select', t('Auswählen (Esc)')),
+    tool('node', 'node', t('Knoten bearbeiten (Ctrl+`)')),
+    tool('line', 'line', t('Linien zeichnen (Ctrl+L)')),
+    tool('rect', 'rect', t('Rechteck (Ctrl+R)')),
+    tool('ellipse', 'ellipse', t('Ellipse (Ctrl+E)')),
+    tool('polygon', 'polygon', t('Polygon')),
+    tool('text', 'text', t('Text (Ctrl+T)')),
+    tool('trim', 'trim', t('Formen trimmen (Ctrl+K): Abschnitte bis zum nächsten Schnittpunkt anklicken und entfernen')),
+    tool('start', 'startpoint', t('Startpunkt setzen: Knoten anklicken, an dem der Schnitt beginnt (Shift: Richtung umkehren)')),
+    tool('joint', 'joint', t('Verbindung: Fingerzinken, Zapfen, Überblattung, Schnapp-, Haken-, Keil- oder T-Slot-Verbindung auf gerade Kanten anwenden')),
+    { id: 'qr', cat: W, icon: 'qr', label: t('QR-Code erstellen'), run: () => openQrDialog(ed) },
+    { id: 'vartext', cat: W, short: t('Var. Text'), label: t('Variabler Text …'), run: () => openVarTextDialog(ed) },
+    { id: 'textpath', cat: W, short: t('Auf Pfad'), label: t('Text auf Pfad'), run: () => ed.applyPathToText(), enabled: sel2 },
+    { id: 'union', cat: M, icon: 'union', label: t('Vereinen: alle gewählten Formen verschmelzen'), run: () => ed.booleanSel('union'), enabled: sel2 },
+    {
+      id: 'subtract', cat: M, icon: 'subtract', label: t('Abziehen'), run: () => ed.booleanSel('subtract'), enabled: sel2,
+      dyn: () => ({ label: `${t('Abziehen')}: ${BOOL_BASE_HINT[ed.boolBase]}${ed.boolKeep ? t(' (Originale bleiben)') : ''}` }),
+    },
+    { id: 'intersect', cat: M, icon: 'intersect', label: t('Schnittmenge: nur die gemeinsame Fläche behalten'), run: () => ed.booleanSel('intersect'), enabled: sel2 },
+    { id: 'boolopts', cat: M, icon: 'settings', small: true, label: t('Boolesche Optionen: Basis und Originale behalten'), run: () => openBooleanDialog(ed) },
+    { id: 'offset', cat: M, icon: 'offset', label: t('Offset (Alt+O)'), run: () => openOffsetDialog(ed), enabled: sel1 },
+    { id: 'gridarray', cat: M, icon: 'gridArray', label: t('Rasterarray: Auswahl in Spalten und Zeilen kopieren (Ctrl+Shift+A)'), run: () => openGridArrayDialog(ed), enabled: sel1 },
+    { id: 'circarray', cat: M, icon: 'circArray', label: t('Kreisarray: Auswahl im Kreis um einen Mittelpunkt kopieren'), run: () => openCircularArrayDialog(ed), enabled: sel1 },
+    { id: 'hinge', cat: M, icon: 'hinge', label: t('Biegeschnitte (Living Hinge): gewählte Form mit einem Schnittmuster füllen, damit sich die Platte dort biegen lässt'), run: () => openHingeDialog(ed) },
+    { id: 'adjust', cat: I, icon: 'adjust', label: t('Bild anpassen …'), run: () => openAdjustDialog(ed), enabled: () => ed.selImages().length > 0 },
+    { id: 'trace', cat: I, icon: 'trace', label: t('Bild nachzeichnen (Alt+T)'), run: () => openTraceDialog(ed), enabled: () => ed.selImages().length > 0 },
+    { id: 'addpage', cat: S, short: t('+ Seite'), label: t('Neue Seite'), run: () => ed.addPage() },
+    { id: 'prevpage', cat: S, icon: 'up', label: t('Vorherige Seite (Bild ↑)'), run: () => ed.setPage(ed.doc.page - 1), enabled: () => ed.doc.page > 0 },
+    { id: 'nextpage', cat: S, icon: 'down', label: t('Nächste Seite (Bild ↓)'), run: () => ed.setPage(ed.doc.page + 1), enabled: () => ed.doc.page < ed.doc.pages.length - 1 },
+    { id: 'preview', cat: L, icon: 'preview', label: t('Vorschau (Alt+P)'), run: () => openPreview(ed) },
+    { id: 'start', cat: L, icon: 'play', label: t('Job starten'), run: () => startJob(ed) },
+    { id: 'frame', cat: L, icon: 'frame', label: t('Rahmen: Rechteck um den Job abfahren'), run: () => frameJob(ed, false) },
+    { id: 'contour', cat: L, icon: 'contour', label: t('Kontur-Rahmen: Umriss des Jobs abfahren'), run: () => frameJob(ed, true) },
+    { id: 'gcode', cat: L, icon: 'gcode', label: t('G-Code speichern'), run: () => saveGCode(ed) },
+    { id: 'materialtest', cat: L, short: t('Test'), label: t('Materialtest …'), run: () => openMaterialTestDialog(ed) },
+    { id: 'devsettings', cat: L, icon: 'settings', label: t('Geräteeinstellungen'), run: () => openDeviceDialog(ed) },
+    { id: 'devices', cat: L, short: t('Geräte'), label: t('Geräte …'), run: () => openDevicesDialog(ed) },
   ];
-  const btns = new Map<Tool, HTMLButtonElement>();
-  tools.forEach(([t, icon, title], i) => {
-    if (i === 2) bar.append(sep());
-    const b = iconBtn(icon, title, () => ed.setTool(t));
-    b.dataset.tool = t;
-    btns.set(t, b);
-    bar.append(b);
+  initToolbars(list, {
+    main: [
+      'new', 'open', 'save', 'import', 'export', SEP, 'undo', 'redo', SEP, 'cut', 'copy', 'paste', 'delete', SEP,
+      'zoomin', 'zoomout', 'zoompage', 'zoomsel', SEP, 'preview', 'devsettings', SEP,
+      'group', 'ungroup', 'mirrorh', 'mirrorv', 'rotccw', 'rotcw', 'tolines', SEP,
+      'alignl', 'alignhc', 'alignr', 'alignt', 'alignvc', 'alignb', 'disth', 'distv', SEP, 'theme',
+    ],
+    tools: [
+      'tool:select', 'tool:node', SEP, 'tool:line', 'tool:rect', 'tool:ellipse', 'tool:polygon', 'tool:text', 'qr', SEP,
+      'union', 'subtract', 'intersect', 'boolopts', 'offset', 'tool:trim', 'tool:start', 'gridarray', 'circarray', 'tool:joint', 'hinge',
+    ],
   });
-  bar.append(iconBtn('qr', t('QR-Code erstellen'), () => openQrDialog(ed)));
-  bar.append(sep());
-  const mods = [
-    iconBtn('union', t('Vereinen: alle gewählten Formen verschmelzen'), () => ed.booleanSel('union')),
-    iconBtn('subtract', '', () => ed.booleanSel('subtract')),
-    iconBtn('intersect', t('Schnittmenge: nur die gemeinsame Fläche behalten'), () => ed.booleanSel('intersect')),
-  ];
-  const boolOpts = iconBtn('settings', t('Boolesche Optionen: Basis und Originale behalten'), () => openBooleanDialog(ed));
-  boolOpts.classList.add('small');
-  const off = iconBtn('offset', t('Offset (Alt+O)'), () => openOffsetDialog(ed));
-  const arrays = [
-    iconBtn('gridArray', t('Rasterarray: Auswahl in Spalten und Zeilen kopieren (Ctrl+Shift+A)'), () => openGridArrayDialog(ed)),
-    iconBtn('circArray', t('Kreisarray: Auswahl im Kreis um einen Mittelpunkt kopieren'), () => openCircularArrayDialog(ed)),
-  ];
-  const joint = iconBtn('joint', t('Verbindung: Fingerzinken, Zapfen, Überblattung, Schnapp-, Haken-, Keil- oder T-Slot-Verbindung auf gerade Kanten anwenden'), () => ed.setTool('joint'));
-  joint.dataset.tool = 'joint';
-  btns.set('joint', joint);
-  const trim = iconBtn('trim', t('Formen trimmen (Ctrl+K): Abschnitte bis zum nächsten Schnittpunkt anklicken und entfernen'), () => ed.setTool('trim'));
-  trim.dataset.tool = 'trim';
-  btns.set('trim', trim);
-  const start = iconBtn('startpoint', t('Startpunkt setzen: Knoten anklicken, an dem der Schnitt beginnt (Shift: Richtung umkehren)'), () => ed.setTool('start'));
-  start.dataset.tool = 'start';
-  btns.set('start', start);
-  const hinge = iconBtn('hinge', t('Biegeschnitte (Living Hinge): gewählte Form mit einem Schnittmuster füllen, damit sich die Platte dort biegen lässt'), () => openHingeDialog(ed));
-  bar.append(...mods, boolOpts, off, trim, start, ...arrays, joint, hinge);
-  const refresh = () => {
-    btns.forEach((b, t) => b.classList.toggle('on', ed.tool === t));
-    mods.forEach((b) => (b.disabled = ed.sel.length < 2));
-    mods[1].title = `Abziehen: ${BOOL_BASE_HINT[ed.boolBase]}${ed.boolKeep ? t(' (Originale bleiben)') : ''}`;
-    off.disabled = ed.sel.length < 1;
-    arrays.forEach((b) => (b.disabled = ed.sel.length < 1));
-  };
-  ed.on((w) => (w === 'tool' || w === 'sel') && refresh());
-  refresh();
+  let frame = 0;
+  ed.on(() => (frame ||= requestAnimationFrame(() => ((frame = 0), refreshBars()))));
+  themeListeners.add(refreshBars);
   window.addEventListener('keydown', (e) => {
     if (e.altKey && e.key.toLowerCase() === 'o' && ed.sel.length) {
       e.preventDefault();
