@@ -53,12 +53,13 @@ npm run tauri build    # Installationspaket
 - Maschinenausgabe für FluidNC/GRBL (Laser-Panel rechts unten mit den Reitern Laser, Verschieben, Konsole):
   - Mehrere Geräte speichern und auswählen (Laser-Reiter oben, Laser → Geräte …). Neue Geräte aus Vorlagen gängiger Laser (Swiitol, Ortur, Atomstack, Sculpfun, xTool, Creality Falcon, Two Trees) oder allgemein je Steuerung. Das Bett der Arbeitsfläche folgt dem gewählten Gerät.
   - Steuerungen: FluidNC, GRBL 1.1, grblHAL (Zeichenzählung, Echtzeitstatus, M4), Marlin (Zeile für Zeile, Position per M114, Inline-Laser `M3 I`, Pause durch Zurückhalten, Stopp mit M410) und Smoothieware (Zeile für Zeile, S 0 … 1). Home, Joggen, Ursprung und Konsolenknöpfe passen sich an.
-  - Verbinden über USB-Seriell oder WLAN (Telnet, Port 23). Status, Position und Laserkopf auf der Arbeitsfläche, Alarme im Klartext.
+  - Verbinden über USB-Seriell oder WLAN (Telnet, Port 23, oder WebSocket, FluidNC Port 81; ist er nicht erreichbar, wird 80 versucht). Status, Position und Laserkopf auf der Arbeitsfläche, Alarme im Klartext.
   - Start, Pause/Weiter, Stopp (Halt und Reset, Position bleibt erhalten), Rahmen als Rechteck oder Kontur (wahlweise mit schwachem Laser), Home, Zum Nullpunkt.
   - Starten ab: Absolute Koordinaten, Benutzer-Ursprung oder Aktuelle Position, jeweils mit 9-Punkt-Job-Ursprung. „Nur Auswahl“ lasert nur die ausgewählten Objekte.
   - G-Code im Lasermodus (M4): Linie mit optimierter Reihenfolge (innere Formen zuerst, kurze Leerwege, bester Startknoten), Füllen mit Zeilenabstand, Scanwinkel, Kreuzschraffur, Überfahrweg und bidirektional, Kerf-Versatz je Objekt, Haltestege als Strecken ohne Leistung, Air Assist je Layer, Bilder in allen Bildmodi (Graustufen mit Leistung zwischen Min. und Max.), Durchgänge, Layer-Reihenfolge. Texte werden mit ihren Schriftkonturen gelasert.
   - Übertragung mit Zeichenzählung (Empfangspuffer 127 Bytes) im Rust-Kern, Fortschritt mit vergangener und geschätzter Restzeit.
-  - Vorschau (Alt+P) mit Zeitschätzung wie im Bahnplaner von FluidNC (Beschleunigung, Ecken), Abspielen und Zeitschieber, Leerwege, Schattierung nach Leistung, Zoomen und Verschieben.
+  - Vorschau (Alt+P) mit Zeitschätzung wie im Bahnplaner von FluidNC (Beschleunigung, Ecken), Abspielen und Zeitschieber, Leerwege, Schattierung nach Leistung, Zoomen und Verschieben. „Hier starten“ (Start Here) lasert den Job ab der Stelle des Zeitschiebers, z. B. nach einem Abbruch: Eilgang mit Laser aus zu dieser Stelle, dann weiter mit Leistung, Vorschub und Air Assist des Layers. Die Vorschau zeigt dabei dieselbe Reihenfolge wie der Job, auch bei „Benutzer-Ursprung“ und „Aktuelle Position“.
+  - Eigene G-Code-Skripte je Gerät (Geräteeinstellungen → G-Code-Skripte): „Vor dem Job“ nach G21, G90 und dem Laser-Modus, „Nach dem Job“ nach M5 und vor dem Programmende (M2 bzw. M400). Gilt für Jobs und gespeicherten G-Code, nicht für Rahmenfahrten.
   - G-Code speichern, Verschieben-Reiter (Jog in Schritten, Ursprung setzen/löschen, Laser zur Auswahl, Entsperren), Konsole mit Verlauf.
   - Geräteeinstellungen: Arbeitsbereich, S-Wert für 100 %, Baudrate, WLAN-Adresse, Eilgang und Beschleunigung, Rahmen. „Von der Maschine lesen“ holt Arbeitsbereich, Eilgang, Beschleunigung (FluidNC-Konfiguration bzw. GRBL `$$`) und bei GRBL auch die Leistungsskala `$30`.
 - Kamera (Reiter „Kamera“ im Laser-Panel): USB-Kamera wählen, Bild entzerrt und lagerichtig unter den Objekten auf der Arbeitsfläche, Deckkraft, einmalig oder laufend aktualisieren, als Bild auf T1 einfügen (zum Nachzeichnen). Kalibrieren: 2 × 2 bis 5 × 5 Markierungen lasern (oder als G-Code speichern), im Foto anklicken; daraus werden Lage (Homographie) und ab 3 × 3 die Linsenverzeichnung berechnet, mit Restfehler in mm und entzerrter Kontrollansicht. Kalibrierung je Gerät gespeichert. Unter macOS fragt das System beim ersten Verbinden nach der Kamera-Freigabe.
@@ -67,7 +68,7 @@ npm run tauri build    # Installationspaket
 
 ## Noch nicht enthalten
 
-Verbindung per WebSocket, Lasern ab einem Punkt der Vorschau („Start Here“), Kopfkamera und mehrere Kameras gleichzeitig, eigene Start-/End-Skripte, Drehachse (Rotary). Bei Bildern fehlen noch Zuschneiden/Maske, TIFF, die Verfahren Newsprint und Sketch sowie Bild-Presets.
+Kopfkamera und mehrere Kameras gleichzeitig, Drehachse (Rotary). Bei Bildern fehlen noch Zuschneiden/Maske, TIFF, die Verfahren Newsprint und Sketch sowie Bild-Presets.
 
 ## Übersetzungen
 
@@ -99,7 +100,7 @@ Texte stehen im Code auf Deutsch in `t('…')` (Platzhalter in geschweiften Klam
 | `src/trace.ts` | Bild nachzeichnen: Marching Squares, Vereinfachung, Kurveneinpassung |
 | `src/importers.ts` | SVG- und DXF-Import |
 | `src/fit.ts` | Kurvenrückführung: Linienzüge in Bézierpfade (Ecken erkennen, Schneider-Verfahren) |
-| `src/gcode.ts` | Maschinenausgabe: Job aus dem Dokument (Linie, Füllen, Bilder, Reihenfolge), G-Code, Laufzeitschätzung, Rahmen, Geräteeinstellungen |
+| `src/gcode.ts` | Maschinenausgabe: Job aus dem Dokument (Linie, Füllen, Bilder, Reihenfolge), G-Code, Laufzeitschätzung, Rahmen, Start Here, Start-/End-Skripte, Geräteeinstellungen. Tests: `npm run test:gcode` |
 | `src/camera.ts` | Kamera: Zugriff, Kalibriermodell (Homographie und radiale Verzeichnung, Levenberg-Marquardt), Entzerrung aufs Bett |
 | `src/cameraui.ts` | Kamera-Reiter, Kamerabild auf der Arbeitsfläche, Kalibrier-Assistent mit Markierungen |
 | `src/materials.ts`, `src/materialui.ts` | Material-Bibliothek, `.lwm`-Export/-Import, Einlesen von LightBurn-`.clb`, Reiter „Material“ |
@@ -113,7 +114,8 @@ Texte stehen im Code auf Deutsch in `t('…')` (Platzhalter in geschweiften Klam
 | `src/files.ts` | Öffnen/Speichern/Importieren (Tauri-Dialoge oder Browser), Ziehen und Einfügen, SVG-Export, bearbeitetes Bild speichern |
 | `src-tauri/` | Rust-Hülle: native Dateidialoge, Dateien lesen/schreiben, Liste und Dateien der Systemschriften (fontdb) |
 | `src-tauri/src/stream.rs` | G-Code-Übertragung mit Zeichenzählung, Statusabfrage, Halt/Reset (mit Tests: `cargo test`) |
-| `src-tauri/src/machine.rs` | Seriell (serialport) und Telnet (TCP), Ereignisse an das Fenster |
+| `src-tauri/src/machine.rs` | Seriell (serialport), Telnet (TCP) und WebSocket, Ereignisse an das Fenster |
+| `src-tauri/src/ws.rs` | WebSocket zur Steuerung (tungstenite) als Byte-Strom für die Übertragung, mit Test gegen ein nachgebildetes FluidNC |
 | `src-tauri/src/agent.rs` | MCP-Server (Streamable HTTP auf 127.0.0.1, Token, Stufen) und stdio-Brücke `--mcp-stdio` |
 | `src-tauri/core/` | Rechenkern ohne Oberfläche (`laserwerk-core`): Bildverarbeitung und Dithering, Rasterzeilen der Bilder, G-Code schreiben. Rechnet wie `images.ts`/`gcode.ts`, die Desktop-App nutzt ihn, der Browser die TypeScript-Fassung. Vergleichstest: `npm run test:core` |
 | `src-tauri/src/native.rs` | Rechenkern für die Oberfläche: Graustufen der Bilder und fertiger G-Code bleiben in Rust |

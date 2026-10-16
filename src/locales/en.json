@@ -1060,5 +1060,22 @@
   "Text wieder gerade setzen": "Make the text straight again",
   "Lösen": "Remove Path",
   "Versatz": "Offset",
-  "Abstand|Text auf Pfad": "Distance"
+  "Abstand|Text auf Pfad": "Distance",
+  "WLAN (WebSocket): {address}": "Wi-Fi (WebSocket): {address}",
+  "WLAN (WebSocket)": "Wi-Fi (WebSocket)",
+  "WebSocket-Port": "WebSocket port",
+  "FluidNC: 81; ist er nicht erreichbar, wird 80 versucht": "FluidNC: 81; if it cannot be reached, 80 is tried",
+  "G-Code-Skripte": "G-code scripts",
+  "Eine Zeile je Befehl": "One command per line",
+  "Vor dem Job": "Before the job",
+  "Wird nach G21, G90 und dem Laser-Modus gesendet, vor der ersten Bewegung": "Sent after G21, G90 and the laser mode, before the first move",
+  "Nach dem Job": "After the job",
+  "Wird nach dem Ausschalten des Lasers (M5) gesendet, vor dem Programmende": "Sent after the laser is switched off (M5), before the program end",
+  "Gilt für Jobs und gespeicherten G-Code, nicht für Rahmenfahrten. Die Zeilen werden unverändert gesendet.": "Applies to jobs and saved G-code, not to framing. The lines are sent unchanged.",
+  "Die Vorschau passt nicht mehr zum Job (z. B. weil sich die Laserposition geändert hat). Bitte die Vorschau neu öffnen.": "The preview no longer matches the job (for example because the laser position changed). Please reopen the preview.",
+  "Ab dieser Stelle gibt es nichts mehr zu lasern.": "There is nothing left to laser from this point.",
+  "{name} ab {at}": "{name} from {at}",
+  "Job ab {at} gestartet, geschätzt {total}.": "Job started from {at}, estimated {total}.",
+  "Den Job ab der Stelle des Schiebereglers lasern, z. B. nach einem Abbruch": "Laser the job from the slider position, e.g. after an interruption",
+  "Hier starten": "Start Here"
 }

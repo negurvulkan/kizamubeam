@@ -26,3 +26,5 @@ fontdb = "0.23"
 laserwerk-core = { path = "core" }
 # ohne libudev, damit unter Linux keine zusätzliche Systembibliothek nötig ist
 serialport = { version = "4", default-features = false }
+# WebSocket zur Steuerung (FluidNC Port 81), ohne TLS
+tungstenite = { version = "0.27", default-features = false, features = ["handshake"] }
