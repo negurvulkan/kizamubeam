@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 
 const entry = process.argv[2];
 if (!entry) throw new Error('Aufruf: node scripts/run-ts.mjs <datei.ts>');
-const dir = mkdtempSync(join(tmpdir(), 'laserwerk-'));
+const dir = mkdtempSync(join(tmpdir(), 'kizamubeam-'));
 const out = join(dir, 'run.mjs');
 await build({
   entryPoints: [resolve(entry)],

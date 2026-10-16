@@ -1,7 +1,7 @@
 [package]
-name = "laserwerk-core"
+name = "kizamubeam-core"
 version = "1.0.0-alpha"
-description = "Rechenkern von Laserwerk ohne Oberfläche: Bildverarbeitung, Rasterzeilen, G-Code"
+description = "Rechenkern von KizamuBeam ohne Oberfläche: Bildverarbeitung, Rasterzeilen, G-Code"
 license = "GPL-3.0-or-later"
 edition = "2021"
 

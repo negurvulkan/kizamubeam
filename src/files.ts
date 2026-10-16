@@ -43,7 +43,7 @@ export async function openText(filterName: string, extensions: string[]): Promis
 }
 
 export async function saveProject(ed: Editor) {
-  await saveText('projekt.lwk', t('Laserwerk-Projekt'), 'lwk', 'application/json', ed.serialize());
+  await saveText('projekt.kzb', t('KizamuBeam-Projekt'), 'kzb', 'application/json', ed.serialize());
 }
 
 export async function openProject(ed: Editor) {
@@ -56,7 +56,7 @@ export async function openProject(ed: Editor) {
   };
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core');
-    const res = await invoke<[string, string] | null>('open_text_file', { filterName: t('Laserwerk-Projekt'), extensions: ['lwk', 'json'] });
+    const res = await invoke<[string, string] | null>('open_text_file', { filterName: t('KizamuBeam-Projekt'), extensions: ['kzb', 'lwk', 'json'] });
     if (res) apply(res[1]);
     return;
   }

@@ -4,7 +4,7 @@ import { alignBox, alignPoint, buildSnapSet, findSnap, SnapHit, SnapSet } from '
 import type { Editor } from '../editor';
 import { Drag, SNAP_PX } from './shared';
 
-const SNAP_KEY = 'laserwerk.snap';
+const SNAP_KEY = 'kizamubeam.snap';
 
 const SNAP_PX_ALT = 20;
 

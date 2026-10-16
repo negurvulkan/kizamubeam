@@ -1,7 +1,7 @@
 // Anpassbare Funktionsleisten: Hauptleiste oben und Werkzeugleiste links bestehen aus Aktionen, deren
 // Auswahl und Reihenfolge der Nutzer festlegt (Fenster → Funktionsleisten anpassen … oder Rechtsklick auf
 // eine Leiste). Außerdem lassen sich alle Leisten (auch Eigenschaften, Palette, Statusleiste) ausblenden.
-// Gespeichert wird je Nutzer im localStorage („laserwerk.toolbars“).
+// Gespeichert wird je Nutzer im localStorage („kizamubeam.toolbars“).
 import { ICONS } from './icons';
 import { $, h } from './dom';
 import { t } from './i18n';
@@ -36,7 +36,7 @@ interface Config {
   hidden: BarKey[];
 }
 
-const KEY = 'laserwerk.toolbars';
+const KEY = 'kizamubeam.toolbars';
 export const SEP = '|';
 const BAR_EL: Record<BarKey, string> = { main: '#toolbar', tools: '#tools', numbar: '#numbar', palette: '#palette', status: '#status' };
 

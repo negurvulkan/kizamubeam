@@ -100,7 +100,7 @@ export function materialTab(ed: Editor): HTMLElement {
     if (L.material !== e.id) ed.updateLayer(i, { material: e.id });
   };
   const doImport = async () => {
-    const f = await openText(t('Materialbibliothek'), ['lwm', 'clb', 'json']);
+    const f = await openText(t('Materialbibliothek'), ['kzm', 'lwm', 'clb', 'json']);
     if (!f) return;
     try {
       const list = parseLibrary(f[1]);
@@ -112,7 +112,7 @@ export function materialTab(ed: Editor): HTMLElement {
       alert(t('{file} konnte nicht gelesen werden: {message}', { file: f[0], message: (e as Error).message }));
     }
   };
-  const doExport = () => saveText('materialien.lwm', t('Laserwerk-Materialbibliothek'), 'lwm', 'application/json', library.serialize());
+  const doExport = () => saveText('materialien.kzm', t('KizamuBeam-Materialbibliothek'), 'kzm', 'application/json', library.serialize());
 
   const render = () => {
     const i = target();
@@ -136,7 +136,7 @@ export function materialTab(ed: Editor): HTMLElement {
       const entries = library.entries.filter((e) => !q || `${entryLabel(e)} ${e.desc}`.toLowerCase().includes(q));
       list.replaceChildren();
       if (!library.entries.length) {
-        list.append(h('div', { class: 'empty' }, t('Noch keine Materialien. Stelle einen Layer ein (zum Beispiel nach einem Materialtest) und speichere ihn mit „Neu aus Layer“. Vorhandene Bibliotheken (.lwm, LightBurn .clb) lassen sich importieren.')));
+        list.append(h('div', { class: 'empty' }, t('Noch keine Materialien. Stelle einen Layer ein (zum Beispiel nach einem Materialtest) und speichere ihn mit „Neu aus Layer“. Vorhandene Bibliotheken (.kzm, .lwm, LightBurn .clb) lassen sich importieren.')));
         return;
       }
       if (!entries.length) {
@@ -185,8 +185,8 @@ export function materialTab(ed: Editor): HTMLElement {
       ),
       h('div', { class: 'mat-buttons' },
         btn(t('Neu aus Layer …'), t('Einstellungen von Layer {layer} als neuen Eintrag speichern', { layer: layerLabel(i) }), createFromLayer),
-        btn(t('Importieren …'), t('Einträge aus einer .lwm- oder LightBurn-.clb-Datei hinzufügen'), doImport),
-        btn(t('Exportieren …'), t('Ganze Bibliothek als .lwm-Datei speichern'), doExport, library.entries.length > 0),
+        btn(t('Importieren …'), t('Einträge aus einer .kzm-, .lwm- oder LightBurn-.clb-Datei hinzufügen'), doImport),
+        btn(t('Exportieren …'), t('Ganze Bibliothek als .kzm-Datei speichern'), doExport, library.entries.length > 0),
         btn(t('Materialtest …'), t('Testraster mit gestufter Geschwindigkeit und Leistung lasern'), () => openMaterialTestDialog(ed)),
       ),
     );

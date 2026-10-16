@@ -22,6 +22,11 @@ import { buildHistoryPanel } from './historyPanel';
 import { dockWindow, initDock, isHidden, resetLayout, toggleWindow, windowList } from './dock';
 import { Action, BarKey, barNames, initToolbars, isBarHidden, openToolbarDialog, refreshBars, SEP, showAllBars, toggleBar } from './toolbars';
 import { dec, LangPref, LANGUAGES, setLangPref, t, tn } from './i18n';
+import { version as APP_VERSION } from '../package.json';
+import symbolLight from './assets/brand/symbol-64.png';
+import symbolDark from './assets/brand/symbol-64-dark.png';
+import logoLight from './assets/brand/logo-stacked.png';
+import logoDark from './assets/brand/logo-stacked-dark.png';
 
 const FONT_CANDIDATES = [
   'Arial', 'Helvetica', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Segoe UI', 'Calibri', 'Times New Roman', 'Georgia',
@@ -52,7 +57,7 @@ function availableFonts(): string[] {
 // ---------- Design (hell/dunkel) ----------
 
 type ThemeMode = 'system' | 'light' | 'dark';
-const THEME_KEY = 'laserwerk.theme';
+const THEME_KEY = 'kizamubeam.theme';
 let themeMode: ThemeMode = 'system';
 const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
 const themeListeners = new Set<() => void>();
@@ -132,7 +137,7 @@ function changeLanguage(ed: Editor, p: LangPref) {
 
 /** Feste Texte aus index.html */
 function translateStatic() {
-  document.title = 'Laserwerk';
+  document.title = 'KizamuBeam';
   ($('#texteditor textarea') as HTMLTextAreaElement).placeholder = t('Text eingeben …');
   $('#texteditor .hint').textContent = t('Enter: neue Zeile · Ctrl+Enter oder Esc: fertig');
 }
@@ -273,9 +278,14 @@ function buildMenu(ed: Editor) {
       [t('Funktionsleisten anpassen …'), '', () => openToolbarDialog()],
       [t('Fenster und Leisten zurücksetzen'), '', () => (resetLayout(), showAllBars())],
     ]],
-    [t('Hilfe'), [[t('Tastenkürzel'), 'F1', () => showHelp()]]],
+    [t('Hilfe'), [[t('Tastenkürzel'), 'F1', () => showHelp()], 'sep', [t('Über KizamuBeam …'), '', () => showAbout()]]],
   ];
   const bar = $('#menubar');
+  const brand = h('img', { class: 'menubar-brand', alt: 'KizamuBeam', title: 'KizamuBeam', onclick: () => showAbout() }) as HTMLImageElement;
+  const brandSrc = () => (brand.src = isDark() ? symbolDark : symbolLight);
+  brandSrc();
+  themeListeners.add(brandSrc);
+  bar.append(brand);
   let openMenu: HTMLElement | null = null;
   const close = () => {
     openMenu?.classList.remove('open');
@@ -329,6 +339,22 @@ function buildMenu(ed: Editor) {
       showHelp();
     }
   });
+}
+
+/** Logo, Version, Herkunft des Namens und Lizenz */
+function showAbout() {
+  const dlg = h(
+    'dialog',
+    { class: 'about' },
+    h('img', { src: isDark() ? logoDark : logoLight, alt: 'KizamuBeam' }),
+    h('p', {}, t('Version {version}', { version: APP_VERSION })),
+    h('p', {}, t('„Kizamu“ (刻む) ist japanisch und heißt einritzen, gravieren, fein schneiden.')),
+    h('p', { class: 'note' }, t('Freie Software unter der GNU General Public License, Version 3 oder neuer.')),
+    h('p', {}, h('button', { class: 'btn', onclick: () => dlg.close() }, t('Schließen'))),
+  );
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg);
+  dlg.showModal();
 }
 
 function showHelp() {

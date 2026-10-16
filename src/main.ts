@@ -1,3 +1,4 @@
+import './storageMigration';
 import './style.css';
 import { Editor } from './editor';
 import { buildUI } from './ui';

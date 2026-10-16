@@ -7,7 +7,7 @@ import { shapeSubs } from '../geom';
 import { t, tn } from '../i18n';
 import type { Editor } from '../editor';
 
-const BOOL_KEY = 'laserwerk.boolean';
+const BOOL_KEY = 'kizamubeam.boolean';
 
 export class EditorShapeOps {
   convertObjToPath(this: Editor, o: Obj) {

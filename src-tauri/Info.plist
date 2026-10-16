@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
   <key>NSCameraUsageDescription</key>
-  <string>Laserwerk zeigt das Kamerabild auf der Arbeitsfläche, damit sich Objekte auf dem Werkstück ausrichten lassen.</string>
+  <string>KizamuBeam zeigt das Kamerabild auf der Arbeitsfläche, damit sich Objekte auf dem Werkstück ausrichten lassen.</string>
 </dict>
 </plist>

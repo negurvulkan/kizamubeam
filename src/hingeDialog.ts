@@ -6,7 +6,7 @@ import { computeHinge, DEFAULT_HINGE, HINGE_KINDS, HingeKind, HingeOptions, sugg
 import { library } from './materials';
 import { dec, t } from './i18n';
 
-const STATE_KEY = 'laserwerk.hinges';
+const STATE_KEY = 'kizamubeam.hinges';
 
 function loadState(): HingeOptions {
   try {

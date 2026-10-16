@@ -16,7 +16,7 @@ const LEVELS: [QrLevel, string][] = [
   ['Q', t('Q – 25 %')],
   ['H', t('H – 30 % (robustester Code)')],
 ];
-const LAST_KEY = 'laserwerk.qr';
+const LAST_KEY = 'kizamubeam.qr';
 
 function lastSettings(): Pick<BarcodeShape, 'ec' | 'size' | 'invert' | 'quiet'> {
   const d = { ec: 'M' as QrLevel, size: 30, invert: false, quiet: 2 };

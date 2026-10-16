@@ -5,7 +5,7 @@
 // Bedienung: Reiter ziehen = umsortieren (auf einen Reiterkopf: als Reiter, an den oberen/unteren Rand einer
 // Gruppe: darüber/darunter, auf die Arbeitsfläche: freies Fenster). Trennlinien zwischen den Gruppen und der
 // Rand der Andockleiste ändern die Größe. × blendet ein Fenster aus, das Menü Fenster blendet es wieder ein.
-// Die Anordnung wird je Nutzer im localStorage gespeichert („laserwerk.layout“).
+// Die Anordnung wird je Nutzer im localStorage gespeichert („kizamubeam.layout“).
 import { h } from './dom';
 import { t } from './i18n';
 
@@ -44,7 +44,7 @@ interface Win {
   onShow?: () => void;
 }
 
-const KEY = 'laserwerk.layout';
+const KEY = 'kizamubeam.layout';
 const MIN_DOCK = 180;
 const MIN_GROUP = 60;
 
@@ -145,7 +145,7 @@ function load(): Layout {
     const d = defaultLayout();
     // Früher ließ sich nur das Objekte-Fenster einklappen: diese Wahl übernehmen
     try {
-      if (localStorage.getItem('laserwerk.objectsPanel') === '0') d.right[1].collapsed = true;
+      if (localStorage.getItem('kizamubeam.objectsPanel') === '0') d.right[1].collapsed = true;
     } catch {
       /* Speicher nicht verfügbar */
     }

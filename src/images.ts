@@ -114,6 +114,7 @@ async function hashId(s: string): Promise<string> {
 }
 
 // Bilddaten der automatischen Sicherung liegen in IndexedDB (localStorage ist für Bilder zu klein).
+// Name aus der Zeit vor der Umbenennung in KizamuBeam, damit vorhandene Sicherungen erhalten bleiben
 const DB_NAME = 'laserwerk';
 let dbp: Promise<IDBDatabase> | null = null;
 function db(): Promise<IDBDatabase> {

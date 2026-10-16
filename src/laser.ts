@@ -156,7 +156,7 @@ export async function startJobAt(ed: Editor, preview: Moves, i: number, frac: nu
   job.warnings.forEach((w) => notify(w));
   const est = estimate(job.moves, device);
   const at = formatDuration(Math.max(0, total - est.total));
-  const g = await prepareGCode(job, device, est, t('{name} ab {at}', { name: src?.name ?? 'Laserwerk', at }));
+  const g = await prepareGCode(job, device, est, t('{name} ab {at}', { name: src?.name ?? 'KizamuBeam', at }));
   notify(t('Job ab {at} gestartet, geschätzt {total}.', { at, total: formatDuration(est.total) }));
   await machine.runPrepared(g);
   return true;
@@ -751,7 +751,7 @@ export function openRotaryDialog() {
       ' ' +
       (r.axis === 'Y'
         ? t('Am Y-Anschluss: Soft-Limits bzw. Endschalter der Y-Achse dürfen nicht stören, und nicht referenzieren, solange der Rotary steckt.')
-        : t('Eigene Achse: Sie muss in der Steuerung eingerichtet sein (bei FluidNC in der config.yaml). Laserwerk setzt zu Beginn jedes Jobs die aktuelle Stellung mit G92 auf 0.'));
+        : t('Eigene Achse: Sie muss in der Steuerung eingerichtet sein (bei FluidNC in der config.yaml). KizamuBeam setzt zu Beginn jedes Jobs die aktuelle Stellung mit G92 auf 0.'));
   };
   update();
   const dlg = h('dialog', { class: 'device-dialog' },
