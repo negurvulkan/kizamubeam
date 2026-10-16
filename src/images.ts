@@ -292,17 +292,21 @@ const KERNELS: Record<string, [number, number, number][]> = {
   ].map(([x, y, w]) => [x, y, w / 42]) as [number, number, number][],
 };
 
+/** Skizze: Kantenstärke unter dieser Schwelle bleibt weiß (Rauschen), darüber wird sie verstärkt */
+const SKETCH_FLOOR = 4,
+  SKETCH_GAIN = 2;
+
 export interface DitherOptions {
   mode: DitherMode;
   threshold: number;
-  /** Halbton: Zellengröße in Ausgabepunkten und Winkel in Grad */
+  /** Halbton und Zeitungsdruck: Zellengröße in Ausgabepunkten und Winkel in Grad */
   cellPx: number;
   angle: number;
 }
 
 /**
  * Graustufen in Ausgabewerte umsetzen: 0 = volle Leistung (schwarz), 255 = aus.
- * Bei allen Verfahren außer Graustufen sind die Werte nur 0 oder 255.
+ * Bei allen Verfahren außer Graustufen und Skizze sind die Werte nur 0 oder 255.
  */
 export function dither(g: Float32Array, w: number, h: number, o: DitherOptions): Uint8ClampedArray {
   const out = new Uint8ClampedArray(w * h);
@@ -329,6 +333,51 @@ export function dither(g: Float32Array, w: number, h: number, o: DitherOptions):
           const spot = (Math.cos(u) + Math.cos(v)) * 0.25 + 0.5; // 0 … 1, Zellmitte = 1
           // Dunkle Bildstellen ergeben große Punkte, die von der Zellmitte aus wachsen
           out[y * w + x] = spot > g[y * w + x] / 255 ? 0 : 255;
+        }
+      return out;
+    }
+    case 'newsprint': {
+      // Zeitungsdruck: ein runder Punkt je Zelle eines gedrehten Rasters, seine Fläche entspricht der mittleren
+      // Dunkelheit der Zelle. Ab 50 % wachsen die Punkte zusammen und es bleiben helle Punkte in den Zellecken.
+      const cell = Math.max(2, o.cellPx);
+      const bl = blur(g, w, h, Math.max(1, Math.round(cell / 4)));
+      const a = (o.angle * Math.PI) / 180,
+        ca = Math.cos(a),
+        sa = Math.sin(a);
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const u = (x * ca + y * sa) / cell,
+            v = (-x * sa + y * ca) / cell;
+          const cu = Math.floor(u) + 0.5,
+            cv = Math.floor(v) + 0.5;
+          // Zellmitte zurück ins Bild, dort die (geglättete) Helligkeit lesen
+          const px = Math.min(w - 1, Math.max(0, Math.floor((cu * ca - cv * sa) * cell))),
+            py = Math.min(h - 1, Math.max(0, Math.floor((cu * sa + cv * ca) * cell)));
+          const dark = Math.min(1, Math.max(0, 1 - bl[py * w + px] / 255));
+          const du = u - cu,
+            dv = v - cv;
+          let black: boolean;
+          if (dark <= 0.5) black = du * du + dv * dv < dark / Math.PI;
+          else {
+            const eu = 0.5 - Math.abs(du),
+              ev = 0.5 - Math.abs(dv);
+            black = eu * eu + ev * ev >= (1 - dark) / Math.PI;
+          }
+          out[y * w + x] = black ? 0 : 255;
+        }
+      return out;
+    }
+    case 'sketch': {
+      // Skizze: Kanten (Sobel auf leicht geglättetem Bild) werden zu dunklen Strichen, gleichmäßige Flächen bleiben
+      // weiß. Die Werte sind Graustufen, gelasert wird mit veränderlicher Leistung.
+      const b = blur(g, w, h, 1);
+      const at = (x: number, y: number) => b[Math.min(h - 1, Math.max(0, y)) * w + Math.min(w - 1, Math.max(0, x))];
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const gx = at(x + 1, y - 1) + 2 * at(x + 1, y) + at(x + 1, y + 1) - (at(x - 1, y - 1) + 2 * at(x - 1, y) + at(x - 1, y + 1));
+          const gy = at(x - 1, y + 1) + 2 * at(x, y + 1) + at(x + 1, y + 1) - (at(x - 1, y - 1) + 2 * at(x, y - 1) + at(x + 1, y - 1));
+          const mag = Math.sqrt(gx * gx + gy * gy) / 4;
+          out[y * w + x] = 255 - Math.max(0, mag - SKETCH_FLOOR) * SKETCH_GAIN;
         }
       return out;
     }

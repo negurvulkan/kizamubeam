@@ -209,7 +209,7 @@ function parseClb(xml: string): MaterialEntry[] {
       if (!e) continue;
       if (isImg) {
         const dither: Record<string, DitherMode> = {
-          threshold: 'threshold', ordered: 'ordered', atkinson: 'atkinson', dither: 'floyd', stucki: 'stucki', jarvis: 'jarvis', halftone: 'halftone', grayscale: 'grayscale',
+          threshold: 'threshold', ordered: 'ordered', atkinson: 'atkinson', dither: 'floyd', stucki: 'stucki', jarvis: 'jarvis', newsprint: 'newsprint', halftone: 'halftone', sketch: 'sketch', grayscale: 'grayscale',
         };
         const di = defaultImageLayer();
         e.img = {

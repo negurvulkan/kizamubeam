@@ -2,7 +2,7 @@
 // TypeScript-Fassung, die Ergebnisse landen in src-tauri/core/tests/fixtures/parity.json.
 // Aufruf: npm run test:core (erzeugt die Daten und startet cargo test).
 import './core-fixtures-env';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { applyAdjust, dither, resample } from '../src/images';
 import { estimate, FIRMWARES, gcodeLines, Moves, newDevice, packMoves, scanLines } from '../src/gcode';
 import { defaultImageLayer, inv, ImageAdjust, Mat, mul } from '../src/model';
@@ -25,13 +25,14 @@ const adjusted = down.slice();
 applyAdjust(adjusted, 40, 30, adjust, false);
 const adjustedNeg = up.slice();
 applyAdjust(adjustedNeg, 150, 110, { ...adjust, sharpen: 0 }, true);
-const modes = ['threshold', 'ordered', 'atkinson', 'floyd', 'stucki', 'jarvis', 'halftone', 'grayscale'] as const;
+const modes = ['threshold', 'ordered', 'atkinson', 'floyd', 'stucki', 'jarvis', 'newsprint', 'halftone', 'sketch', 'grayscale'] as const;
 const dithered = Object.fromEntries(modes.map((m) => [m, arr(dither(adjusted, 40, 30, { mode: m, threshold: 140, cellPx: 3.5, angle: 30 }))]));
 
 // Rasterzeilen: achsparallel und gedreht, Graustufen und schwarz-weiß
 const scans = [
   { m: [0.5, 0, 0, -0.5, 12, 40] as Mat, mode: 'jarvis' },
   { m: mul([Math.cos(0.4), Math.sin(0.4), -Math.sin(0.4), Math.cos(0.4), 30, 5], [0.5, 0, 0, 0.5, 0, 0]) as Mat, mode: 'grayscale' },
+  { m: [0.5, 0, 0, -0.5, 3, 20] as Mat, mode: 'sketch' },
 ].map(({ m, mode }) => {
   const L = { ...defaultImageLayer(), dither: mode as never, interval: 0.4, power: 60, minPower: 10 };
   const v = Uint8Array.from(dithered[mode]);
@@ -82,5 +83,6 @@ const out = {
   scans,
   gcode: [gcodeCase('fluidnc'), gcodeCase('smoothie')],
 };
+mkdirSync(new URL('../src-tauri/core/tests/fixtures/', import.meta.url), { recursive: true });
 writeFileSync(new URL('../src-tauri/core/tests/fixtures/parity.json', import.meta.url), JSON.stringify(out));
 console.log('Vergleichsdaten geschrieben');

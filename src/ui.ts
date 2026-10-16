@@ -1,7 +1,8 @@
 // Oberfläche: Menü, Leisten, Panels, Palette, Statusleiste.
 import { Editor, Tool } from './editor';
 import { ICONS } from './icons';
-import { DITHER_MODES, DitherMode, ImageAdjust, ImageLayer, ImageShape, Layer, layerLabel, Obj, pageName, PALETTE, SubPath, TextShape } from './model';
+import { DITHER_MODES, DitherMode, ImageAdjust, ImageLayer, ImageShape, isCellMode, Layer, layerLabel, Obj, pageName, PALETTE, SubPath, TextShape } from './model';
+import { deletePreset, loadPresets, presetOutput, savePreset } from './imagePresets';
 import { exportSvg, importFile, installDropAndPaste, openProject, saveProcessedBitmap, saveProject } from './files';
 import { assetImage, displayCanvas, onImageReady, outputGrid } from './images';
 import { systemFonts } from './fonts';
@@ -185,6 +186,8 @@ function buildMenu(ed: Editor) {
       'sep',
       [t('Bild anpassen …'), '', () => openAdjustDialog(ed)],
       [t('Bild nachzeichnen …'), 'Alt+T', () => openTraceDialog(ed)],
+      [t('Bild zuschneiden'), '', () => ed.cropImageSel(false)],
+      [t('Maske auf Bild anwenden'), '', () => ed.cropImageSel(true)],
     ]],
     [t('Anordnen'), [
       [t('Gruppieren'), 'Ctrl+G', () => ed.group()],
@@ -537,6 +540,12 @@ function buildNumbar(ed: Editor) {
     h('button', { class: 'toggle', title: t('Helligkeit, Kontrast, Gamma, Schärfen, Bildmodus'), onclick: () => openAdjustDialog(ed) }, t('Anpassen …')),
     h('button', { class: 'toggle', title: t('Bild in Vektoren umwandeln (Alt+T)'), onclick: () => openTraceDialog(ed) }, t('Nachzeichnen …')),
   );
+  // Zuschneiden und Maske: nur sichtbar, wenn neben einem Bild auch Formen gewählt sind
+  const cropBtns = [
+    h('button', { class: 'toggle', title: t('Bild auf den Rahmen der gewählten Form zuschneiden'), onclick: () => ed.cropImageSel(false) }, t('Zuschneiden')),
+    h('button', { class: 'toggle', title: t('Nur das Innere der gewählten geschlossenen Formen vom Bild behalten'), onclick: () => ed.cropImageSel(true) }, t('Maske')),
+  ];
+  imgProps.append(...cropBtns);
   const sepImg = sep();
 
   const sepShape = sep();
@@ -558,6 +567,8 @@ function buildNumbar(ed: Editor) {
     nodeProps.hidden = sepNode.hidden = ed.tool !== 'node';
     const imgs = ed.selImages();
     imgProps.hidden = sepImg.hidden = !imgs.length;
+    const canCrop = imgs.length === 1 && ed.sel.length > 1;
+    cropBtns.forEach((b) => (b.hidden = !canCrop));
     if (imgs.length) {
       const o = imgs[0],
         s = o.shape as ImageShape;
@@ -949,7 +960,7 @@ function imageLayerFields(ed: Editor, i: number, live: boolean, onChange?: () =>
     const d = ed.imgLayer(i).dither;
     extra.replaceChildren(
       ...(d === 'threshold' ? [h('label', {}, t('Schwellwert (0–255)')), num('threshold', 0, 255, true)] : []),
-      ...(d === 'halftone' ? [h('label', {}, t('Zellen pro Zoll')), num('cells', 2, 300), h('label', {}, t('Rasterwinkel (°)')), num('angle', -90, 90)] : []),
+      ...(isCellMode(d) ? [h('label', {}, t('Zellen pro Zoll')), num('cells', 2, 300), h('label', {}, t('Rasterwinkel (°)')), num('angle', -90, 90)] : []),
     );
     extra.hidden = !extra.childElementCount;
   };
@@ -1073,7 +1084,46 @@ function openAdjustDialog(ed: Editor, layer?: number) {
   const sS = slider(t('Schärfen (%)'), 0, 300, 1, adj.sharpen, (v) => setAdj({ sharpen: v }));
   const sR = slider(t('Radius'), 1, 10, 0.5, adj.sharpenRadius, (v) => setAdj({ sharpenRadius: v }));
   const sD = slider(t('Entrauschen'), 0, 50, 1, adj.denoise, (v) => setAdj({ denoise: v }));
-  const fields = imageLayerFields(ed, li, true, drawPreview);
+  const layerForm = h('div', { class: 'form' }, ...imageLayerFields(ed, li, true, drawPreview));
+
+  // Presets: Anpassungen und Bildmodus unter einem Namen merken
+  let presets = loadPresets();
+  const presetSel = h('select', { title: t('Gespeichertes Preset anwenden') }) as HTMLSelectElement;
+  const presetName = h('input', { type: 'text', placeholder: t('Name für neues Preset') }) as HTMLInputElement;
+  const delBtn = h('button', { class: 'btn', title: t('Gewähltes Preset löschen') }, t('Löschen')) as HTMLButtonElement;
+  const renderPresets = (selected = '') => {
+    presetSel.replaceChildren(
+      h('option', { value: '' }, presets.length ? t('– Preset wählen –') : t('– noch keine Presets –')),
+      ...presets.map((p) => h('option', { value: p.name, selected: p.name === selected }, p.name)),
+    );
+    delBtn.disabled = !presetSel.value;
+  };
+  presetSel.addEventListener('change', () => {
+    const p = presets.find((x) => x.name === presetSel.value);
+    delBtn.disabled = !p;
+    if (!p) return;
+    presetName.value = p.name;
+    sB.set(p.adjust.brightness), sC.set(p.adjust.contrast), sG.set(p.adjust.gamma);
+    sS.set(p.adjust.sharpen), sR.set(p.adjust.sharpenRadius), sD.set(p.adjust.denoise);
+    ed.updateImgLayer(li, p.output, false);
+    layerForm.replaceChildren(...imageLayerFields(ed, li, true, drawPreview));
+    setAdj({ ...p.adjust });
+  });
+  const savePresetNow = () => {
+    const name = presetName.value.trim();
+    if (!name) return presetName.focus();
+    if (presets.some((p) => p.name === name) && !confirm(t('Preset „{name}“ überschreiben?', { name }))) return;
+    presets = savePreset({ name, adjust: { ...adj }, output: presetOutput(ed.imgLayer(li)) });
+    renderPresets(name);
+  };
+  presetName.addEventListener('keydown', (e) => e.key === 'Enter' && (e.preventDefault(), savePresetNow()));
+  delBtn.addEventListener('click', () => {
+    const name = presetSel.value;
+    if (!name || !confirm(t('Preset „{name}“ löschen?', { name }))) return;
+    presets = deletePreset(name);
+    renderPresets();
+  });
+  renderPresets();
   const chk = (label: string, f: (v: boolean) => void) =>
     h('label', { class: 'check' }, h('input', { type: 'checkbox', onchange: (e: Event) => (f((e.target as HTMLInputElement).checked), drawPreview()) }), label);
   let applied = false;
@@ -1089,11 +1139,17 @@ function openAdjustDialog(ed: Editor, layer?: number) {
         h('div', { class: 'checks' }, chk(t('Original zeigen'), (v) => (showOrig = v)), chk(t('Ausschnitt 1:1'), (v) => (oneToOne = v))),
       ),
       h('div', { class: 'adjust-right' },
+        h('div', { class: 'form-title' }, t('Preset')),
+        h('div', { class: 'form' },
+          h('label', {}, t('Anwenden')), h('span', { class: 'preset-row' }, presetSel, delBtn),
+          h('label', {}, t('Speichern')), h('span', { class: 'preset-row' }, presetName, h('button', { class: 'btn', title: t('Aktuelle Anpassungen und Bildmodus als Preset speichern'), onclick: savePresetNow }, t('Speichern'))),
+        ),
+        h('div', { class: 'form-title' }, t('Anpassen')),
         h('div', { class: 'form' }, ...sB.el, ...sC.el, ...sG.el),
         h('div', { class: 'form-title' }, t('Schärfen')),
         h('div', { class: 'form' }, ...sS.el, ...sR.el, ...sD.el),
         h('div', { class: 'form-title' }, t('Layer {layer}: Bildausgabe', { layer: layerLabel(li) })),
-        h('div', { class: 'form' }, ...fields),
+        layerForm,
       ),
     ),
     h('div', { class: 'note' }, t('Die Arbeitsfläche zeigt das Ergebnis live. Bildmodus und Auflösung gelten für alle Bilder des Layers.')),

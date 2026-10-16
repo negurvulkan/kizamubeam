@@ -850,6 +850,17 @@ label.check {
   flex: 1;
   width: auto;
 }
+.preset-row {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.form .preset-row select,
+.form .preset-row input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
 .slider-val {
   min-width: 34px;
   text-align: right;
