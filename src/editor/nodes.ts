@@ -132,7 +132,7 @@ export class EditorNodes {
       this.emit('tool');
       return;
     }
-    this.snapshot();
+    this.snapshot(t('Knoten löschen'));
     const subs = this.pathTarget()!;
     if (handle) {
       const n = subs[handle.sub].nodes[handle.idx];
@@ -163,11 +163,11 @@ export class EditorNodes {
     const o = this.nodeTarget();
     const h = this.segHover;
     if (!o || !h) return;
-    this.snapshot();
+    this.snapshot(t('Knoten einfügen'));
     const sp = this.pathTarget()![h.sub];
     const sg = segments(sp)[h.seg];
-    const t = h.t;
-    const lerp = (p: Pt, q: Pt) => ({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t });
+    const u = h.t;
+    const lerp = (p: Pt, q: Pt) => ({ x: p.x + (q.x - p.x) * u, y: p.y + (q.y - p.y) * u });
     let n: Node;
     if (sg.curve) {
       const p01 = lerp(sg.a, sg.c1), p12 = lerp(sg.c1, sg.c2), p23 = lerp(sg.c2, sg.b);
@@ -199,7 +199,7 @@ export class EditorNodes {
       this.emit('tool');
       return;
     }
-    this.snapshot();
+    this.snapshot(t('Segmenttyp ändern'));
     // Umwandeln in einen Pfad erhält die Reihenfolge der Knoten, die Indizes bleiben gültig
     const subs = this.pathTarget()!;
     for (const s of segs) {
@@ -234,7 +234,7 @@ export class EditorNodes {
       this.emit('tool');
       return;
     }
-    this.snapshot();
+    this.snapshot(t('Knotentyp ändern'));
     const subs = this.pathTarget()!;
     for (const h of targets) {
       const sp = subs[h.sub];
@@ -274,7 +274,7 @@ export class EditorNodes {
     const o = this.nodeTarget();
     const targets = o ? this.selectedNodes(o) : [];
     if (!o || !targets.length) return false;
-    this.snapshot();
+    this.snapshot(t('Knoten verschieben'));
     const subs = this.pathTarget()!;
     const im = inv(o.m);
     const p0 = apply(im, 0, 0),

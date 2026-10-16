@@ -18,6 +18,7 @@ import { BoolBase } from './ops';
 import { agentStatus, openAgentDialog } from './agentui';
 import { startAgentBridge } from './agent';
 import { buildObjectsPanel } from './objectsPanel';
+import { buildHistoryPanel } from './historyPanel';
 import { dockWindow, initDock, isHidden, resetLayout, toggleWindow, windowList } from './dock';
 import { Action, BarKey, barNames, initToolbars, isBarHidden, openToolbarDialog, refreshBars, SEP, showAllBars, toggleBar } from './toolbars';
 import { dec, LangPref, LANGUAGES, setLangPref, t, tn } from './i18n';
@@ -94,6 +95,7 @@ export function buildUI(ed: Editor) {
   buildNumbar(ed);
   buildLayers(ed);
   buildObjectsPanel(ed);
+  buildHistoryPanel(ed);
   buildLaser(ed);
   initDock();
   buildMenu(ed);
@@ -1324,7 +1326,7 @@ function openAdjustDialog(ed: Editor, layer?: number) {
     targets.forEach((o, k) => ((o.shape as ImageShape).adjust = origAdj[k]));
     Object.assign(ed.imgLayer(li), origLayer);
     if (applied && (JSON.stringify(newAdj) !== JSON.stringify(origAdj) || JSON.stringify(newLayer) !== JSON.stringify(origLayer))) {
-      ed.snapshot();
+      ed.snapshot(t('Bild anpassen'));
       targets.forEach((o, k) => ((o.shape as ImageShape).adjust = newAdj[k]));
       Object.assign(ed.imgLayer(li), newLayer);
     }
@@ -1497,7 +1499,7 @@ function buildTextEditor(ed: Editor) {
   ta.addEventListener('input', () => {
     if (!target) return;
     if (!snapDone) {
-      ed.snapshot();
+      ed.snapshot(t('Text bearbeiten'));
       snapDone = true;
     }
     ed.setText(target, ta.value);

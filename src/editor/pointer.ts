@@ -54,7 +54,7 @@ export class EditorPointer {
         const h = this.hitHandle(sx, sy);
         if (h >= 0) {
           if (this.rotateMode) return this.startRotate(wp);
-          this.snapshot();
+          this.snapshot(t('Größe ändern'));
           this.drag = { type: 'scale', handle: h, box: this.selBounds()!, orig: this.sel.map((o) => o.m) };
           return;
         }
@@ -118,15 +118,15 @@ export class EditorPointer {
         }
         const p = this.snapPt(wp, e);
         this.clearSnap();
-        this.snapshot();
-        const t: Obj = {
+        this.snapshot(t('Text erstellen'));
+        const txt: Obj = {
           id: newId(), m: translate(p.x, p.y), layer: this.currentLayer,
           shape: { kind: 'text', text: '', ...this.textDefaults },
         };
-        this.doc.objs.push(t);
-        this.setSel([t]);
+        this.doc.objs.push(txt);
+        this.setSel([txt]);
         this.emit('doc');
-        this.textEditor?.(t, true);
+        this.textEditor?.(txt, true);
         return;
       }
       case 'trim': {
@@ -192,7 +192,7 @@ export class EditorPointer {
               snapSet.addPoint(q.x, q.y, 'node');
             }),
           );
-          this.snapshot();
+          this.snapshot(t('Knoten verschieben'));
           this.drag = {
             type: 'node', obj: target, sub: h.sub, idx: h.idx,
             which: h.which, start: wp, orig, moved: false, group, origWorld: apply(target.m, op.x, op.y), snapSet,
@@ -277,7 +277,7 @@ export class EditorPointer {
         if (!d.moved) {
           if (Math.hypot(sx - d.sx, sy - d.sy) < 3) return;
           d.moved = true;
-          this.snapshot();
+          this.snapshot(t('Verschieben'));
         }
         let dx = wp.x - d.start.x,
           dy = wp.y - d.start.y;
@@ -288,8 +288,8 @@ export class EditorPointer {
         // Shift hält die Richtung auch beim Fangen
         if (lock === 'y') dy = 0;
         if (lock === 'x') dx = 0;
-        const t = translate(dx, dy);
-        this.sel.forEach((o, i) => (o.m = mul(t, d.orig[i])));
+        const T = translate(dx, dy);
+        this.sel.forEach((o, i) => (o.m = mul(T, d.orig[i])));
         this.emit('doc');
         return;
       }
@@ -339,7 +339,7 @@ export class EditorPointer {
         const onRuler = d.axis === 'y' ? sy < RULER : sx < RULER;
         if (!d.obj) {
           if (onRuler) return;
-          this.snapshot();
+          this.snapshot(t('Hilfslinie'));
           d.obj = this.makeGuide(d.axis, v);
           this.doc.objs.push(d.obj);
           this.setSel([d.obj]);
@@ -356,7 +356,7 @@ export class EditorPointer {
           dy = p.y - d.start.y;
         if (!d.obj) {
           if (Math.hypot(dx, dy) * this.view.zoom < 3) return;
-          this.snapshot();
+          this.snapshot(this.tool === 'rect' ? t('Rechteck zeichnen') : this.tool === 'ellipse' ? t('Ellipse zeichnen') : t('Polygon zeichnen'));
           d.obj = { id: newId(), m: IDENT, layer: this.currentLayer, shape: this.newShape() };
           this.doc.objs.push(d.obj);
           this.setSel([d.obj]);
@@ -615,7 +615,7 @@ export class EditorPointer {
       this.redraw();
       return;
     }
-    this.snapshot();
+    this.snapshot(t('Linie zeichnen'));
     const o: Obj = { id: newId(), m: IDENT, layer: this.currentLayer, shape: { kind: 'path', subs: [d] } };
     this.doc.objs.push(o);
     this.emit('doc');

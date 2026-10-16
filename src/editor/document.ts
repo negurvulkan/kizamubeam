@@ -9,7 +9,6 @@ import { t } from '../i18n';
 import type { Editor } from '../editor';
 import { bumpShapeVersion } from './shared';
 
-const SNAPSHOT_LIMIT = 200;
 const STORAGE_KEY = 'laserwerk.autosave';
 
 export class EditorDocument {
@@ -62,48 +61,46 @@ export class EditorDocument {
    * Mehrere Änderungen als einen Undo-Schritt ausführen (z. B. ein Aufruf eines KI-Agenten).
    * Ändert sich nichts, bleibt der Verlauf, wie er war.
    */
-  async batch<T>(this: Editor, fn: () => T | Promise<T>): Promise<T> {
+  async batch<T>(this: Editor, fn: () => T | Promise<T>, label?: string): Promise<T> {
     if (this.batching) return fn();
     const before = this.state();
-    const redo = this.redo;
-    this.snapshot();
+    const redo = this.history.saveRedo();
+    this.snapshot(label);
     this.batching = true;
     try {
       return await fn();
     } finally {
       this.batching = false;
       if (this.state() === before) {
-        this.undo.pop();
-        this.redo = redo;
+        this.history.drop();
+        this.history.restoreRedo(redo);
       }
     }
   }
-  /** Vor jeder Änderung aufrufen. */
-  snapshot(this: Editor) {
+  /** Vor jeder Änderung aufrufen; label erscheint im Verlaufsfenster. */
+  snapshot(this: Editor, label?: string) {
     if (this.batching) return;
-    this.undo.push(this.state());
-    if (this.undo.length > SNAPSHOT_LIMIT) this.undo.shift();
-    this.redo = [];
+    this.history.push(this.state(), label ?? t('Änderung'));
   }
   dropSnapshot(this: Editor) {
     if (this.batching) return;
-    this.undo.pop();
+    this.history.drop();
+  }
+  loadHistoryState(this: Editor, s: string | null) {
+    if (s === null) return;
+    this.loadKeepVarText(s);
+    this.emit('doc');
+    this.emit('sel');
   }
   doUndo(this: Editor) {
-    const s = this.undo.pop();
-    if (!s) return;
-    this.redo.push(this.state());
-    this.loadKeepVarText(s);
-    this.emit('doc');
-    this.emit('sel');
+    this.loadHistoryState(this.history.stepBack(this.state()));
   }
   doRedo(this: Editor) {
-    const s = this.redo.pop();
-    if (!s) return;
-    this.undo.push(this.state());
-    this.loadKeepVarText(s);
-    this.emit('doc');
-    this.emit('sel');
+    this.loadHistoryState(this.history.stepForward(this.state()));
+  }
+  /** Zu einer Zeile des Verlaufsfensters springen (0 = Ausgangsstand) */
+  jumpHistory(this: Editor, row: number) {
+    this.loadHistoryState(this.history.jumpTo(row, this.state()));
   }
   scheduleSave(this: Editor) {
     clearTimeout(this.saveTimer);
@@ -150,7 +147,7 @@ export class EditorDocument {
     if (d.assets) for (const [id, url] of Object.entries(d.assets)) registerAsset(id, url);
     delete d.assets;
     restoreAssets(this.assetIds(allObjs(d)));
-    this.snapshot();
+    this.snapshot(t('Datei öffnen'));
     this.clearPageState();
     this.doc = d;
     bumpIds(allObjs(d));
@@ -159,7 +156,7 @@ export class EditorDocument {
     this.emit('sel');
   }
   newDocument(this: Editor) {
-    this.snapshot();
+    this.snapshot(t('Neues Projekt'));
     this.clearPageState();
     const bed = this.doc.bed;
     this.doc = newDoc();
@@ -195,7 +192,7 @@ export class EditorDocument {
   }
   /** Neue leere Seite hinter der aktuellen (oder an Stelle at) anlegen und zu ihr wechseln */
   addPage(this: Editor, name?: string, at = this.doc.page + 1): number {
-    this.snapshot();
+    this.snapshot(t('Seite hinzufügen'));
     at = Math.max(0, Math.min(this.doc.pages.length, at));
     this.doc.pages.splice(at, 0, { name: name?.trim() || this.freePageName(), objs: [] });
     this.clearPageState();
@@ -208,7 +205,7 @@ export class EditorDocument {
   duplicatePage(this: Editor, i = this.doc.page): number {
     const src = this.doc.pages[i];
     if (!src) return -1;
-    this.snapshot();
+    this.snapshot(t('Seite duplizieren'));
     this.doc.pages.splice(i + 1, 0, { name: t('{name} (Kopie)', { name: src.name }), objs: cloneObjs(src.objs) });
     this.clearPageState();
     this.doc.page = i + 1;
@@ -219,7 +216,7 @@ export class EditorDocument {
   /** Seite i löschen; die letzte Seite bleibt immer stehen */
   deletePage(this: Editor, i = this.doc.page) {
     if (this.doc.pages.length < 2 || !this.doc.pages[i]) return;
-    this.snapshot();
+    this.snapshot(t('Seite löschen'));
     this.doc.pages.splice(i, 1);
     const cur = this.doc.page;
     this.clearPageState();
@@ -231,7 +228,7 @@ export class EditorDocument {
     const p = this.doc.pages[i];
     name = name.trim();
     if (!p || !name || name === p.name) return;
-    this.snapshot();
+    this.snapshot(t('Seite umbenennen'));
     p.name = name;
     this.emit('doc');
   }
@@ -239,7 +236,7 @@ export class EditorDocument {
   movePage(this: Editor, from: number, to: number) {
     const n = this.doc.pages.length;
     if (from === to || from < 0 || from >= n || to < 0 || to >= n) return;
-    this.snapshot();
+    this.snapshot(t('Seite verschieben'));
     const cur = this.doc.pages[this.doc.page];
     const [p] = this.doc.pages.splice(from, 1);
     this.doc.pages.splice(to, 0, p);
@@ -251,7 +248,7 @@ export class EditorDocument {
     const target = this.doc.pages[i];
     const moving = this.doc.objs.filter((o) => objs.includes(o));
     if (!target || i === this.doc.page || !moving.length) return;
-    this.snapshot();
+    this.snapshot(t('Auf andere Seite verschieben'));
     this.doc.objs = this.doc.objs.filter((o) => !moving.includes(o));
     target.objs.push(...moving);
     this.setSel(this.sel.filter((o) => !moving.includes(o)));

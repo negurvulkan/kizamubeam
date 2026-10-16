@@ -63,7 +63,7 @@ export class EditorJoints {
       this.emit('tool');
       return false;
     }
-    this.snapshot();
+    this.snapshot(t('Holzverbindung'));
     for (const [obj, { m, subs }] of r.changes) {
       obj.shape = { kind: 'path', subs: transformSubs(subs, inv(m)) };
       invalidate(obj.shape);

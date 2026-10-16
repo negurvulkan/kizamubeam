@@ -49,7 +49,7 @@ export class EditorPaths {
       this.emit('tool');
       return st;
     }
-    this.snapshot();
+    this.snapshot(t('Pfad schließen'));
     for (const [l, m] of this.selPathLeaves()) {
       if (l.shape.kind !== 'path') continue;
       // Abstand in Welt-mm prüfen, geschlossen wird in lokalen Koordinaten
@@ -98,7 +98,7 @@ export class EditorPaths {
       this.emit('tool');
       return 0;
     }
-    this.snapshot();
+    this.snapshot(t('Pfade verbinden'));
     const res = this.mergeJoined(objs, r, owner);
     this.setSel([...new Set([...this.sel.filter((o) => this.doc.objs.includes(o)), ...res])]);
     this.hint = tn('{n} Verbindung hergestellt.', '{n} Verbindungen hergestellt.', r.joins);
@@ -163,7 +163,7 @@ export class EditorPaths {
       this.emit('tool');
       return 0;
     }
-    this.snapshot();
+    this.snapshot(t('Zerlegen'));
     const next: Obj[] = [];
     for (const o of this.doc.objs) next.push(...(parts.get(o) ?? [o]));
     this.doc.objs = next;
@@ -178,7 +178,7 @@ export class EditorPaths {
   reverseSel(this: Editor) {
     const ls = this.selPathLeaves();
     if (!ls.length) return;
-    this.snapshot();
+    this.snapshot(t('Richtung umkehren'));
     for (const [l] of ls) {
       this.convertObjToPath(l);
       for (const sp of (l.shape as { subs: SubPath[] }).subs) reverseSub(sp);
@@ -229,7 +229,7 @@ export class EditorPaths {
       this.emit('tool');
       return false;
     }
-    this.snapshot();
+    this.snapshot(t('Startpunkt setzen'));
     this.convertObjToPath(o);
     const sp = (o.shape as { subs: SubPath[] }).subs[sub];
     if (mode === 'reset') {
@@ -323,7 +323,7 @@ export class EditorPaths {
     const world = transformSubs(shapeSubs(o.shape), o.m);
     const sp = world[h.sub];
     if (!sp) return;
-    this.snapshot();
+    this.snapshot(t('Trimmen'));
     const r = trimSub(sp, h.span);
     const subs = [...world.slice(0, h.sub), ...r.kept, ...world.slice(h.sub + 1)];
     const extra: Obj[] = [];
@@ -415,7 +415,7 @@ export class EditorPaths {
       this.emit('tool');
       return;
     }
-    this.snapshot();
+    this.snapshot(t('Pfad aufbrechen'));
     const subs = this.pathTarget()!;
     subs.splice(sub, 1, ...parts);
     this.nodeSel.clear();

@@ -2,6 +2,7 @@
 import { IDENT, Layer, mul, newId, Obj, setLayerDeep, translate, visibleLeaves, homeLayer } from '../model';
 import { Box, boundsOf } from '../geom';
 import type { Editor } from '../editor';
+import { t } from '../i18n';
 
 export class EditorObjects {
   /** Gesperrt: selbst oder alle sichtbaren Teile liegen auf gesperrten Layern */
@@ -23,7 +24,7 @@ export class EditorObjects {
   /** Name, Sichtbarkeit oder Sperre eines Objekts (auch in Gruppen) ändern */
   setObjProps(this: Editor, objs: Obj[], patch: { name?: string; hidden?: boolean; locked?: boolean }) {
     if (!objs.length) return;
-    this.snapshot();
+    this.snapshot(t('Objekt-Eigenschaften'));
     for (const o of objs) {
       if (patch.name !== undefined) {
         const n = patch.name.trim();
@@ -55,7 +56,7 @@ export class EditorObjects {
   moveObjects(this: Editor, objs: Obj[], ref: Obj | null, front: boolean, layer?: number) {
     const moving = this.doc.objs.filter((o) => objs.includes(o) && o !== ref);
     if (!moving.length) return;
-    this.snapshot();
+    this.snapshot(t('Reihenfolge ändern'));
     const rest = this.doc.objs.filter((o) => !moving.includes(o));
     let at = rest.length;
     if (ref) {
@@ -78,14 +79,14 @@ export class EditorObjects {
     const k = order.indexOf(ref);
     if (k < 0) return;
     order.splice(before ? k : k + 1, 0, i);
-    this.snapshot();
+    this.snapshot(t('Layer-Reihenfolge'));
     order.forEach((l, n) => (this.layer(l).priority = n));
     this.emit('doc');
   }
 
   group(this: Editor) {
     if (this.sel.length < 2) return;
-    this.snapshot();
+    this.snapshot(t('Gruppieren'));
     const members = this.doc.objs.filter((o) => this.sel.includes(o));
     const idx = this.doc.objs.indexOf(members[members.length - 1]);
     const g: Obj = { id: newId(), m: IDENT, layer: members[0].layer, shape: { kind: 'group', children: members } };
@@ -97,7 +98,7 @@ export class EditorObjects {
   ungroup(this: Editor) {
     const groups = this.sel.filter((o) => o.shape.kind === 'group');
     if (!groups.length) return;
-    this.snapshot();
+    this.snapshot(t('Gruppierung aufheben'));
     const out: Obj[] = [];
     for (const g of groups) {
       const kids = (g.shape as { children: Obj[] }).children;
@@ -112,7 +113,7 @@ export class EditorObjects {
   align(this: Editor, how: 'left' | 'right' | 'top' | 'bottom' | 'hcenter' | 'vcenter') {
     if (this.sel.length < 2) return;
     const B = this.selBounds()!;
-    this.snapshot();
+    this.snapshot(t('Ausrichten'));
     for (const o of this.sel) {
       const b = boundsOf([o])!;
       let dx = 0,
@@ -130,7 +131,7 @@ export class EditorObjects {
   }
   distribute(this: Editor, horizontal: boolean) {
     if (this.sel.length < 3) return;
-    this.snapshot();
+    this.snapshot(t('Verteilen'));
     const items = this.sel.map((o) => ({ o, b: boundsOf([o])! }));
     const key = (b: Box) => (horizontal ? b.x + b.w / 2 : b.y + b.h / 2);
     items.sort((p, q) => key(p.b) - key(q.b));
@@ -149,7 +150,7 @@ export class EditorObjects {
     this.currentLayer = i;
     this.activeLayer = i;
     if (this.sel.length) {
-      this.snapshot();
+      this.snapshot(t('Layer zuweisen'));
       this.sel.forEach((o) => setLayerDeep(o, i));
       this.emit('doc');
     }
@@ -157,7 +158,7 @@ export class EditorObjects {
     this.emit('sel');
   }
   updateLayer(this: Editor, i: number, patch: Partial<Layer>) {
-    this.snapshot();
+    this.snapshot(t('Layer-Einstellungen'));
     Object.assign(this.layer(i), patch);
     this.emit('doc');
   }
@@ -168,7 +169,7 @@ export class EditorObjects {
     const k = order.indexOf(i);
     const j = k + dir;
     if (k < 0 || j < 0 || j >= order.length) return;
-    this.snapshot();
+    this.snapshot(t('Layer-Reihenfolge'));
     [order[k], order[j]] = [order[j], order[k]];
     order.forEach((l, n) => (this.layer(l).priority = n));
     this.emit('doc');

@@ -28,7 +28,7 @@ export class EditorShapeOps {
       if (f.fallback) fallbacks.add(t.font);
       outlines.set(leaf, textToSubs(t, f.font));
     }
-    this.snapshot();
+    this.snapshot(t('In Pfad umwandeln'));
     for (const [leaf] of leaves(objs)) {
       const subs = outlines.get(leaf);
       if (subs) {
@@ -98,7 +98,7 @@ export class EditorShapeOps {
       this.emit('tool');
       return;
     }
-    this.snapshot();
+    this.snapshot(t('Boolesche Operation'));
     const z = inputs.map((o) => this.doc.objs.indexOf(o));
     // Ohne Originale nimmt das Ergebnis den Platz des hintersten Objekts ein, sonst liegt es direkt vor dem vordersten
     let idx = keep ? Math.max(...z) + 1 : Math.min(...z);
@@ -121,7 +121,7 @@ export class EditorShapeOps {
     const inputs = this.sel.filter((o) => o.shape.kind !== 'image');
     if (!inputs.length) return;
     const subs = offsetOp(await this.withTextOutlines(inputs), opt);
-    this.snapshot();
+    this.snapshot(t('Offset'));
     if (!keepOriginal) this.doc.objs = this.doc.objs.filter((o) => !inputs.includes(o));
     if (!subs.length) {
       this.hint = t('Offset ergibt keine Kontur (Abstand zu groß für Innen-Offset?).');
@@ -148,7 +148,7 @@ export class EditorShapeOps {
       this.emit('tool');
       return;
     }
-    this.snapshot();
+    this.snapshot(t('Array'));
     const originals = this.doc.objs.filter((o) => this.sel.includes(o));
     const copies: Obj[] = [];
     for (const M of mats.slice(1)) {

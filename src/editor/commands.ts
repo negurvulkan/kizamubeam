@@ -1,11 +1,12 @@
 // Editor: Befehle: Löschen, Kopieren, Einfügen, Transformieren, Formparameter.
 import { about, clone, cloneObjs, Mat, mul, Pt, rotate, scale, translate, visibleLeaves } from '../model';
 import type { Editor } from '../editor';
+import { t } from '../i18n';
 
 export class EditorCommands {
   deleteSel(this: Editor) {
     if (!this.sel.length) return;
-    this.snapshot();
+    this.snapshot(t('Löschen'));
     this.doc.objs = this.doc.objs.filter((o) => !this.sel.includes(o));
     this.setSel([]);
     this.emit('doc');
@@ -31,12 +32,14 @@ export class EditorCommands {
     this.paste();
   }
   cut(this: Editor) {
+    if (!this.sel.length) return;
     this.copy();
     this.deleteSel();
+    this.history.relabel(t('Ausschneiden'));
   }
   paste(this: Editor, offset = 5) {
     if (!this.clipboard.length) return;
-    this.snapshot();
+    this.snapshot(t('Einfügen'));
     const objs = cloneObjs(this.clipboard).map((c) => {
       c.m = mul(translate(offset, offset), c.m);
       return c;
@@ -48,34 +51,35 @@ export class EditorCommands {
   }
   duplicate(this: Editor) {
     if (!this.sel.length) return;
-    this.snapshot();
+    this.snapshot(t('Duplizieren'));
     const objs = cloneObjs(this.sel);
     this.doc.objs.push(...objs);
     this.setSel(objs);
     this.emit('doc');
   }
   /** Weltmatrix auf alle ausgewählten Objekte anwenden. */
-  transformSel(this: Editor, D: Mat, withSnapshot = true) {
+  /** snap: Undo-Schritt anlegen (true oder dessen Name) */
+  transformSel(this: Editor, D: Mat, snap: boolean | string = true) {
     if (!this.sel.length) return;
-    if (withSnapshot) this.snapshot();
+    if (snap) this.snapshot(typeof snap === 'string' ? snap : t('Transformieren'));
     this.sel.forEach((o) => (o.m = mul(D, o.m)));
     this.emit('doc');
     this.emit('sel');
   }
   nudge(this: Editor, dx: number, dy: number) {
-    this.transformSel(translate(dx, dy));
+    this.transformSel(translate(dx, dy), t('Verschieben'));
   }
   mirror(this: Editor, horizontal: boolean) {
     const b = this.selBounds();
     if (!b) return;
-    this.transformSel(about(horizontal ? scale(-1, 1) : scale(1, -1), b.x + b.w / 2, b.y + b.h / 2));
+    this.transformSel(about(horizontal ? scale(-1, 1) : scale(1, -1), b.x + b.w / 2, b.y + b.h / 2), t('Spiegeln'));
   }
   rotateBy(this: Editor, deg: number, anchor?: Pt) {
     const b = this.selBounds();
     if (!b) return;
     const c = anchor ?? { x: b.x + b.w / 2, y: b.y + b.h / 2 };
     // Positive Werte drehen gegen den Uhrzeigersinn (Maschinensicht, y nach oben)
-    this.transformSel(about(rotate((-deg * Math.PI) / 180), c.x, c.y));
+    this.transformSel(about(rotate((-deg * Math.PI) / 180), c.x, c.y), t('Drehen'));
   }
   /** Formparameter (Eckenradius, Seiten …) der Auswahl ändern */
   updateShapes(this: Editor, kind: 'rect' | 'polygon', patch: Record<string, number | boolean>) {
@@ -86,7 +90,7 @@ export class EditorCommands {
     }
     const objs = this.sel.filter((o) => o.shape.kind === kind);
     if (!objs.length) return;
-    this.snapshot();
+    this.snapshot(t('Form-Eigenschaften'));
     objs.forEach((o) => {
       Object.assign(o.shape, patch);
       this.touch(o.shape);
@@ -112,6 +116,6 @@ export class EditorCommands {
     const tx = next.x !== undefined ? next.x - A.x : 0;
     const ty = next.y !== undefined ? next.y - A.y : 0;
     D = mul(translate(tx, ty), D);
-    this.transformSel(D);
+    this.transformSel(D, t('Position/Größe'));
   }
 }

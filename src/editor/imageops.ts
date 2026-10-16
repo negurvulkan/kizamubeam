@@ -13,14 +13,14 @@ export class EditorImages {
   }
   /** Bild-Einstellungen eines Layers ändern (live ohne Undo-Schritt, wenn snapshot = false) */
   updateImgLayer(this: Editor, i: number, patch: Partial<ImageLayer>, snapshot = true) {
-    if (snapshot) this.snapshot();
+    if (snapshot) this.snapshot(t('Bild-Einstellungen'));
     Object.assign(this.imgLayer(i), patch);
     this.emit('doc');
   }
   /** Bildanpassungen setzen (live ohne Undo-Schritt, wenn snapshot = false) */
   setImageAdjust(this: Editor, objs: Obj[], patch: Partial<ImageAdjust>, snapshot = true) {
     if (!objs.length) return;
-    if (snapshot) this.snapshot();
+    if (snapshot) this.snapshot(t('Bild anpassen'));
     for (const o of objs) if (o.shape.kind === 'image') o.shape.adjust = { ...o.shape.adjust, ...patch };
     this.emit('doc');
   }
@@ -88,7 +88,7 @@ export class EditorImages {
       ctx.fill(subsToPath2D(subs), 'evenodd');
     }
     const a = await addAsset(c.toDataURL('image/png'));
-    this.snapshot();
+    this.snapshot(t('Bild zuschneiden'));
     const kx = s.w / src.w,
       ky = s.h / src.h;
     o.m = mul(o.m, translate(x0 * kx, y0 * ky));
@@ -110,7 +110,7 @@ export class EditorImages {
     const bed = this.doc.bed;
     if (b && (b.x < -1e-6 || b.y < -1e-6 || b.x + b.w > bed.w + 1e-6 || b.y + b.h > bed.h + 1e-6))
       o.m = mul(translate(bed.w / 2 - (b.x + b.w / 2), bed.h / 2 - (b.y + b.h / 2)), o.m);
-    this.snapshot();
+    this.snapshot(t('Objekt hinzufügen'));
     this.doc.objs.push(o);
     this.setTool('select');
     this.setSel([o]);
@@ -196,7 +196,7 @@ export class EditorImages {
   /** Nachgezeichnete Konturen als neues Objekt über dem Bild einfügen */
   commitTrace(this: Editor, o: Obj, subs: SubPath[], deleteImage: boolean) {
     if (!subs.length) return;
-    this.snapshot();
+    this.snapshot(t('Bild nachzeichnen'));
     const res: Obj = { id: newId(), m: IDENT, layer: o.layer, shape: { kind: 'path', subs } };
     if (deleteImage) this.doc.objs = this.doc.objs.filter((x) => x !== o);
     this.doc.objs.push(res);
