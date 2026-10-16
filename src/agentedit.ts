@@ -13,7 +13,7 @@ import { buildSvg, importBytesOrThrow } from './files';
 import { t } from './i18n';
 import { library, layerPatch } from './materials';
 import { isTauri } from './machine';
-import { Args, describe, findObj, flip, machineBox, r3, Tier, ToolDef, ToolError } from './agentutil';
+import { Args, describe, findObj, flip, machineBox, pageList, r3, Tier, ToolDef, ToolError } from './agentutil';
 
 // ---------- Eingaben prüfen ----------
 
@@ -42,6 +42,12 @@ function ids(a: Args, key = 'ids'): number[] {
   const v = a[key];
   if (!Array.isArray(v) || !v.length) throw new ToolError(`„${key}“ braucht mindestens eine Objekt-id`);
   return v.map((x) => Number(x));
+}
+/** Seitennummer (ab 1) → Index */
+function pageIndex(ed: Editor, a: Args, key: string): number {
+  const n = num(a, key, { min: 1, int: true });
+  if (n > ed.doc.pages.length) throw new ToolError(`Keine Seite ${n} (das Projekt hat ${ed.doc.pages.length})`);
+  return n - 1;
 }
 const layerOf = (ed: Editor, a: Args) => num(a, 'layer', { def: ed.currentLayer, min: 0, max: 31, int: true });
 
@@ -705,9 +711,66 @@ export const EDIT_TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'switch_page',
+    title: 'Seite wechseln',
+    description: 'Wechselt zur Seite page (1 … n, siehe get_document). Bearbeitet, gelasert und exportiert wird immer die aktuelle Seite. Kein Undo-Schritt.',
+    tier: Tier.Edit,
+    ownUndo: true,
+    inputSchema: obj({ page: { type: 'integer', minimum: 1 } }, ['page']),
+    run: (ed, a) => {
+      ed.setPage(pageIndex(ed, a, 'page'));
+      return { pages: pageList(ed) };
+    },
+  },
+  {
+    name: 'edit_pages',
+    title: 'Seiten bearbeiten',
+    description:
+      'Seiten des Projekts verwalten. action: "add" (neue leere Seite hinter der aktuellen, optional name; wechselt dorthin), "duplicate" (Seite page samt Objekten kopieren; wechselt zur Kopie), "delete" (Seite page löschen, die letzte Seite bleibt), "rename" (Seite page heißt name), "reorder" (Seite page an die Stelle to schieben). page: Standard aktuelle Seite. Layer-Einstellungen gelten für alle Seiten.',
+    tier: Tier.Edit,
+    inputSchema: obj(
+      {
+        action: { type: 'string', enum: ['add', 'duplicate', 'delete', 'rename', 'reorder'] },
+        page: { type: 'integer', minimum: 1 },
+        name: { type: 'string' },
+        to: { type: 'integer', minimum: 1 },
+      },
+      ['action'],
+    ),
+    run: (ed, a) => {
+      const action = oneOf(a, 'action', ['add', 'duplicate', 'delete', 'rename', 'reorder'] as const);
+      const i = a.page === undefined ? ed.doc.page : pageIndex(ed, a, 'page');
+      if (action === 'add') ed.addPage(typeof a.name === 'string' ? a.name : undefined);
+      else if (action === 'duplicate') ed.duplicatePage(i);
+      else if (action === 'delete') {
+        if (ed.doc.pages.length < 2) throw new ToolError('Die einzige Seite lässt sich nicht löschen');
+        ed.deletePage(i);
+      } else if (action === 'rename') {
+        const name = typeof a.name === 'string' ? a.name.trim() : '';
+        if (!name) throw new ToolError('„name“ fehlt');
+        ed.renamePage(i, name);
+      } else ed.movePage(i, pageIndex(ed, a, 'to'));
+      return { pages: pageList(ed) };
+    },
+  },
+  {
+    name: 'move_to_page',
+    title: 'Auf andere Seite verschieben',
+    description: 'Verschiebt Objekte der aktuellen Seite (oberste Ebene) auf die Seite page. Lage auf dem Bett und Layer bleiben gleich.',
+    tier: Tier.Edit,
+    inputSchema: obj({ ids: IDS, page: { type: 'integer', minimum: 1 } }, ['ids', 'page']),
+    run: (ed, a) => {
+      const objs = topObjs(ed, ids(a));
+      const i = pageIndex(ed, a, 'page');
+      if (i === ed.doc.page) throw new ToolError('Die Objekte liegen schon auf dieser Seite');
+      ed.moveToPage(objs, i);
+      return { moved: objs.map((o) => o.id), pages: pageList(ed) };
+    },
+  },
+  {
     name: 'new_document',
     title: 'Neues Dokument',
-    description: 'Leert die Arbeitsfläche (rückgängig machbar mit undo). Layer-Einstellungen werden zurückgesetzt.',
+    description: 'Neues leeres Projekt mit einer Seite (rückgängig machbar mit undo). Layer-Einstellungen werden zurückgesetzt.',
     tier: Tier.Edit,
     ownUndo: true,
     inputSchema: obj({}),
@@ -739,7 +802,7 @@ export const EDIT_TOOLS: ToolDef[] = [
       } catch (e) {
         throw new ToolError((e as Error).message);
       }
-      return { objectCount: ed.doc.objs.length, bed: ed.doc.bed };
+      return { objectCount: ed.doc.objs.length, bed: ed.doc.bed, pages: pageList(ed) };
     },
   },
   {

@@ -159,3 +159,7 @@ export function layerInfo(ed: Editor, i: number) {
 }
 
 export const json = (v: unknown): Content[] => [{ type: 'text', text: JSON.stringify(v, null, 1) }];
+
+/** Seiten des Projekts für Agenten (Nummern ab 1 wie in der Oberfläche) */
+export const pageList = (ed: Editor) =>
+  ed.doc.pages.map((p, i) => ({ page: i + 1, name: p.name, objectCount: p.objs.length, ...(i === ed.doc.page ? { current: true } : {}) }));

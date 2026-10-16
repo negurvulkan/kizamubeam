@@ -1,7 +1,7 @@
 // Oberfläche: Menü, Leisten, Panels, Palette, Statusleiste.
 import { Editor, Tool } from './editor';
 import { ICONS } from './icons';
-import { DITHER_MODES, DitherMode, ImageAdjust, ImageLayer, ImageShape, Layer, layerLabel, Obj, PALETTE, SubPath, TextShape } from './model';
+import { DITHER_MODES, DitherMode, ImageAdjust, ImageLayer, ImageShape, Layer, layerLabel, Obj, pageName, PALETTE, SubPath, TextShape } from './model';
 import { exportSvg, importFile, installDropAndPaste, openProject, saveProcessedBitmap, saveProject } from './files';
 import { assetImage, displayCanvas, outputGrid } from './images';
 import { systemFonts } from './fonts';
@@ -201,6 +201,17 @@ function buildMenu(ed: Editor) {
       [t('Mitten vertikal'), 'E', () => ed.align('vcenter')],
       [t('Horizontal verteilen'), '', () => ed.distribute(true)],
       [t('Vertikal verteilen'), '', () => ed.distribute(false)],
+    ]],
+    [t('Seiten'), [
+      [t('Neue Seite'), '', () => ed.addPage()],
+      [t('Seite duplizieren'), '', () => ed.duplicatePage()],
+      [t('Seite löschen'), '', () => ed.deletePage()],
+      'sep',
+      [t('Vorherige Seite'), t('Bild ↑'), () => ed.setPage(ed.doc.page - 1)],
+      [t('Nächste Seite'), t('Bild ↓'), () => ed.setPage(ed.doc.page + 1)],
+      'sep',
+      [t('Auswahl auf vorherige Seite'), '', () => ed.moveToPage(ed.sel, ed.doc.page - 1)],
+      [t('Auswahl auf nächste Seite'), '', () => ed.moveToPage(ed.sel, ed.doc.page + 1)],
     ]],
     [t('Laser'), [
       [t('Vorschau …'), 'Alt+P', () => openPreview(ed)],
@@ -1220,6 +1231,11 @@ function buildStatus(ed: Editor) {
     selInfo.textContent = b
       ? `${tn('{n} Objekt', '{n} Objekte', ed.sel.length)} · ${b.w.toFixed(2)} × ${b.h.toFixed(2)} mm`
       : tn('{n} Objekt', '{n} Objekte', ed.doc.objs.length);
+    if (ed.doc.pages.length > 1) {
+      const name = ed.doc.pages[ed.doc.page].name;
+      const pg = t('Seite {n}/{total}', { n: ed.doc.page + 1, total: ed.doc.pages.length });
+      selInfo.textContent = `${name === pageName(ed.doc.page) ? pg : `${pg} (${name})`} · ${selInfo.textContent}`;
+    }
     hint.textContent = ed.hint;
     snap.checked = ed.snapGrid;
     snapObj.checked = ed.snapObjects;

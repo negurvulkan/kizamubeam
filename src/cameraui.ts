@@ -3,7 +3,7 @@ import type { Editor } from './editor';
 import { h, numInput } from './dom';
 import { ICONS } from './icons';
 import { saveText } from './files';
-import { defaultLayer, Obj, Pt, translate } from './model';
+import { defaultLayer, loadDoc, Obj, Pt, translate } from './model';
 import { buildJob, estimate, writeGCode } from './gcode';
 import { machine } from './machine';
 import { device } from './laser';
@@ -301,7 +301,7 @@ async function markGCode(ed: Editor, m: MarkSettings) {
   // Absolut zum Maschinennullpunkt, unabhängig von „Starten ab“: die Kalibrierung gilt für Bettkoordinaten
   const dev = { ...device, startFrom: 'absolute' as const, cutSelected: false };
   const job = await buildJob({
-    doc: { version: 1, bed: { w, h: bh }, objs: markObjects(m, w, bh), layers: { 1: layer } },
+    doc: loadDoc({ bed: { w, h: bh }, objs: markObjects(m, w, bh), layers: { 1: layer } }),
     layer: () => layer,
     imgLayer: (i) => ed.imgLayer(i),
     device: dev,
