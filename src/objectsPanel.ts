@@ -9,8 +9,8 @@ import { ICONS } from './icons';
 import { homeLayer, layerLabel, Obj, PALETTE } from './model';
 import { $, h } from './dom';
 import { t, tn } from './i18n';
+import { isShown, onWindowShow, setBadge } from './dock';
 
-const OPEN_KEY = 'laserwerk.objectsPanel';
 /** Mehr Zeilen je Layer werden erst auf Wunsch gezeigt (große Arrays, Nachzeichnungen) */
 const ROW_LIMIT = 300;
 
@@ -52,10 +52,6 @@ interface Section {
   objs: Obj[];
 }
 
-let toggle = () => {};
-/** Objekte-Fenster ein- oder ausklappen (Menü Ansicht) */
-export const toggleObjectsPanel = () => toggle();
-
 type Drop =
   | { kind: 'obj'; ref: Obj; front: boolean }
   | { kind: 'layer'; layer: number; before: boolean; into: boolean }
@@ -65,21 +61,10 @@ type Drop =
 const INDENT = 14;
 
 export function buildObjectsPanel(ed: Editor) {
-  const panel = $('#objects-panel');
-  const title = panel.querySelector('.panel-title') as HTMLElement;
   const body = $('#objects');
-  const chev = h('span', { class: 'ot-chev-title' });
-  const titleText = h('span', {}, t('Objekte'));
-  const count = h('span', { class: 'muted ot-count' });
-  title.replaceChildren(chev, titleText, count);
-  title.title = t('Objekte-Fenster ein- oder ausklappen');
-
-  let open = true;
-  try {
-    open = localStorage.getItem(OPEN_KEY) !== '0';
-  } catch {
-    /* Speicher nicht verfügbar */
-  }
+  /** Nur neu aufbauen, wenn das Fenster zu sehen ist; beim Einblenden wird nachgeholt */
+  const open = () => isShown('objects');
+  const setCount = () => setBadge('objects', ed.doc.objs.length ? String(ed.doc.objs.length) : '');
   const collapsedLayers = new Set<number>();
   const openGroups = new Set<number>();
   const showAll = new Set<number>();
@@ -89,20 +74,6 @@ export function buildObjectsPanel(ed: Editor) {
   let pageCollapsed = false;
   let fromPanel = false;
   let renaming = false;
-
-  const setOpen = (v: boolean) => {
-    open = v;
-    try {
-      localStorage.setItem(OPEN_KEY, v ? '1' : '0');
-    } catch {
-      /* Speicher nicht verfügbar */
-    }
-    panel.classList.toggle('collapsed', !v);
-    chev.textContent = v ? '▾' : '▸';
-    if (v) render();
-  };
-  title.addEventListener('click', () => setOpen(!open));
-  toggle = () => setOpen(!open);
 
   /** Layer-Abschnitte der aktuellen Seite */
   const sections = (): Section[] => {
@@ -292,8 +263,8 @@ export function buildObjectsPanel(ed: Editor) {
   };
 
   const render = () => {
-    count.textContent = ed.doc.objs.length ? ` ${ed.doc.objs.length}` : '';
-    if (!open || renaming) return;
+    setCount();
+    if (!open() || renaming) return;
     const scroll = body.scrollTop;
     rows = new Map();
     layerRows = new Map();
@@ -338,8 +309,8 @@ export function buildObjectsPanel(ed: Editor) {
   ed.on((what) => {
     if (what === 'doc') scheduleRender();
     else if (what === 'sel' || what === 'tool') {
-      count.textContent = ed.doc.objs.length ? ` ${ed.doc.objs.length}` : '';
-      if (!open) return;
+      setCount();
+      if (!open()) return;
       // Neue Objekte (Zeichnen, Einfügen) kommen ohne 'doc' an: dann neu aufbauen
       if (ed.sel.some((o) => !rows.has(o.id)) && ed.doc.objs.length) {
         scheduleRender();
@@ -492,5 +463,6 @@ export function buildObjectsPanel(ed: Editor) {
     drop = null;
   });
 
-  setOpen(open);
+  render();
+  onWindowShow('objects', render);
 }
