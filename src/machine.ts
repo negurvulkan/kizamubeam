@@ -257,9 +257,10 @@ class Machine {
     if (g.lines) return this.runJob(g.lines, g.times);
     return this.startJob(g.count, g.times, false, { cmd: 'machine_job_prepared', args: { id: g.id } });
   }
-  private async startJob(total: number, times: Float64Array | null, frame: boolean, call: { cmd: string; args: Record<string, unknown> }) {
-    if (!this.connected) return this.log(t('Nicht verbunden.'), 'error');
-    if (this.busy) return this.log(t('Es läuft bereits ein Auftrag.'), 'error');
+  /** true, wenn der Auftrag angenommen wurde */
+  private async startJob(total: number, times: Float64Array | null, frame: boolean, call: { cmd: string; args: Record<string, unknown> }): Promise<boolean> {
+    if (!this.connected) return this.log(t('Nicht verbunden.'), 'error'), false;
+    if (this.busy) return this.log(t('Es läuft bereits ein Auftrag.'), 'error'), false;
     const { invoke } = await import('@tauri-apps/api/core');
     this.jobTimes = times;
     this.jobIsFrame = frame;
@@ -273,7 +274,9 @@ class Machine {
       this.jobTimes = null;
       this.emit({ type: 'progress' });
       this.log(tBackend(String(e)), 'error');
+      return false;
     }
+    return true;
   }
 
   /** Anhalten: GRBL-Familie per Echtzeitbefehl !, Marlin durch Zurückhalten weiterer Zeilen (im Rust-Kern) */

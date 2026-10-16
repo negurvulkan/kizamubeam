@@ -33,13 +33,17 @@ export function objLabel(o: Obj): string {
     }
     case 'image':
       return s.name || t('Bild');
+    case 'barcode': {
+      const line = s.data.split('\n')[0].trim();
+      return line ? `QR „${line.length > 24 ? line.slice(0, 23) + '…' : line}“` : t('QR-Code');
+    }
     case 'group':
       return tn('Gruppe ({n} Objekt)', 'Gruppe ({n} Objekte)', s.children.length);
   }
 }
 
 const KIND_ICON: Record<Obj['shape']['kind'], string> = {
-  rect: 'rect', ellipse: 'ellipse', polygon: 'polygon', path: 'path', text: 'text', image: 'image', group: 'group',
+  rect: 'rect', ellipse: 'ellipse', polygon: 'polygon', path: 'path', text: 'text', image: 'image', barcode: 'qr', group: 'group',
 };
 
 interface Section {

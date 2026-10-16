@@ -1,5 +1,7 @@
 // Gemeinsame Typen und Hilfen der Werkzeuge für KI-Agenten (siehe agent.ts).
 // Nach außen gelten Maschinenkoordinaten: Ursprung unten links, y nach oben, mm.
+import { shownText } from './vartext';
+import { barcodeData } from './barcode';
 import type { Editor } from './editor';
 import { boundsOf, Box, shapeSubs, subsToD, textOutline } from './geom';
 import { IDENT, layerLabel, Mat, mul, Obj } from './model';
@@ -100,6 +102,12 @@ export function describe(ed: Editor, o: Obj, parent: Mat, detail: boolean): Reco
       Object.assign(out, { text: s.text, font: s.font, size: r3(s.size * sy), bold: s.bold, italic: s.italic, align: s.align });
       if (s.weld) out.weld = true;
       if (s.path) out.onPath = { offset: r3(s.path.offset), distance: r3(s.path.dist), flip: s.path.flip, shape: s.path.link ?? null };
+      if (s.vt) out.variable = { offset: s.vt.offset, shown: shownText(s) };
+      if (s.maxW) out.maxWidth = r3(s.maxW * sx);
+      break;
+    case 'barcode':
+      Object.assign(out, { type: s.type, data: s.data, errorCorrection: s.ec, size: r3(s.size * sx), invert: s.invert, quietZone: s.quiet });
+      if (s.vt) out.variable = { offset: s.vt.offset, shown: barcodeData(s) };
       break;
     case 'image':
       Object.assign(out, { file: s.name ?? null, pixels: `${s.pxW}×${s.pxH}` });

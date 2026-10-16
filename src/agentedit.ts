@@ -3,7 +3,9 @@
 // Undo-Schritt (siehe Editor.batch in agent.ts). Koordinaten: Maschine, Ursprung unten links, y nach oben, mm.
 import type { Editor } from './editor';
 import { boundsOf, Box, segments, shapeSubs } from './geom';
-import { about, apply, IDENT, Mat, mul, newId, Obj, rotate, scale, Shape, SubPath, TextShape, translate } from './model';
+import { about, apply, BarcodeShape, IDENT, Mat, mul, newId, Obj, QrLevel, rotate, scale, Shape, SubPath, TextShape, translate } from './model';
+import { qrMatrix } from './barcode';
+import { advanceVarText } from './vartext';
 import { BoolOp, OffsetOptions } from './ops';
 import { circularMatrices, DEFAULT_GRID, gridMatrices, GridOptions } from './arrays';
 import { DEFAULT_HINGE, HingeKind, HingeOptions, suggestHinge } from './hinges';
@@ -92,6 +94,17 @@ function addObj(ed: Editor, shape: Shape, m: Mat, layer: number, rotation = 0): 
   ed.setSel([o]);
   ed.emit('doc');
   return o;
+}
+
+/** variable / variableOffset aus edit_object übernehmen */
+function setVar(s: TextShape | BarcodeShape, a: Args) {
+  if (a.variable === false) delete s.vt;
+  else if (a.variable === true) s.vt ??= { offset: 0 };
+  const off = optNum(a, 'variableOffset', { int: true });
+  if (off !== undefined) {
+    if (!s.vt) throw new ToolError('variableOffset braucht variable=true');
+    s.vt.offset = off;
+  }
 }
 
 const describeAll = (ed: Editor, objs: Obj[]) => objs.map((o) => describe(ed, o, IDENT, false));
@@ -204,10 +217,68 @@ export const EDIT_TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'create_qr_code',
+    title: 'QR-Code anlegen',
+    description:
+      'Legt einen QR-Code an (Module als geschlossene Umrisse; auf einem Füll-Layer wird er graviert). x/y = Mitte, size = Kantenlänge in mm. errorCorrection L/M/Q/H (Standard M). invert: Hintergrund samt Ruhezone lasern statt der Module (für dunkle Materialien). variable: Platzhalter wie im variablen Text (%# Seriennummer, %0 CSV-Spalte, %Y Jahr …), variableOffset wird zur aktuellen Nummer addiert. WLAN: data "WIFI:T:WPA;S:<Name>;P:<Passwort>;;".',
+    tier: Tier.Edit,
+    inputSchema: obj({
+      data: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, size: { type: 'number', description: 'Kantenlänge in mm (Standard 30)' },
+      errorCorrection: { type: 'string', enum: ['L', 'M', 'Q', 'H'] }, invert: { type: 'boolean' },
+      quietZone: { type: 'integer', minimum: 0, maximum: 10, description: 'Ruhezone in Modulen (nur bei invert gelasert, Standard 2)' },
+      variable: { type: 'boolean' }, variableOffset: { type: 'integer' }, layer: LAYER, rotation: ROT,
+    }, ['data', 'x', 'y']),
+    run: (ed, a) => {
+      if (typeof a.data !== 'string' || !a.data) throw new ToolError('„data“ ist leer');
+      const size = num(a, 'size', { def: 30, min: 1, max: 2000 });
+      const shape: BarcodeShape = {
+        kind: 'barcode', type: 'qr', data: a.data, size,
+        ec: oneOf(a, 'errorCorrection', ['L', 'M', 'Q', 'H'] as const, 'M'),
+        invert: bool(a, 'invert', false), quiet: num(a, 'quietZone', { def: 2, min: 0, max: 10, int: true }),
+      };
+      if (bool(a, 'variable', false)) shape.vt = { offset: num(a, 'variableOffset', { def: 0, int: true }) };
+      if (!shape.vt && !qrMatrix(shape.data, shape.ec)) throw new ToolError('Der Inhalt ist zu lang für einen QR-Code');
+      const p = W(ed, num(a, 'x'), num(a, 'y'));
+      const o = addObj(ed, shape, translate(p.x - size / 2, p.y - size / 2), layerOf(ed, a), num(a, 'rotation', { def: 0 }));
+      return { id: o.id, object: describe(ed, o, IDENT, false) };
+    },
+  },
+  {
+    name: 'variable_text',
+    title: 'Variabler Text: Nummer und Einstellungen',
+    description:
+      'Liest und ändert die projektweiten Einstellungen für variablen Text: current (aktuelle Nummer = Seriennummer und CSV-Zeile ab 1), start, end (danach wieder start), advance (Schrittweite), autoAdvance (nach jedem Job/G-Code weiterzählen). step zählt um so viele Schritte weiter (negativ = zurück). Ohne Angaben nur lesen. Texte werden mit edit_object variable=true variabel.',
+    tier: Tier.Edit,
+    inputSchema: obj({
+      current: { type: 'integer' }, start: { type: 'integer' }, end: { type: 'integer' }, advance: { type: 'integer' },
+      autoAdvance: { type: 'boolean' }, step: { type: 'integer' },
+    }),
+    run: (ed, a) => {
+      const vt = ed.varText;
+      const patch: Record<string, number | boolean> = {};
+      for (const k of ['current', 'start', 'end', 'advance'] as const) {
+        const v = optNum(a, k, { int: true });
+        if (v !== undefined) patch[k] = v;
+      }
+      if (a.autoAdvance !== undefined) patch.autoAdvance = a.autoAdvance === true;
+      if (Object.keys(patch).length) ed.setVarText(patch);
+      const step = optNum(a, 'step', { int: true });
+      if (step) {
+        advanceVarText(vt, step);
+        ed.setVarText({});
+      }
+      return {
+        current: vt.current, start: vt.start, end: vt.end, advance: vt.advance, autoAdvance: vt.autoAdvance,
+        csv: vt.csv ? { file: vt.csv.name, rows: vt.csv.rows.length, columns: vt.csv.header ?? null } : null,
+        objects: ed.varTextObjs(false).map((o) => describe(ed, o, IDENT, false)),
+      };
+    },
+  },
+  {
     name: 'edit_object',
     title: 'Objekt ändern',
     description:
-      'Ändert Eigenschaften eines Objekts (auch in Gruppen). Alle Typen: name (leer = Standardname), hidden (ausgeblendet: nicht gezeichnet und nicht gelasert), locked (auf der Arbeitsfläche nicht auswählbar; nur oberste Ebene). Text: text, font, size (mm auf dem Bett), bold, italic, upper, align, letterSpacing, lineSpacing, weld (Buchstaben schweißen); bei Text auf Pfad (apply_path_to_text) pathOffset (Verschiebung entlang der Kurve, mm), pathDistance (Abstand der Grundlinie, mm, positiv nach oben), pathFlip (andere Seite), removePath (wieder gerade). Rechteck: cornerRadius. Vieleck: sides, star, innerRatio. Lage und Größe ändert transform.',
+      'Ändert Eigenschaften eines Objekts (auch in Gruppen). Alle Typen: name (leer = Standardname), hidden (ausgeblendet: nicht gezeichnet und nicht gelasert), locked (auf der Arbeitsfläche nicht auswählbar; nur oberste Ebene). Text: text, font, size (mm auf dem Bett), bold, italic, upper, align, letterSpacing, lineSpacing, weld (Buchstaben schweißen); bei Text auf Pfad (apply_path_to_text) pathOffset (Verschiebung entlang der Kurve, mm), pathDistance (Abstand der Grundlinie, mm, positiv nach oben), pathFlip (andere Seite), removePath (wieder gerade), variable (variabler Text mit Platzhaltern, siehe variable_text), variableOffset, maxWidth (mm, breitere Zeilen werden gestaucht, 0 = aus). QR-Code: data, errorCorrection, qrSize (Kantenlänge mm), invert, quietZone, variable, variableOffset. Rechteck: cornerRadius. Vieleck: sides, star, innerRatio. Lage und Größe ändert transform.',
     tier: Tier.Edit,
     inputSchema: obj({
       id: { type: 'integer' }, name: { type: 'string' }, hidden: { type: 'boolean' }, locked: { type: 'boolean' }, text: { type: 'string' }, font: { type: 'string' }, size: { type: 'number' }, bold: { type: 'boolean' },
@@ -215,6 +286,8 @@ export const EDIT_TOOLS: ToolDef[] = [
       letterSpacing: { type: 'number' }, lineSpacing: { type: 'number' }, weld: { type: 'boolean' }, pathOffset: { type: 'number' },
       pathDistance: { type: 'number' }, pathFlip: { type: 'boolean' }, removePath: { type: 'boolean' }, cornerRadius: { type: 'number' },
       sides: { type: 'integer', minimum: 3, maximum: 200 }, star: { type: 'boolean' }, innerRatio: { type: 'number' },
+      variable: { type: 'boolean' }, variableOffset: { type: 'integer' }, maxWidth: { type: 'number' }, data: { type: 'string' },
+      errorCorrection: { type: 'string', enum: ['L', 'M', 'Q', 'H'] }, qrSize: { type: 'number' }, invert: { type: 'boolean' }, quietZone: { type: 'integer' },
     }, ['id']),
     run: (ed, a) => {
       const hit = findObj(ed.doc.objs, num(a, 'id', { int: true }));
@@ -231,7 +304,7 @@ export const EDIT_TOOLS: ToolDef[] = [
       }
       const SHAPE_KEYS = [
         'text', 'font', 'size', 'bold', 'italic', 'upper', 'align', 'letterSpacing', 'lineSpacing', 'weld', 'pathOffset', 'pathDistance', 'pathFlip', 'removePath',
-        'cornerRadius', 'sides', 'star', 'innerRatio',
+        'cornerRadius', 'sides', 'star', 'innerRatio', 'variable', 'variableOffset', 'maxWidth', 'data', 'errorCorrection', 'qrSize', 'invert', 'quietZone',
       ];
       const shapeChange = SHAPE_KEYS.some((k) => a[k] !== undefined);
       if (Object.keys(props).length) ed.setObjProps([o], props);
@@ -262,6 +335,21 @@ export const EDIT_TOOLS: ToolDef[] = [
           s.path.dist = optNum(a, 'pathDistance') ?? s.path.dist;
           if (a.pathFlip !== undefined) s.path.flip = a.pathFlip === true;
         }
+        const mw = optNum(a, 'maxWidth', { min: 0 });
+        if (mw !== undefined) s.maxW = mw / (Math.hypot(m[0], m[1]) || 1);
+        setVar(s, a);
+      } else if (s.kind === 'barcode') {
+        if (a.data !== undefined) {
+          if (typeof a.data !== 'string' || !a.data) throw new ToolError('„data“ ist leer');
+          s.data = a.data;
+          delete s.form;
+        }
+        if (a.errorCorrection !== undefined) s.ec = oneOf(a, 'errorCorrection', ['L', 'M', 'Q', 'H'] as const) as QrLevel;
+        const qs = optNum(a, 'qrSize', { min: 1, max: 2000 });
+        if (qs !== undefined) s.size = qs / (Math.hypot(m[0], m[1]) || 1);
+        if (a.invert !== undefined) s.invert = a.invert === true;
+        s.quiet = optNum(a, 'quietZone', { min: 0, max: 10, int: true }) ?? s.quiet;
+        setVar(s, a);
       } else if (s.kind === 'rect') {
         const r = optNum(a, 'cornerRadius', { min: 0 });
         if (r !== undefined) s.r = Math.min(r / (Math.min(Math.hypot(m[0], m[1]), Math.hypot(m[2], m[3])) || 1), Math.min(s.w, s.h) / 2);
