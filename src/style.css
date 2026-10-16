@@ -200,6 +200,11 @@ body {
 }
 
 /* Zahlenfelder */
+/* Breite Leisten (z. B. Text auf Pfad) lassen sich seitlich schieben statt abgeschnitten zu werden */
+#numbar {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
 #numbar label,
 .field {
   display: inline-flex;

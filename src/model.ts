@@ -155,6 +155,21 @@ export interface TextShape {
   hSpace: number;
   /** zusätzlicher Zeilenabstand in mm */
   vSpace: number;
+  /** Buchstaben schweißen: überlappende Glyphen zu einer Kontur verschmelzen */
+  weld?: boolean;
+  /** Text auf Pfad: die Grundlinie folgt dieser Kurve */
+  path?: TextPath;
+}
+
+/** Kurve für Text auf Pfad, in lokalen Koordinaten des Texts (Kopie der gewählten Form) */
+export interface TextPath {
+  sub: SubPath;
+  /** Verschiebung entlang der Kurve in mm (vom Anfang, der Mitte oder dem Ende je nach Ausrichtung; bei geschlossenen Formen vom obersten Punkt) */
+  offset: number;
+  /** Abstand der Grundlinie von der Kurve in mm; positiv = nach oben vom Text aus gesehen */
+  dist: number;
+  /** Laufrichtung umkehren: Text auf der anderen Seite der Kurve */
+  flip: boolean;
 }
 
 export interface Obj {

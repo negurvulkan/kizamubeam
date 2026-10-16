@@ -2,8 +2,9 @@
 import {
   about, allObjs, apply, bumpIds, clone, cloneObj, DEFAULT_ADJUST, defaultImageLayer, defaultLayer, Doc, normalizeLayer, IDENT, loadDoc, pageName, ImageAdjust, ImageLayer,
   ImageShape, inv, Layer, leaves, Mat, mul, newDoc, newId, Node, Obj, PALETTE, Pt, rotate, scale, setLayerDeep, Shape, SubPath,
-  TextShape, translate, visibleLeaves, homeLayer,
+  TextPath, TextShape, translate, visibleLeaves, homeLayer,
 } from './model';
+import { ArcLength } from './textpath';
 import { addAsset, adjustedGray, assetUrl, displayCanvas, onImageReady, registerAsset, restoreAssets, sourceSize } from './images';
 import { ImportResult, transformSubs } from './importers';
 import { traceGray, TraceOptions } from './trace';
@@ -2209,7 +2210,7 @@ export class Editor {
     return this.sel.filter((o) => o.shape.kind === 'text');
   }
   updateTexts(patch: Partial<TextShape>) {
-    Object.assign(this.textDefaults, Object.fromEntries(Object.entries(patch).filter(([k]) => k !== 'text')));
+    Object.assign(this.textDefaults, Object.fromEntries(Object.entries(patch).filter(([k]) => k !== 'text' && k !== 'path')));
     const ts = this.selTexts();
     if (!ts.length) return;
     this.snapshot();
@@ -2217,6 +2218,73 @@ export class Editor {
       Object.assign(o.shape, patch);
       this.touch(o.shape);
     });
+    this.emit('doc');
+    this.emit('sel');
+  }
+  /** Formen, die als Kurve für Text auf Pfad taugen */
+  private pathCandidates(): Obj[] {
+    return this.sel.filter((o) => ['path', 'rect', 'ellipse', 'polygon'].includes(o.shape.kind));
+  }
+  /** Ist „Text auf Pfad“ möglich? Genau ein Text und eine Form ausgewählt. */
+  canApplyPathToText() {
+    return this.selTexts().length === 1 && this.pathCandidates().length === 1;
+  }
+  /**
+   * Text auf Pfad (wie „Apply Path to Text“ in LightBurn): Der gewählte Text folgt der gewählten Form.
+   * Der Text übernimmt eine Kopie der Kurve; die Form bleibt als eigenes Objekt erhalten.
+   * Erneut anwenden ersetzt die Kurve und behält Verschiebung, Abstand und Seite.
+   */
+  applyPathToText(): boolean {
+    const texts = this.selTexts(),
+      shapes = this.pathCandidates();
+    if (texts.length !== 1 || shapes.length !== 1) {
+      this.hint = t('Für Text auf Pfad genau einen Text und eine Form (Linie, Rechteck, Ellipse, Polygon) auswählen.');
+      this.emit('tool');
+      return false;
+    }
+    const to = texts[0],
+      po = shapes[0];
+    const ts = to.shape as TextShape;
+    const det = to.m[0] * to.m[3] - to.m[1] * to.m[2];
+    // Längste Kontur der Form nehmen (z. B. die äußere bei mehreren)
+    const subs = shapeSubs(po.shape).filter((sp) => sp.nodes.length > 1);
+    if (!subs.length || Math.abs(det) < 1e-12) return false;
+    const sub = subs.reduce((a, b) => (new ArcLength(b).length > new ArcLength(a).length ? b : a));
+    this.snapshot();
+    // Drehung des Texts verwerfen (die Glyphen folgen ohnehin der Kurve), Größe und Spiegelung bleiben.
+    // So liegt „oben“ bei geschlossenen Formen auch oben auf der Arbeitsfläche.
+    const sx = Math.hypot(to.m[0], to.m[1]),
+      sy = Math.sign(det) * Math.hypot(to.m[2], to.m[3]);
+    to.m = [sx, 0, 0, sy, to.m[4], to.m[5]];
+    const local = transformSubs([clone(sub)], mul(inv(to.m), po.m))[0];
+    ts.path = { sub: local, offset: ts.path?.offset ?? 0, dist: ts.path?.dist ?? 0, flip: ts.path?.flip ?? false };
+    this.touch(ts);
+    this.setSel([to]);
+    this.hint = t('Text folgt jetzt der Form. Die Form bleibt erhalten; löschen oder auf einen nicht gelaserten Layer legen, wenn sie nicht geschnitten werden soll.');
+    this.emit('doc');
+    return true;
+  }
+  /** Text wieder gerade setzen */
+  removePathFromText() {
+    const ts = this.selTexts().filter((o) => (o.shape as TextShape).path);
+    if (!ts.length) return;
+    this.snapshot();
+    for (const o of ts) {
+      delete (o.shape as TextShape).path;
+      this.touch(o.shape);
+    }
+    this.emit('doc');
+    this.emit('sel');
+  }
+  /** Verschiebung, Abstand oder Seite bei Text auf Pfad ändern */
+  updateTextPath(patch: Partial<Omit<TextPath, 'sub'>>) {
+    const ts = this.selTexts().filter((o) => (o.shape as TextShape).path);
+    if (!ts.length) return;
+    this.snapshot();
+    for (const o of ts) {
+      Object.assign((o.shape as TextShape).path!, patch);
+      this.touch(o.shape);
+    }
     this.emit('doc');
     this.emit('sel');
   }
@@ -2664,6 +2732,18 @@ export class Editor {
       ctx.strokeStyle = ctx.fillStyle = this.layerDrawColor(o.layer);
       ctx.setLineDash(selected ? [5 * px, 3 * px] : []);
       drawText(ctx, t, m, fill ? 'fill' : 'stroke', fill ? px : px * 1.2);
+      if (selected && t.path) {
+        // Kurve des Texts als Hilfslinie
+        const g = new Path2D();
+        g.addPath(subsToPath2D([t.path.sub]), new DOMMatrix(m));
+        ctx.save();
+        ctx.setLineDash([2 * px, 3 * px]);
+        ctx.globalAlpha = 0.6;
+        ctx.lineWidth = px;
+        ctx.strokeStyle = this.colors.sel;
+        ctx.stroke(g);
+        ctx.restore();
+      }
       if (selected) {
         ctx.setLineDash([5 * px, 3 * px]);
         ctx.globalAlpha = 0.5;
