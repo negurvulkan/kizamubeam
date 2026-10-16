@@ -2,8 +2,8 @@
 // Auswahl synchron mit der Arbeitsfläche, Umbenennen per Doppelklick, Ein-/Ausblenden, Sperren,
 // Reihenfolge und Layer per Ziehen.
 //
-// Aufbau: sections() liefert die oberste Ebene des Baums (je Layer ein Abschnitt). Kommen später Seiten dazu,
-// legt sich je Seite ein weiterer Knoten darüber; renderSection() und renderObj() bleiben dabei gleich.
+// Aufbau: Ganz oben stehen die Seiten des Projekts. Unter der aktuellen Seite liefert sections() je Layer einen
+// Abschnitt mit dessen Objekten; die anderen Seiten zeigen nur ihre Objektzahl (Klick wechselt dorthin).
 import type { Editor } from './editor';
 import { ICONS } from './icons';
 import { homeLayer, layerLabel, Obj, PALETTE } from './model';
@@ -54,7 +54,11 @@ export const toggleObjectsPanel = () => toggle();
 
 type Drop =
   | { kind: 'obj'; ref: Obj; front: boolean }
-  | { kind: 'layer'; layer: number; before: boolean; into: boolean };
+  | { kind: 'layer'; layer: number; before: boolean; into: boolean }
+  | { kind: 'page'; page: number; before: boolean; into: boolean };
+
+/** Einrückung unter der Seitenzeile */
+const INDENT = 14;
 
 export function buildObjectsPanel(ed: Editor) {
   const panel = $('#objects-panel');
@@ -78,6 +82,7 @@ export function buildObjectsPanel(ed: Editor) {
   /** Zeile → Objekt und oberstes Objekt */
   let rows = new Map<number, { el: HTMLElement; obj: Obj; top: Obj }>();
   let layerRows = new Map<number, HTMLElement>();
+  let pageCollapsed = false;
   let fromPanel = false;
   let renaming = false;
 
@@ -95,7 +100,7 @@ export function buildObjectsPanel(ed: Editor) {
   title.addEventListener('click', () => setOpen(!open));
   toggle = () => setOpen(!open);
 
-  /** Oberste Ebene des Baums. Für Seiten kommt hier später eine Ebene darüber hinzu. */
+  /** Layer-Abschnitte der aktuellen Seite */
   const sections = (): Section[] => {
     const by = new Map<number, Obj[]>();
     for (let k = ed.doc.objs.length - 1; k >= 0; k--) {
@@ -165,7 +170,7 @@ export function buildObjectsPanel(ed: Editor) {
       'div',
       {
         class: `ot-row ot-obj${off ? ' off' : ''}${top.locked ? ' locked' : ''}`,
-        style: `padding-left:${8 + depth * 14}px`,
+        style: `padding-left:${8 + INDENT + depth * 14}px`,
         draggable: isTop ? 'true' : 'false',
         title: t('Klick: auswählen (Shift/Ctrl: hinzufügen) · Doppelklick auf den Namen: umbenennen · Ziehen: Reihenfolge oder Layer ändern'),
       },
@@ -202,6 +207,7 @@ export function buildObjectsPanel(ed: Editor) {
       'div',
       {
         class: `ot-row ot-layer${L.show ? '' : ' off'}${ed.currentLayer === i ? ' cur' : ''}`,
+        style: `padding-left:${8 + INDENT}px`,
         draggable: 'true',
         title: t('Klick: aktueller Layer · Doppelklick auf den Namen: umbenennen · Ziehen: Ausgabereihenfolge ändern'),
       },
@@ -244,6 +250,43 @@ export function buildObjectsPanel(ed: Editor) {
     }
   };
 
+  const renderPage = (i: number, out: HTMLElement[]) => {
+    const p = ed.doc.pages[i];
+    const cur = i === ed.doc.page;
+    const multi = ed.doc.pages.length > 1;
+    const label = h('span', { class: 'ot-label' }, p.name);
+    const row = h(
+      'div',
+      {
+        class: `ot-row ot-page${cur ? ' cur' : ''}`,
+        draggable: multi ? 'true' : 'false',
+        title: cur
+          ? t('Aktuelle Seite: nur sie wird gezeichnet, gelasert und exportiert · Doppelklick auf den Namen: umbenennen')
+          : t('Klick: zu dieser Seite wechseln (Bild ↑/↓) · Objekte hierher ziehen: auf diese Seite verschieben'),
+      },
+      h('span', {
+        class: 'ot-chev',
+        onclick: (e: Event) => {
+          if (!cur) return;
+          e.stopPropagation();
+          pageCollapsed = !pageCollapsed;
+          render();
+        },
+      }, cur && !pageCollapsed ? '▾' : '▸'),
+      h('span', { class: 'ot-icon', html: ICONS.new }),
+      label,
+      h('span', { class: 'muted ot-n' }, String(p.objs.length)),
+      toggleBtn('ot-act', false, 'copy', t('Seite duplizieren'), () => ed.duplicatePage(i)),
+      multi ? toggleBtn('ot-act', false, 'delete', t('Seite löschen (rückgängig machbar)'), () => ed.deletePage(i)) : h('span', { class: 'ot-btn ot-spacer' }),
+    );
+    row.dataset.page = String(i);
+    label.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      startRename(label, p.name, (v) => ed.renamePage(i, v));
+    });
+    out.push(row);
+  };
+
   const render = () => {
     count.textContent = ed.doc.objs.length ? ` ${ed.doc.objs.length}` : '';
     if (!open || renaming) return;
@@ -251,12 +294,14 @@ export function buildObjectsPanel(ed: Editor) {
     rows = new Map();
     layerRows = new Map();
     const out: HTMLElement[] = [];
-    const secs = sections();
-    if (!secs.length) {
-      body.replaceChildren(h('div', { class: 'empty' }, t('Noch keine Objekte.')));
-      return;
-    }
-    for (const sec of secs) renderSection(sec, out);
+    ed.doc.pages.forEach((_, i) => {
+      renderPage(i, out);
+      if (i !== ed.doc.page || pageCollapsed) return;
+      const secs = sections();
+      if (!secs.length) out.push(h('div', { class: 'empty', style: `padding-left:${8 + INDENT}px` }, t('Noch keine Objekte.')));
+      for (const sec of secs) renderSection(sec, out);
+    });
+    out.push(h('button', { class: 'ot-more', onclick: () => ed.addPage() }, t('+ Neue Seite')));
     const tree = h('div', { class: 'obj-tree' });
     tree.append(...out);
     body.replaceChildren(tree);
@@ -307,6 +352,10 @@ export function buildObjectsPanel(ed: Editor) {
     if (target.closest('.ot-rename')) return;
     const row = target.closest('.ot-row') as HTMLElement | null;
     if (!row) return;
+    if (row.dataset.page) {
+      ed.setPage(Number(row.dataset.page));
+      return;
+    }
     if (row.dataset.layer) {
       const i = Number(row.dataset.layer);
       ed.currentLayer = i;
@@ -332,6 +381,7 @@ export function buildObjectsPanel(ed: Editor) {
 
   let dragObjs: Obj[] | null = null;
   let dragLayer: number | null = null;
+  let dragPage: number | null = null;
   let drop: Drop | null = null;
   let marked: HTMLElement | null = null;
   const unmark = () => {
@@ -342,14 +392,15 @@ export function buildObjectsPanel(ed: Editor) {
   body.addEventListener('dragstart', (e) => {
     const row = (e.target as HTMLElement).closest('.ot-row') as HTMLElement | null;
     if (!row || renaming) return e.preventDefault();
-    if (row.dataset.layer) {
+    dragObjs = dragLayer = dragPage = null;
+    if (row.dataset.page) {
+      dragPage = Number(row.dataset.page);
+    } else if (row.dataset.layer) {
       dragLayer = Number(row.dataset.layer);
-      dragObjs = null;
     } else {
       const r = rows.get(Number(row.dataset.id));
       if (!r || r.obj !== r.top) return e.preventDefault();
       dragObjs = ed.sel.includes(r.top) && ed.sel.length > 1 ? [...ed.sel] : [r.top];
-      dragLayer = null;
     }
     e.dataTransfer!.effectAllowed = 'move';
     e.dataTransfer!.setData('text/plain', 'laserwerk-objects');
@@ -357,14 +408,25 @@ export function buildObjectsPanel(ed: Editor) {
   });
 
   body.addEventListener('dragover', (e) => {
-    if (dragObjs === null && dragLayer === null) return;
+    if (dragObjs === null && dragLayer === null && dragPage === null) return;
     const row = (e.target as HTMLElement).closest('.ot-row') as HTMLElement | null;
     unmark();
     drop = null;
     if (!row) return;
     const rect = row.getBoundingClientRect();
     const upper = e.clientY < rect.top + rect.height / 2;
-    if (dragLayer !== null) {
+    if (dragPage !== null || row.dataset.page) {
+      // Seiten nur zwischen Seiten einordnen; Objekte auf eine andere Seite verschieben
+      if (!row.dataset.page || dragLayer !== null) return;
+      const pg = Number(row.dataset.page);
+      if (dragPage !== null) {
+        if (pg === dragPage) return;
+        drop = { kind: 'page', page: pg, before: upper, into: false };
+      } else {
+        if (pg === ed.doc.page) return;
+        drop = { kind: 'page', page: pg, before: false, into: true };
+      }
+    } else if (dragLayer !== null) {
       // Layer nur zwischen Layern einordnen
       if (!row.dataset.layer || Number(row.dataset.layer) === dragLayer) return;
       drop = { kind: 'layer', layer: Number(row.dataset.layer), before: upper, into: false };
@@ -396,9 +458,17 @@ export function buildObjectsPanel(ed: Editor) {
     e.preventDefault();
     const d = drop;
     const objs = dragObjs,
-      layer = dragLayer;
+      layer = dragLayer,
+      page = dragPage;
     unmark();
     if (!d) return;
+    if (d.kind === 'page') {
+      if (page !== null) {
+        const to = d.before ? d.page : d.page + 1;
+        ed.movePage(page, page < to ? to - 1 : to);
+      } else if (objs) ed.moveToPage(objs, d.page);
+      return;
+    }
     if (layer !== null && d.kind === 'layer') ed.placeLayer(layer, d.layer, d.before);
     else if (objs && d.kind === 'obj') ed.moveObjects(objs, d.ref, d.front, homeLayer(d.ref));
     else if (objs && d.kind === 'layer') {
@@ -414,6 +484,7 @@ export function buildObjectsPanel(ed: Editor) {
     body.querySelector('.dragging')?.classList.remove('dragging');
     dragObjs = null;
     dragLayer = null;
+    dragPage = null;
     drop = null;
   });
 

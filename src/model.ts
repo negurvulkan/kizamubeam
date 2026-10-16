@@ -273,14 +273,66 @@ export function normalizeLayer(L: Layer): Layer {
   return L;
 }
 
+/** Eine Seite des Projekts: eigene Objekte, Layer-Einstellungen gelten für das ganze Projekt */
+export interface Page {
+  name: string;
+  objs: Obj[];
+}
+
 export interface Doc {
-  version: 1;
+  version: 2;
   bed: { w: number; h: number };
+  pages: Page[];
+  /** Index der aktuellen Seite; gezeichnet, bearbeitet, gelasert und exportiert wird nur sie */
+  page: number;
+  /**
+   * Objekte der aktuellen Seite. Zugriff auf pages[page].objs (nicht aufzählbar, landet also nicht in JSON);
+   * Dokumente immer über newDoc() bzw. loadDoc() erzeugen.
+   */
   objs: Obj[];
   layers: Record<number, Layer>;
   /** Nur in Projektdateien: Bilddaten (Asset-ID → data:-URL) */
   assets?: Record<string, string>;
 }
+
+export const pageName = (i: number) => t('Seite {n}', { n: i + 1 });
+
+/**
+ * Rohdaten (Datei, Autosave, Undo-Zwischenstand) zu einem Dokument machen.
+ * Ältere einseitige Dateien (version 1, nur objs) werden zu einem Projekt mit einer Seite.
+ */
+export function loadDoc(raw: unknown): Doc {
+  const d = raw as Record<string, unknown>;
+  if (!d || typeof d !== 'object') throw new Error(t('Keine gültige Projektdatei'));
+  let pages = d.pages as Page[] | undefined;
+  if (!Array.isArray(pages)) {
+    if (!Array.isArray(d.objs)) throw new Error(t('Keine gültige Projektdatei'));
+    pages = [{ name: pageName(0), objs: d.objs as Obj[] }];
+  }
+  pages = pages.filter((p) => p && Array.isArray(p.objs));
+  if (!pages.length) pages = [{ name: pageName(0), objs: [] }];
+  pages.forEach((p, i) => (p.name = typeof p.name === 'string' && p.name ? p.name : pageName(i)));
+  delete d.objs;
+  d.version = 2;
+  d.pages = pages;
+  d.page = Math.min(Math.max(0, Math.floor(Number(d.page) || 0)), pages.length - 1);
+  d.bed ??= { w: 400, h: 400 };
+  d.layers ??= {};
+  Object.defineProperty(d, 'objs', {
+    enumerable: false,
+    configurable: true,
+    get(this: Doc) {
+      return this.pages[this.page].objs;
+    },
+    set(this: Doc, v: Obj[]) {
+      this.pages[this.page].objs = v;
+    },
+  });
+  return d as unknown as Doc;
+}
+
+/** Objekte aller Seiten (oberste Ebene) */
+export const allObjs = (doc: Doc): Obj[] => doc.pages.flatMap((p) => p.objs);
 
 // Farbpalette 00–29 plus T1/T2 (Werkzeug-Layer), angelehnt an die gewohnte Reihenfolge.
 export const PALETTE: string[] = [
@@ -313,7 +365,7 @@ export function bumpIds(objs: Obj[]) {
 }
 
 export function newDoc(): Doc {
-  return { version: 1, bed: { w: 400, h: 400 }, objs: [], layers: {} };
+  return loadDoc({ version: 2, bed: { w: 400, h: 400 }, pages: [{ name: pageName(0), objs: [] }], page: 0, layers: {} });
 }
 
 export function clone<T>(v: T): T {

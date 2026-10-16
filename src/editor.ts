@@ -1,6 +1,6 @@
 // Editor: Zustand, Zeichnen auf der Arbeitsfläche, Werkzeuge und Befehle.
 import {
-  about, apply, bumpIds, clone, cloneObj, DEFAULT_ADJUST, defaultImageLayer, defaultLayer, Doc, normalizeLayer, IDENT, ImageAdjust, ImageLayer,
+  about, allObjs, apply, bumpIds, clone, cloneObj, DEFAULT_ADJUST, defaultImageLayer, defaultLayer, Doc, normalizeLayer, IDENT, loadDoc, pageName, ImageAdjust, ImageLayer,
   ImageShape, inv, Layer, leaves, Mat, mul, newDoc, newId, Node, Obj, PALETTE, Pt, rotate, scale, setLayerDeep, Shape, SubPath,
   TextShape, translate, visibleLeaves, homeLayer,
 } from './model';
@@ -222,8 +222,8 @@ export class Editor {
   }
   private load(json: string) {
     const st = JSON.parse(json);
-    this.doc = st.doc;
-    bumpIds(this.doc.objs);
+    this.doc = loadDoc(st.doc);
+    bumpIds(allObjs(this.doc));
     const ids = new Set<number>(st.sel ?? []);
     this.sel = this.doc.objs.filter((o) => ids.has(o.id));
     // Gewählte Kanten zeigen auf die alten Objekte
@@ -296,8 +296,8 @@ export class Editor {
     try {
       const s = localStorage.getItem(STORAGE_KEY);
       if (s) {
-        this.doc = JSON.parse(s);
-        bumpIds(this.doc.objs);
+        this.doc = loadDoc(JSON.parse(s));
+        bumpIds(allObjs(this.doc));
         restoreAssets(this.assetIds());
       }
     } catch {
@@ -305,7 +305,7 @@ export class Editor {
     }
   }
   /** IDs aller im Dokument verwendeten Bilder */
-  assetIds(objs: Obj[] = this.doc.objs): string[] {
+  assetIds(objs: Obj[] = allObjs(this.doc)): string[] {
     const ids = new Set<string>();
     for (const [o] of leaves(objs)) if (o.shape.kind === 'image') ids.add(o.shape.asset);
     return [...ids];
@@ -320,27 +320,120 @@ export class Editor {
     return JSON.stringify(Object.keys(assets).length ? { ...this.doc, assets } : this.doc, null, 1);
   }
   openDoc(json: string) {
-    const d = JSON.parse(json) as Doc;
-    if (!d || !Array.isArray(d.objs)) throw new Error(t('Keine gültige Projektdatei'));
+    const d = loadDoc(JSON.parse(json));
     if (d.assets) for (const [id, url] of Object.entries(d.assets)) registerAsset(id, url);
     delete d.assets;
-    restoreAssets(this.assetIds(d.objs));
+    restoreAssets(this.assetIds(allObjs(d)));
     this.snapshot();
+    this.clearPageState();
     this.doc = d;
-    bumpIds(d.objs);
-    this.sel = [];
+    bumpIds(allObjs(d));
     this.zoomPage();
     this.emit('doc');
     this.emit('sel');
   }
   newDocument() {
     this.snapshot();
+    this.clearPageState();
     const bed = this.doc.bed;
     this.doc = newDoc();
     this.doc.bed = { ...bed };
-    this.sel = [];
     this.emit('doc');
     this.emit('sel');
+  }
+
+  // ---------- Seiten ----------
+
+  /** Beim Wechsel der Seite: Auswahl und alles, was auf Objekte der alten Seite zeigt, verwerfen */
+  private clearPageState() {
+    if (this.drag) this.cancelDrag();
+    if (this.draft) this.finishLine();
+    this.sel = [];
+    this.pivot = null;
+    this.rotateMode = false;
+    this.nodeSel.clear();
+    this.nodeSelObj = null;
+    this.nodeHover = this.segHover = null;
+    this.jointPicks = [];
+    this.jointHover = null;
+    this.clearSnap();
+  }
+  /** Zur Seite i wechseln (kein eigener Undo-Schritt) */
+  setPage(i: number) {
+    i = Math.max(0, Math.min(this.doc.pages.length - 1, i));
+    if (i === this.doc.page) return;
+    this.clearPageState();
+    this.doc.page = i;
+    this.emit('doc');
+    this.emit('sel');
+  }
+  /** Neue leere Seite hinter der aktuellen (oder an Stelle at) anlegen und zu ihr wechseln */
+  addPage(name?: string, at = this.doc.page + 1): number {
+    this.snapshot();
+    at = Math.max(0, Math.min(this.doc.pages.length, at));
+    this.doc.pages.splice(at, 0, { name: name?.trim() || this.freePageName(), objs: [] });
+    this.clearPageState();
+    this.doc.page = at;
+    this.emit('doc');
+    this.emit('sel');
+    return at;
+  }
+  /** Seite i samt Objekten (mit neuen IDs) dahinter kopieren und zu ihr wechseln */
+  duplicatePage(i = this.doc.page): number {
+    const src = this.doc.pages[i];
+    if (!src) return -1;
+    this.snapshot();
+    this.doc.pages.splice(i + 1, 0, { name: t('{name} (Kopie)', { name: src.name }), objs: src.objs.map(cloneObj) });
+    this.clearPageState();
+    this.doc.page = i + 1;
+    this.emit('doc');
+    this.emit('sel');
+    return i + 1;
+  }
+  /** Seite i löschen; die letzte Seite bleibt immer stehen */
+  deletePage(i = this.doc.page) {
+    if (this.doc.pages.length < 2 || !this.doc.pages[i]) return;
+    this.snapshot();
+    this.doc.pages.splice(i, 1);
+    const cur = this.doc.page;
+    this.clearPageState();
+    this.doc.page = Math.min(cur > i ? cur - 1 : cur, this.doc.pages.length - 1);
+    this.emit('doc');
+    this.emit('sel');
+  }
+  renamePage(i: number, name: string) {
+    const p = this.doc.pages[i];
+    name = name.trim();
+    if (!p || !name || name === p.name) return;
+    this.snapshot();
+    p.name = name;
+    this.emit('doc');
+  }
+  /** Seite from an die Stelle to schieben (Index nach dem Herausnehmen) */
+  movePage(from: number, to: number) {
+    const n = this.doc.pages.length;
+    if (from === to || from < 0 || from >= n || to < 0 || to >= n) return;
+    this.snapshot();
+    const cur = this.doc.pages[this.doc.page];
+    const [p] = this.doc.pages.splice(from, 1);
+    this.doc.pages.splice(to, 0, p);
+    this.doc.page = this.doc.pages.indexOf(cur);
+    this.emit('doc');
+  }
+  /** Oberste Objekte der aktuellen Seite auf Seite i verschieben (vor alle Objekte dort) */
+  moveToPage(objs: Obj[], i: number) {
+    const target = this.doc.pages[i];
+    const moving = this.doc.objs.filter((o) => objs.includes(o));
+    if (!target || i === this.doc.page || !moving.length) return;
+    this.snapshot();
+    this.doc.objs = this.doc.objs.filter((o) => !moving.includes(o));
+    target.objs.push(...moving);
+    this.setSel(this.sel.filter((o) => !moving.includes(o)));
+    this.emit('doc');
+  }
+  private freePageName(): string {
+    const used = new Set(this.doc.pages.map((p) => p.name));
+    for (let n = this.doc.pages.length; ; n++) if (!used.has(pageName(n))) return pageName(n);
   }
   /** Form wurde direkt verändert: Zwischenspeicher leeren. */
   touch(s: Shape) {
@@ -2351,6 +2444,8 @@ export class Editor {
       if (k === '0') return run(() => this.zoomPage());
       return;
     }
+    if (k === 'pageup' && !e.altKey) return run(() => this.setPage(this.doc.page - 1));
+    if (k === 'pagedown' && !e.altKey) return run(() => this.setPage(this.doc.page + 1));
     if (e.altKey && k === 'w') return run(() => ((this.filled = !this.filled), this.emit('view')));
     if (k === 'escape')
       return run(() => {

@@ -1027,5 +1027,21 @@
   "{n} weitere Objekte anzeigen": "Show {n} more objects",
   "Noch keine Objekte.": "No objects yet.",
   "Ausgeblendete oder gesperrte Objekte lassen sich nicht auswählen.": "Hidden or locked objects cannot be selected.",
-  "Objekte-Fenster ein/aus": "Objects Window on/off"
+  "Objekte-Fenster ein/aus": "Objects Window on/off",
+  "Seite {n}": "Page {n}",
+  "Aktuelle Seite: nur sie wird gezeichnet, gelasert und exportiert · Doppelklick auf den Namen: umbenennen": "Current page: only this page is shown, lasered and exported · Double-click the name: rename",
+  "Klick: zu dieser Seite wechseln (Bild ↑/↓) · Objekte hierher ziehen: auf diese Seite verschieben": "Click: switch to this page (Page Up/Down) · Drag objects here: move them to this page",
+  "Seite duplizieren": "Duplicate Page",
+  "Seite löschen (rückgängig machbar)": "Delete page (can be undone)",
+  "+ Neue Seite": "+ New page",
+  "Seiten": "Pages",
+  "Neue Seite": "New Page",
+  "Seite löschen": "Delete Page",
+  "Vorherige Seite": "Previous Page",
+  "Bild ↑": "PgUp",
+  "Nächste Seite": "Next Page",
+  "Bild ↓": "PgDn",
+  "Auswahl auf vorherige Seite": "Move Selection to Previous Page",
+  "Auswahl auf nächste Seite": "Move Selection to Next Page",
+  "Seite {n}/{total}": "Page {n}/{total}"
 }

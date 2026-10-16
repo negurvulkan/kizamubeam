@@ -8,7 +8,7 @@ import { library } from './materials';
 import { systemFonts } from './fonts';
 import { isTauri, machine } from './machine';
 import { deviceList, jobInfo } from './laser';
-import { agentLog, Args, describe, findObj, json, layerInfo, log, machineBox, onAgentLog, r3, Tier, ToolDef, ToolError } from './agentutil';
+import { agentLog, Args, describe, findObj, json, layerInfo, log, machineBox, onAgentLog, pageList, r3, Tier, ToolDef, ToolError } from './agentutil';
 import { EDIT_TOOLS } from './agentedit';
 import { GCODE_TOOLS, MACHINE_TOOLS, requestState } from './agentmachine';
 
@@ -22,22 +22,31 @@ const READ_TOOLS: ToolDef[] = [
     name: 'get_document',
     title: 'Dokument lesen',
     description:
-      'Überblick über das geöffnete Dokument: Bettgröße, alle Objekte (id, Typ, Layer, Rahmen in mm, Drehung, Text, Name aus dem Objekte-Fenster, hidden/locked usw.), die Auswahl der Person und die benutzten Layer mit ihren Laser-Einstellungen. Rahmen: x/y = linke untere Ecke in Maschinenkoordinaten.',
+      'Überblick über das geöffnete Projekt: Bettgröße, die Seiten (page 1 … n, aktuelle Seite), alle Objekte der aktuellen Seite (oder der Seite page) mit id, Typ, Layer, Rahmen in mm, Drehung, Text, Name aus dem Objekte-Fenster, hidden/locked usw., die Auswahl der Person und die benutzten Layer mit ihren Laser-Einstellungen. Layer-Einstellungen gelten für alle Seiten; bearbeitet, gelasert und exportiert wird nur die aktuelle Seite (wechseln mit switch_page). Rahmen: x/y = linke untere Ecke in Maschinenkoordinaten.',
     tier: Tier.Read,
     inputSchema: {
       type: 'object',
-      properties: { include_paths: { type: 'boolean', description: 'Umrisse jedes Objekts als SVG-Pfad mitliefern (kann groß werden). Standard: false.' } },
+      properties: {
+        include_paths: { type: 'boolean', description: 'Umrisse jedes Objekts als SVG-Pfad mitliefern (kann groß werden). Standard: false.' },
+        page: { type: 'integer', minimum: 1, description: 'Objekte dieser Seite zeigen, ohne zu ihr zu wechseln (Standard: aktuelle Seite)' },
+      },
     },
     run: (ed, a) => {
       const detail = a.include_paths === true;
+      const idx = a.page === undefined || a.page === null ? ed.doc.page : Number(a.page) - 1;
+      const page = ed.doc.pages[idx];
+      if (!page) throw new ToolError(`Keine Seite ${a.page} (das Projekt hat ${ed.doc.pages.length})`);
       return json({
         units: 'mm',
         coordinates: 'machine: origin bottom-left, x right, y up',
         bed: ed.doc.bed,
-        bounds: machineBox(ed, boundsOf(ed.doc.objs)),
-        objectCount: ed.doc.objs.length,
-        objects: ed.doc.objs.map((o) => describe(ed, o, IDENT, detail)),
-        selection: ed.sel.map((o) => o.id),
+        pages: pageList(ed),
+        currentPage: ed.doc.page + 1,
+        page: idx + 1,
+        bounds: machineBox(ed, boundsOf(page.objs)),
+        objectCount: page.objs.length,
+        objects: page.objs.map((o) => describe(ed, o, IDENT, detail)),
+        selection: idx === ed.doc.page ? ed.sel.map((o) => o.id) : [],
         layers: ed.usedLayers().map((i) => layerInfo(ed, i)),
       });
     },
@@ -135,7 +144,7 @@ const READ_TOOLS: ToolDef[] = [
   {
     name: 'estimate_job',
     title: 'Job abschätzen',
-    description: 'Schätzt den Laser-Job des Dokuments mit dem gewählten Gerät: Dauer, Laserweg, Leerweg, Bereich auf dem Bett, Warnungen. Sendet nichts an die Maschine.',
+    description: 'Schätzt den Laser-Job der aktuellen Seite mit dem gewählten Gerät: Dauer, Laserweg, Leerweg, Bereich auf dem Bett, Warnungen. Sendet nichts an die Maschine.',
     tier: Tier.Read,
     inputSchema: { type: 'object', properties: {} },
     run: async (ed) => {

@@ -330,7 +330,7 @@ export const GCODE_TOOLS: ToolDef[] = [
     name: 'generate_gcode',
     title: 'G-Code erzeugen',
     description:
-      'Erzeugt den G-Code des Dokuments für das gewählte Gerät, genau wie „G-Code speichern“, und liefert eine Zusammenfassung (Dauer, Bereich, Leistung und Geschwindigkeit je Layer, ob der Job in den Grenzen für Agenten-Jobs liegt) plus die ersten Zeilen. Sendet nichts an die Maschine.',
+      'Erzeugt den G-Code der aktuellen Seite für das gewählte Gerät, genau wie „G-Code speichern“, und liefert eine Zusammenfassung (Dauer, Bereich, Leistung und Geschwindigkeit je Layer, ob der Job in den Grenzen für Agenten-Jobs liegt) plus die ersten Zeilen. Sendet nichts an die Maschine.',
     tier: Tier.GCode,
     inputSchema: {
       type: 'object',
@@ -481,7 +481,7 @@ export const MACHINE_TOOLS: ToolDef[] = [
     name: 'request_job',
     title: 'Job anfordern',
     description:
-      'Fordert an, den Laser-Job des Dokuments zu starten. Der Job muss im Arbeitsbereich liegen und die Grenzen des Geräts für Agenten-Jobs einhalten (siehe generate_gcode). Laserwerk zeigt der Person Vorschau, Layer, Leistung, Dauer und Gerät; nur ihr Klick auf „Job starten“ startet den Laser, und zwar genau den gezeigten Stand. Liefert den Stand der Anfrage (waiting, started, declined, expired, failed); den Fortschritt zeigt machine_status.',
+      'Fordert an, den Laser-Job der aktuellen Seite zu starten. Der Job muss im Arbeitsbereich liegen und die Grenzen des Geräts für Agenten-Jobs einhalten (siehe generate_gcode). Laserwerk zeigt der Person Vorschau, Layer, Leistung, Dauer und Gerät; nur ihr Klick auf „Job starten“ startet den Laser, und zwar genau den gezeigten Stand. Liefert den Stand der Anfrage (waiting, started, declined, expired, failed); den Fortschritt zeigt machine_status.',
     tier: Tier.Machine,
     inputSchema: { type: 'object', properties: { message: { type: 'string', description: 'Kurze Erklärung für die Person, was gelasert wird' }, ...waitArg } },
     run: async (ed, a) => {
