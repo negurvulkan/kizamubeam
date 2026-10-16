@@ -5,7 +5,7 @@
 //! mit den Funktionen des Editors ausführt und über `agent_respond` beantwortet. Welche Werkzeuge ein Agent
 //! sieht und aufrufen darf, entscheidet hier die eingestellte Stufe, nicht die Oberfläche.
 //!
-//! Für Clients, die nur stdio sprechen, startet `laserwerk --mcp-stdio` eine Brücke ohne Fenster, die jede
+//! Für Clients, die nur stdio sprechen, startet `kizamubeam --mcp-stdio` eine Brücke ohne Fenster, die jede
 //! Zeile an den laufenden Server weiterreicht (Token und Port liest sie aus der Einstellungsdatei).
 
 use serde::{Deserialize, Serialize};
@@ -20,7 +20,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 
-/// Muss zu `identifier` in tauri.conf.json passen (gleicher Ordner wie die übrigen App-Daten)
+/// Muss zu `identifier` in tauri.conf.json passen (gleicher Ordner wie die übrigen App-Daten).
+/// Bleibt seit der Umbenennung in KizamuBeam unverändert, sonst gingen Einstellungen und Speicher verloren.
 const APP_ID: &str = "org.laserwerk.app";
 const DEFAULT_PORT: u16 = 47800;
 const PROTOCOL_VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -254,8 +255,8 @@ pub fn agent_write_file(path: String, contents: String, overwrite: bool) -> Resu
         return Err(format!("{path}: Pfad muss absolut sein"));
     }
     let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    if !matches!(ext.as_str(), "lwk" | "svg" | "gcode" | "nc") {
-        return Err(format!("{path}: nur .lwk, .svg, .gcode oder .nc"));
+    if !matches!(ext.as_str(), "kzb" | "lwk" | "svg" | "gcode" | "nc") {
+        return Err(format!("{path}: nur .kzb, .lwk, .svg, .gcode oder .nc"));
     }
     if p.exists() && !overwrite {
         return Err(format!("{path}: Datei gibt es schon (overwrite setzen, um sie zu ersetzen)"));
@@ -390,7 +391,7 @@ fn rpc_error(id: Value, code: i64, message: &str) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
 }
 
-const INSTRUCTIONS: &str = "Laserwerk ist eine Laser-Software (wie LightBurn). Einheiten sind Millimeter. \
+const INSTRUCTIONS: &str = "KizamuBeam ist eine Laser-Software (wie LightBurn). Einheiten sind Millimeter. \
 Koordinaten sind Maschinenkoordinaten wie in der Oberfläche: Ursprung unten links auf dem Bett, x nach rechts, y nach oben. \
 Objekte haben eine Nummer (id) und liegen auf einem Layer (0–29, je Layer eigene Laser-Einstellungen). \
 Mit render_preview siehst du die Arbeitsfläche als Bild. Die Person sieht alle Änderungen live in der App. \
@@ -415,7 +416,7 @@ fn handle_message(msg: Value, app: &AppHandle, sh: &Arc<Shared>) -> Option<Value
                 json!({
                     "protocolVersion": version,
                     "capabilities": { "tools": { "listChanged": false } },
-                    "serverInfo": { "name": "laserwerk", "title": "Laserwerk", "version": env!("CARGO_PKG_VERSION") },
+                    "serverInfo": { "name": "kizamubeam", "title": "KizamuBeam", "version": env!("CARGO_PKG_VERSION") },
                     "instructions": INSTRUCTIONS,
                 }),
             )
@@ -439,7 +440,7 @@ fn handle_message(msg: Value, app: &AppHandle, sh: &Arc<Shared>) -> Option<Value
                     id,
                     json!({
                         "content": [{ "type": "text", "text": format!(
-                            "Das Werkzeug „{name}“ ist in Laserwerk nicht freigegeben. Die Person kann es unter Datei → KI-Agenten erlauben."
+                            "Das Werkzeug „{name}“ ist in KizamuBeam nicht freigegeben. Die Person kann es unter Datei → KI-Agenten erlauben."
                         ) }],
                         "isError": true,
                     }),
@@ -483,11 +484,11 @@ fn forward(app: &AppHandle, sh: &Arc<Shared>, method: &str, params: Value) -> Re
     sh.pending.lock().unwrap().insert(id, tx);
     if app.emit("agent-request", json!({ "id": id, "method": method, "params": params })).is_err() {
         sh.pending.lock().unwrap().remove(&id);
-        return Err("Laserwerk-Fenster nicht erreichbar".into());
+        return Err("KizamuBeam-Fenster nicht erreichbar".into());
     }
     let answer = rx.recv_timeout(CALL_TIMEOUT);
     sh.pending.lock().unwrap().remove(&id);
-    let answer = answer.map_err(|_| "Laserwerk hat nicht rechtzeitig geantwortet".to_string())?;
+    let answer = answer.map_err(|_| "KizamuBeam hat nicht rechtzeitig geantwortet".to_string())?;
     if let Some(e) = answer.get("error") {
         return Err(e.get("message").and_then(Value::as_str).unwrap_or("Fehler").to_string());
     }
@@ -496,7 +497,7 @@ fn forward(app: &AppHandle, sh: &Arc<Shared>, method: &str, params: Value) -> Re
 
 // ---------- stdio-Brücke ----------
 
-/// `laserwerk --mcp-stdio`: JSON-RPC-Zeilen von stdin an den laufenden Server, Antworten nach stdout
+/// `kizamubeam --mcp-stdio`: JSON-RPC-Zeilen von stdin an den laufenden Server, Antworten nach stdout
 pub fn stdio_bridge() {
     let stdin = std::io::stdin();
     let mut out = std::io::stdout();
@@ -523,7 +524,7 @@ pub fn stdio_bridge() {
 }
 
 fn post(port: u16, token: &str, body: &str) -> Result<String, String> {
-    const OFF: &str = "Laserwerk läuft nicht oder der Zugang für KI-Agenten ist aus (Laserwerk: Datei → KI-Agenten).";
+    const OFF: &str = "KizamuBeam läuft nicht oder der Zugang für KI-Agenten ist aus (KizamuBeam: Datei → KI-Agenten).";
     let mut s = TcpStream::connect(("127.0.0.1", port)).map_err(|_| OFF.to_string())?;
     let _ = s.set_read_timeout(Some(CALL_TIMEOUT + Duration::from_secs(5)));
     let req = format!(
@@ -538,7 +539,7 @@ fn post(port: u16, token: &str, body: &str) -> Result<String, String> {
     let status = head.split_whitespace().nth(1).unwrap_or("");
     match status {
         "200" | "202" => Ok(body.to_string()),
-        "401" => Err("Laserwerk hat das Token abgelehnt.".into()),
-        _ => Err(format!("Laserwerk antwortet mit HTTP {status}")),
+        "401" => Err("KizamuBeam hat das Token abgelehnt.".into()),
+        _ => Err(format!("KizamuBeam antwortet mit HTTP {status}")),
     }
 }

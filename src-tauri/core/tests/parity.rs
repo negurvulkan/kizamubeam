@@ -1,7 +1,7 @@
 //! Vergleich mit der TypeScript-Fassung: `npm run test:core` erzeugt tests/fixtures/parity.json aus
 //! src/images.ts und src/gcode.ts und startet danach diese Tests.
 
-use laserwerk_core::{gcode, raster};
+use kizamubeam_core::{gcode, raster};
 use serde_json::Value;
 
 fn fixtures() -> Value {

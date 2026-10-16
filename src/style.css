@@ -669,6 +669,20 @@ dialog {
   font: inherit;
   box-shadow: 0 8px 30px var(--shadow);
 }
+dialog.about {
+  text-align: center;
+  max-width: 400px;
+}
+dialog.about img {
+  width: 280px;
+  margin: 6px auto 4px;
+  display: block;
+}
+.menubar-brand {
+  height: 16px;
+  margin: 4px 4px 0 8px;
+  cursor: pointer;
+}
 dialog h3 {
   margin: 0 0 8px;
   font-size: 14px;

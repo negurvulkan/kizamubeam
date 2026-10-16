@@ -48,7 +48,7 @@ export interface TestOptions {
 }
 
 export const MAX_STEPS = 20;
-const KEY = 'laserwerk.materialtest';
+const KEY = 'kizamubeam.materialtest';
 
 function defaults(): TestOptions {
   return {

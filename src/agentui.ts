@@ -106,15 +106,15 @@ export async function openAgentDialog(_ed: Editor) {
       ? tBackend(info.error)
       : info.enabled
         ? t('Läuft auf {url} (nur von diesem Rechner erreichbar).', { url: info.url })
-        : t('Aus. Kein Agent kann auf Laserwerk zugreifen.');
+        : t('Aus. Kein Agent kann auf KizamuBeam zugreifen.');
     state.classList.toggle('error', !!info.error);
     const exe = info.exe;
     const quoted = /[\s"']/.test(exe) ? `"${exe.replace(/"/g, '\\"')}"` : exe;
     configs.replaceChildren(
-      snippet('Claude Code', t('im Terminal ausführen'), `claude mcp add laserwerk -- ${quoted} --mcp-stdio`),
+      snippet('Claude Code', t('im Terminal ausführen'), `claude mcp add kizamubeam -- ${quoted} --mcp-stdio`),
       snippet('Claude Desktop', t('in claude_desktop_config.json unter „mcpServers“ eintragen'),
-        JSON.stringify({ mcpServers: { laserwerk: { command: exe, args: ['--mcp-stdio'] } } }, null, 2)),
-      snippet('Codex', t('in ~/.codex/config.toml eintragen'), `[mcp_servers.laserwerk]\ncommand = '${exe}'\nargs = ["--mcp-stdio"]`),
+        JSON.stringify({ mcpServers: { kizamubeam: { command: exe, args: ['--mcp-stdio'] } } }, null, 2)),
+      snippet('Codex', t('in ~/.codex/config.toml eintragen'), `[mcp_servers.kizamubeam]\ncommand = '${exe}'\nargs = ["--mcp-stdio"]`),
       snippet(t('Andere Clients (HTTP)'), t('Adresse und Kopfzeile'), `${info.url}\nAuthorization: Bearer ${info.token}`),
     );
   };
@@ -133,7 +133,7 @@ export async function openAgentDialog(_ed: Editor) {
   const tools = toolOverview();
   const dlg = h('dialog', { class: 'agent-dialog' },
     h('h3', {}, t('KI-Agenten (MCP)')),
-    h('p', { class: 'note' }, t('KI-Werkzeuge wie Claude oder Codex können Laserwerk über das Model Context Protocol bedienen. Du siehst jede Änderung live. Den Laser startet ein Agent nie selbst: Jeden Job, jeden Rahmen und jede Referenzfahrt bestätigst du in Laserwerk.')),
+    h('p', { class: 'note' }, t('KI-Werkzeuge wie Claude oder Codex können KizamuBeam über das Model Context Protocol bedienen. Du siehst jede Änderung live. Den Laser startet ein Agent nie selbst: Jeden Job, jeden Rahmen und jede Referenzfahrt bestätigst du in KizamuBeam.')),
     h('label', { class: 'check' }, enabled, t('Zugang für KI-Agenten einschalten')),
     state,
     h('div', { class: 'form' },
@@ -151,7 +151,7 @@ export async function openAgentDialog(_ed: Editor) {
     machineNote,
     h('p', { class: 'note' }, t('Werkzeuge: {list}', { list: tools.map((x) => x.name).join(', ') })),
     h('h3', {}, t('Einrichten')),
-    h('p', { class: 'note' }, t('Die Clients starten Laserwerk als Brücke (--mcp-stdio); die App muss dazu laufen und der Zugang eingeschaltet sein. Das Token liest die Brücke selbst.')),
+    h('p', { class: 'note' }, t('Die Clients starten KizamuBeam als Brücke (--mcp-stdio); die App muss dazu laufen und der Zugang eingeschaltet sein. Das Token liest die Brücke selbst.')),
     configs,
     h('h3', {}, t('Protokoll')),
     logBox,

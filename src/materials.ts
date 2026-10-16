@@ -1,6 +1,6 @@
 // Material-Bibliothek (wie die Material Library in LightBurn): Layer-Einstellungen je Material und Dicke.
 // Ein Eintrag hält die Bearbeitungseinstellungen eines Layers und wahlweise die Bild-Einstellungen.
-// Gespeichert wird im Browser-Speicher der App; Austausch über .lwm-Dateien (JSON). LightBurn-
+// Gespeichert wird im Browser-Speicher der App; Austausch über .kzm-Dateien (JSON, früher .lwm). LightBurn-
 // Bibliotheken (.clb) lassen sich einlesen, soweit ihre Felder hier eine Entsprechung haben.
 import { CutSettings, cutSettings, defaultCutSettings, defaultImageLayer, defaultTabs, DitherMode, ImageLayer, Layer, LayerMode } from './model';
 import { dec, t } from './i18n';
@@ -19,8 +19,8 @@ export interface MaterialEntry {
   img?: ImageLayer;
 }
 
-const STORE_KEY = 'laserwerk.materials';
-const FORMAT = 'laserwerk-materials';
+const STORE_KEY = 'kizamubeam.materials';
+const FORMAT = 'kizamubeam-materials';
 
 const newEntryId = () => `m${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
@@ -140,13 +140,13 @@ export function differsFrom(L: Layer, e: MaterialEntry): boolean {
 
 // ---------- Import ----------
 
-/** Inhalt einer .lwm- oder .clb-Datei lesen */
+/** Inhalt einer .kzm-/.lwm- oder .clb-Datei lesen */
 export function parseLibrary(text: string): MaterialEntry[] {
   const src = text.trimStart();
   if (src.startsWith('<')) return parseClb(src);
   const data = JSON.parse(src);
   const list = Array.isArray(data) ? data : data?.entries;
-  if (!Array.isArray(list)) throw new Error(t('Keine Laserwerk-Materialbibliothek'));
+  if (!Array.isArray(list)) throw new Error(t('Keine KizamuBeam-Materialbibliothek'));
   return list.map(sanitize).filter(Boolean) as MaterialEntry[];
 }
 

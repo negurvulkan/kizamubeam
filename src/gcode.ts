@@ -198,8 +198,8 @@ export interface DeviceStore {
   current: string;
 }
 
-const STORE_KEY = 'laserwerk.devices';
-const OLD_KEY = 'laserwerk.device';
+const STORE_KEY = 'kizamubeam.devices';
+const OLD_KEY = 'kizamubeam.device';
 
 export function loadDevices(): DeviceStore {
   try {
@@ -1126,7 +1126,7 @@ export interface GCode {
  * unveränderte Werte (G1, X, Y, F, S) werden weggelassen. Air Assist wird je Layer mit M8/M7 ein-
  * und mit M9 ausgeschaltet.
  */
-export function writeGCode(job: Job, d: Device, est: Estimate, name = 'Laserwerk'): GCode {
+export function writeGCode(job: Job, d: Device, est: Estimate, name = 'KizamuBeam'): GCode {
   const header = gcodeHeader(job, d, est, name);
   return gcodeLines(rotaryMoves(job.moves, d), d, est, job.air, header);
 }
@@ -1135,7 +1135,7 @@ export function writeGCode(job: Job, d: Device, est: Estimate, name = 'Laserwerk
 function gcodeHeader(job: Job, d: Device, est: Estimate, name: string): string[] {
   const out: string[] = [];
   out.push(`; ${name}`);
-  out.push(t('; Erzeugt von Laserwerk am {date}', { date: new Date().toLocaleString(locale) }));
+  out.push(t('; Erzeugt von KizamuBeam am {date}', { date: new Date().toLocaleString(locale) }));
   out.push(t('; Geschätzte Dauer: {total}', { total: formatDuration(est.total) }));
   if (job.bounds) out.push(t('; Bereich: X {x0} … {x1}, Y {y0} … {y1} mm', { x0: num(job.bounds.x0), x1: num(job.bounds.x1), y0: num(job.bounds.y0), y1: num(job.bounds.y1) }));
   const fw = FIRMWARES[d.fw];
@@ -1245,7 +1245,7 @@ export interface PreparedGCode {
   total: number;
 }
 
-export async function prepareGCode(job: Job, d: Device, est: Estimate, name = 'Laserwerk'): Promise<PreparedGCode> {
+export async function prepareGCode(job: Job, d: Device, est: Estimate, name = 'KizamuBeam'): Promise<PreparedGCode> {
   const header = gcodeHeader(job, d, est, name);
   if (hasNative()) {
     try {

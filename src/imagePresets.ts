@@ -11,7 +11,7 @@ export interface ImagePreset {
   output: PresetOutput;
 }
 
-const STORE_KEY = 'laserwerk.imagePresets';
+const STORE_KEY = 'kizamubeam.imagePresets';
 
 export const presetOutput = (L: ImageLayer): PresetOutput => ({ dither: L.dither, negative: L.negative, threshold: L.threshold, cells: L.cells, angle: L.angle });
 

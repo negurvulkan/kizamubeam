@@ -378,7 +378,7 @@ export function buildObjectsPanel(ed: Editor) {
       dragObjs = ed.sel.includes(r.top) && ed.sel.length > 1 ? [...ed.sel] : [r.top];
     }
     e.dataTransfer!.effectAllowed = 'move';
-    e.dataTransfer!.setData('text/plain', 'laserwerk-objects');
+    e.dataTransfer!.setData('text/plain', 'kizamubeam-objects');
     row.classList.add('dragging');
   });
 

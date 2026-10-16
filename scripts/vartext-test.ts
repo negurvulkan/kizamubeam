@@ -73,7 +73,7 @@ await test('Umrisse: Nachbarzellen verschmelzen, Löcher bleiben, Diagonalen get
   assert.equal(diag.length, 2);
   assert.ok(diag.every((s) => s.nodes.length === 4));
   // Fläche der Umrisse = Zahl der dunklen Module (Löcher gegenläufig)
-  const m = qrMatrix('Laserwerk', 'Q')!;
+  const m = qrMatrix('KizamuBeam', 'Q')!;
   let dark = 0;
   for (let r = 0; r < m.n; r++) for (let c = 0; c < m.n; c++) if (m.dark(r, c)) dark++;
   const area = cellOutlines(m.n, m.n, (x, y) => m.dark(y, x), 1).reduce((sum, s) => {

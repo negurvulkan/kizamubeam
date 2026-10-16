@@ -1,7 +1,7 @@
-//! Rechenkern (laserwerk-core) für die Oberfläche: Bildverarbeitung, Rasterzeilen der Bilder und G-Code.
+//! Rechenkern (kizamubeam-core) für die Oberfläche: Bildverarbeitung, Rasterzeilen der Bilder und G-Code.
 //! Bilddaten und fertiger G-Code bleiben hier, damit große Datenmengen nicht mehrfach durch die Oberfläche müssen.
 
-use laserwerk_core::{gcode, raster};
+use kizamubeam_core::{gcode, raster};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use tauri::ipc::{InvokeBody, Request, Response};

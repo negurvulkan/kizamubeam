@@ -16,7 +16,7 @@ export const LANGUAGES: [Lang, string][] = [
 ];
 
 const DICTS: Record<Lang, Record<string, string> | null> = { de: null, en };
-const LANG_KEY = 'laserwerk.lang';
+const LANG_KEY = 'kizamubeam.lang';
 
 function systemLang(): Lang {
   for (const l of navigator.languages ?? [navigator.language]) {

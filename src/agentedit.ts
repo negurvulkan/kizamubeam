@@ -955,13 +955,13 @@ export const EDIT_TOOLS: ToolDef[] = [
   {
     name: 'open_document',
     title: 'Projekt öffnen',
-    description: 'Öffnet eine Laserwerk-Projektdatei (.lwk) über ihren absoluten Pfad und ersetzt das Dokument (rückgängig machbar mit undo).',
+    description: 'Öffnet eine KizamuBeam-Projektdatei (.kzb, ältere .lwk) über ihren absoluten Pfad und ersetzt das Dokument (rückgängig machbar mit undo).',
     tier: Tier.Edit,
     ownUndo: true,
     inputSchema: obj({ path: { type: 'string' } }, ['path']),
     run: async (ed, a) => {
       const path = String(a.path ?? '');
-      if (!/\.(lwk|json)$/i.test(path)) throw new ToolError('Nur .lwk-Dateien');
+      if (!/\.(kzb|lwk|json)$/i.test(path)) throw new ToolError('Nur .kzb- oder .lwk-Dateien');
       if (!isTauri()) throw new ToolError('Nur in der Desktop-App');
       const { invoke } = await import('@tauri-apps/api/core');
       let buf: ArrayBuffer;
@@ -981,14 +981,14 @@ export const EDIT_TOOLS: ToolDef[] = [
   {
     name: 'save_document',
     title: 'Speichern',
-    description: 'Speichert das Projekt (.lwk, samt Bildern) oder eine SVG-Datei (.svg) unter einem absoluten Pfad. Eine vorhandene Datei wird nur mit overwrite überschrieben.',
+    description: 'Speichert das Projekt (.kzb, samt Bildern) oder eine SVG-Datei (.svg) unter einem absoluten Pfad. Eine vorhandene Datei wird nur mit overwrite überschrieben.',
     tier: Tier.Edit,
     ownUndo: true,
     inputSchema: obj({ path: { type: 'string' }, overwrite: { type: 'boolean' } }, ['path']),
     run: async (ed, a) => {
       const path = String(a.path ?? '');
       const svg = /\.svg$/i.test(path);
-      if (!svg && !/\.lwk$/i.test(path)) throw new ToolError('Der Pfad muss auf .lwk oder .svg enden');
+      if (!svg && !/\.kzb$/i.test(path)) throw new ToolError('Der Pfad muss auf .kzb oder .svg enden');
       if (!isTauri()) throw new ToolError('Nur in der Desktop-App');
       const { invoke } = await import('@tauri-apps/api/core');
       try {

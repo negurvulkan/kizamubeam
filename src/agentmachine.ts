@@ -1,6 +1,6 @@
 // Werkzeuge der Stufen 3 (G-Code) und 4 (Maschine) für KI-Agenten.
 // Sicherheitsregeln: Ein Agent sendet nie rohen G-Code. Job, Rahmen und Referenzfahrt fordert er nur an; los geht es
-// erst, wenn die Person in Laserwerk im Bestätigungsdialog klickt. Jobs von Agenten müssen im Arbeitsbereich liegen
+// erst, wenn die Person in KizamuBeam im Bestätigungsdialog klickt. Jobs von Agenten müssen im Arbeitsbereich liegen
 // und die Grenzen des Geräts (höchste Leistung, kleinste Geschwindigkeit) einhalten, die nur die Person einstellt.
 // Anhalten und Stoppen gehen immer. Jede Maschinenaktion landet zusätzlich in einer Protokolldatei.
 import type { Editor } from './editor';
@@ -162,7 +162,7 @@ function ask(kind: Kind, summary: string, v: View): Request {
   if (current?.state === 'waiting') throw new ToolError(`Es wartet bereits eine Anfrage (${KIND_LABEL[current.kind]}) auf die Person.`);
   let done!: () => void;
   const r: Request = {
-    id: nextId++, kind, state: 'waiting', message: 'Wartet auf die Bestätigung der Person in Laserwerk.', at: new Date(),
+    id: nextId++, kind, state: 'waiting', message: 'Wartet auf die Bestätigung der Person in KizamuBeam.', at: new Date(),
     settled: new Promise<void>((res) => (done = res)),
     cancel: () => {},
   };
@@ -406,7 +406,7 @@ export const MACHINE_TOOLS: ToolDef[] = [
   {
     name: 'machine_home',
     title: 'Referenzfahrt anfordern',
-    description: 'Fordert eine Referenzfahrt (Home) an. Laserwerk zeigt der Person einen Dialog; nur ihr Klick startet sie. Liefert den Stand der Anfrage (waiting, started, declined, expired, failed).',
+    description: 'Fordert eine Referenzfahrt (Home) an. KizamuBeam zeigt der Person einen Dialog; nur ihr Klick startet sie. Liefert den Stand der Anfrage (waiting, started, declined, expired, failed).',
     tier: Tier.Machine,
     inputSchema: { type: 'object', properties: { message: { type: 'string', description: 'Kurze Begründung für die Person' }, ...waitArg } },
     run: async (_ed, a) => {
@@ -436,7 +436,7 @@ export const MACHINE_TOOLS: ToolDef[] = [
     name: 'machine_frame',
     title: 'Rahmen fahren anfordern',
     description:
-      'Fordert eine Rahmenfahrt um den Job an (Rechteck oder Kontur), damit die Person die Lage auf dem Material prüfen kann. Laserwerk zeigt einen Dialog mit Vorschau; nur der Klick der Person startet die Fahrt. Liefert den Stand der Anfrage.',
+      'Fordert eine Rahmenfahrt um den Job an (Rechteck oder Kontur), damit die Person die Lage auf dem Material prüfen kann. KizamuBeam zeigt einen Dialog mit Vorschau; nur der Klick der Person startet die Fahrt. Liefert den Stand der Anfrage.',
     tier: Tier.Machine,
     inputSchema: {
       type: 'object',
@@ -484,7 +484,7 @@ export const MACHINE_TOOLS: ToolDef[] = [
     name: 'request_job',
     title: 'Job anfordern',
     description:
-      'Fordert an, den Laser-Job der aktuellen Seite zu starten. Der Job muss im Arbeitsbereich liegen und die Grenzen des Geräts für Agenten-Jobs einhalten (siehe generate_gcode). Laserwerk zeigt der Person Vorschau, Layer, Leistung, Dauer und Gerät; nur ihr Klick auf „Job starten“ startet den Laser, und zwar genau den gezeigten Stand. Liefert den Stand der Anfrage (waiting, started, declined, expired, failed); den Fortschritt zeigt machine_status.',
+      'Fordert an, den Laser-Job der aktuellen Seite zu starten. Der Job muss im Arbeitsbereich liegen und die Grenzen des Geräts für Agenten-Jobs einhalten (siehe generate_gcode). KizamuBeam zeigt der Person Vorschau, Layer, Leistung, Dauer und Gerät; nur ihr Klick auf „Job starten“ startet den Laser, und zwar genau den gezeigten Stand. Liefert den Stand der Anfrage (waiting, started, declined, expired, failed); den Fortschritt zeigt machine_status.',
     tier: Tier.Machine,
     inputSchema: { type: 'object', properties: { message: { type: 'string', description: 'Kurze Erklärung für die Person, was gelasert wird' }, ...waitArg } },
     run: async (ed, a) => {

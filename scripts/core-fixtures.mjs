@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const dir = mkdtempSync(join(tmpdir(), 'laserwerk-'));
+const dir = mkdtempSync(join(tmpdir(), 'kizamubeam-'));
 const out = join(dir, 'fixtures.mjs');
 await build({
   entryPoints: [new URL('./core-fixtures.ts', import.meta.url).pathname],

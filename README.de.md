@@ -1,9 +1,22 @@
-# Laserwerk (Arbeitstitel)
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/kizamubeam-logo-dark.png">
+    <img src="docs/brand/kizamubeam-logo.png" alt="KizamuBeam" width="520">
+  </picture>
+</p>
+
+# KizamuBeam
 
 [English](README.md) · Deutsch
 
 Freie Laser-Software zum Entwerfen, Bilder bearbeiten und direkt an den Laser senden. Die Bedienung orientiert sich an LightBurn, damit sich Umsteiger sofort zurechtfinden.
 Stack: Tauri 2, TypeScript (Oberfläche, Editor, G-Code), Rust (Desktop-Hülle, Maschinenanbindung, MCP-Server). Lizenz: GPL-3.0-or-later (siehe `LICENSE`). Version: 1.0.0-alpha.
+
+„Kizamu“ (刻む) ist japanisch und heißt einritzen, gravieren, fein schneiden. Bis Version 1.0.0-alpha hieß das Projekt Laserwerk; Einstellungen, Geräte und Materialbibliotheken werden beim ersten Start übernommen, alte `.lwk`-Projekte und `.lwm`-Bibliotheken lassen sich weiter öffnen.
+
+## Logo
+
+Die Logo-Dateien liegen in [`docs/brand/`](docs/brand/): Logo mit Symbol, Wortmarke, Symbol farbig und einfarbig, Symbol über der Wortmarke, jeweils auch als `-dark` für dunkle Hintergründe, dazu das App-Icon (`kizamubeam-app-icon.png`, Vorlage für `npx tauri icon`).
 
 ## Starten
 
@@ -19,7 +32,7 @@ npm run tauri build    # Installationspaket
 
 Unter Windows baut `npm run tauri build` nur den NSIS-Installer (`.exe`, siehe `src-tauri/tauri.windows.conf.json`): Der MSI-Installer akzeptiert keine Vorabversionen wie `1.0.0-alpha`.
 
-## Was Laserwerk kann
+## Was KizamuBeam kann
 
 - Vertrautes Layout: Menü, Symbolleiste, Zahlenleiste oben, Werkzeuge links, Schnitte/Layer und Laser rechts, Farbpalette 00–29 plus T1/T2 unten, Statusleiste.
 - Anpassbare Oberfläche:
@@ -27,7 +40,7 @@ Unter Windows baut `npm run tauri build` nur den NSIS-Installer (`.exe`, siehe `
   - Größe: Trennlinien zwischen den Fenstern und der Innenrand der Andockleisten lassen sich ziehen. ▾ oder Doppelklick auf den Kopf klappt eine Gruppe ein.
   - × am Reiter blendet ein Fenster aus; Menü Fenster blendet Fenster und Leisten (Hauptleiste, Werkzeugleiste, Eigenschaftenleiste, Farbpalette, Statusleiste) ein und aus.
   - Funktionsleisten anpassen (Menü Fenster oder Rechtsklick auf die Hauptleiste bzw. Werkzeugleiste): Aktionen aus allen Bereichen hinzufügen, entfernen, per Ziehen oder ↑/↓ umsortieren, Trennlinien einfügen, Symbolgröße klein/normal/groß; Aktionen ohne Symbol erscheinen als Text. „Standard wiederherstellen“ setzt eine Leiste zurück.
-  - Anordnung und Leisten werden je Nutzer gespeichert (`localStorage`: `laserwerk.layout`, `laserwerk.toolbars`); Fenster → Fenster und Leisten zurücksetzen stellt den Ausgangszustand wieder her.
+  - Anordnung und Leisten werden je Nutzer gespeichert (`localStorage`: `kizamubeam.layout`, `kizamubeam.toolbars`); Fenster → Fenster und Leisten zurücksetzen stellt den Ausgangszustand wieder her.
 - Arbeitsfläche als Maschinenbett in mm (Standard 400 × 400, in den Geräteeinstellungen änderbar), Raster, Lineale, Ursprung unten links, Zoom mit Mausrad, Verschieben mit Leertaste oder mittlerer Maustaste.
 - Zeichnen: Linien und Bézierkurven, Rechteck mit Eckenradius, Ellipse, Polygon und Stern, Text (mehrzeilig, Schriftart, Höhe, Fett, Kursiv, Großbuchstaben, Zeichen- und Zeilenabstand, Ausrichtung).
 - Bearbeiten: Auswahl per Klick und Rahmen (nach rechts umschließend, nach links kreuzend), Verschieben, Skalieren, Drehen mit der Maus (knapp außerhalb einer Ecke ziehen oder zweiter Klick auf die Auswahl; Drehpunkt verschiebbar, Shift 15°, Ctrl 5°, Esc bricht ab), Zahlenfelder mit 9-Punkt-Anker und Formeln mit Einheiten („100/3“, „2in“), Knotenbearbeitung (Knoten per Klick, Shift+Klick, Rahmen oder Ctrl+A auswählen, gemeinsam ziehen oder mit Pfeiltasten schieben; Entf löschen, L Gerade, C Kurve, E Ecke, S glatt, I einfügen, B Pfad am Knoten aufbrechen, T Kante bis zu den Schnittpunkten trimmen), In Pfad umwandeln, Gruppieren, Spiegeln, Ausrichten, Verteilen, Kopieren, Duplizieren, Rückgängig.
@@ -54,7 +67,7 @@ Unter Windows baut `npm run tauri build` nur den NSIS-Installer (`.exe`, siehe `
 - Biegeschnitte / Living Hinges (Werkzeuge → Biegeschnitte): füllt eine gewählte geschlossene Form mit einem Schnittmuster, damit sich die Platte dort biegt. Muster: gerade Schnitte, Wellen, Rauten, Waben, Dreiecke, Flechtmuster und Spirale, mit Live-Vorschau und Startwerten aus der Materialdicke. Die Schnitte sind exakte Linien und Bézierkurven.
 - Farbe ist der Layer: Klick auf eine Palettenfarbe ordnet die Auswahl zu. Layer-Tabelle mit Modus (Linie/Füllen), Speed, Leistung, Air Assist, Ausgabe, Sichtbarkeit und Schnellbearbeitung.
 - Layer-Einstellungen (Doppelklick auf einen Layer): Kerf-Versatz, Haltestege (Anzahl oder Abstand, innere Formen auslassen), Scanwinkel, Kreuzschraffur, Bidirektional, Überfahrweg, Air Assist (M8 oder M7, aus mit M9; einstellbar in den Geräteeinstellungen). Die Einstellungen liegen als `CutSettings` im Layer (`src/model.ts`).
-- Material-Bibliothek (Fenster „Material“): Layer-Einstellungen (wahlweise auch Bild-Einstellungen) je Material und Dicke speichern und auf Layer übernehmen. Austausch über `.lwm`-Dateien (JSON); LightBurn-Bibliotheken (`.clb`) lassen sich einlesen, soweit ihre Felder eine Entsprechung haben.
+- Material-Bibliothek (Fenster „Material“): Layer-Einstellungen (wahlweise auch Bild-Einstellungen) je Material und Dicke speichern und auf Layer übernehmen. Austausch über `.kzm`-Dateien (JSON; ältere `.lwm`-Dateien lassen sich weiter einlesen); LightBurn-Bibliotheken (`.clb`) lassen sich einlesen, soweit ihre Felder eine Entsprechung haben.
 - Materialtest (Laser → Materialtest): Raster mit zwei gestuften Werten (z. B. Zeilen Geschwindigkeit, Spalten Leistung) mit Beschriftung, jede Zelle mit eigenem Testlayer. Der Test geht über Vorschau, Rahmen, Start oder G-Code direkt an den Laser, ohne das Dokument zu verändern; die Zellen laufen nach steigender Energie.
 - Objekte-Fenster (rechts unter den Layern, ein- und ausblenden über das Menü Fenster): Baum aus Layern und ihren Objekten, Gruppen aufklappbar, vorderstes Objekt oben. Klick wählt aus (Shift/Ctrl fügt hinzu), die Auswahl auf der Arbeitsfläche wird mitgeführt. Doppelklick auf einen Namen benennt Objekt oder Layer um. Auge: ausblenden (ausgeblendete Objekte werden weder gezeichnet noch gelasert oder exportiert). Schloss: sperren (auf der Arbeitsfläche nicht auswählbar), auch für ganze Layer. Ziehen ändert die Stapelreihenfolge, schiebt Objekte auf einen anderen Layer oder ordnet Layer in der Ausgabereihenfolge um. Name, `hidden` und `locked` stehen im Objekt (`src/model.ts`) und erscheinen in `get_document` des MCP-Servers.
 - Mehrseitige Projekte: Ein Projekt hat eine oder mehrere Seiten (Objekte-Fenster ganz oben, Menü Seiten, Bild ↑/↓ zum Wechseln). Jede Seite hat eigene Objekte; die Layer-Einstellungen gelten für das ganze Projekt. Gezeichnet, bearbeitet, gelasert und exportiert (SVG, G-Code) wird die aktuelle Seite. Seiten lassen sich anlegen, duplizieren, umbenennen (Doppelklick), löschen und per Ziehen umordnen; Objekte zieht man auf eine Seitenzeile, um sie dorthin zu verschieben. Dateiformat ab `version: 2` mit `pages` und `page`; ältere Dateien öffnen sich als Projekt mit einer Seite. MCP: `get_document` (mit `pages`), `switch_page`, `edit_pages`, `move_to_page`.
@@ -85,10 +98,10 @@ Unter Windows baut `npm run tauri build` nur den NSIS-Installer (`.exe`, siehe `
   - Eigene G-Code-Skripte je Gerät (Geräteeinstellungen → G-Code-Skripte): „Vor dem Job“ nach G21, G90 und dem Laser-Modus, „Nach dem Job“ nach M5 und vor dem Programmende (M2 bzw. M400). Gilt für Jobs und gespeicherten G-Code, nicht für Rahmenfahrten.
   - G-Code speichern, Verschieben-Reiter (Jog in Schritten, Ursprung setzen/löschen, Laser zur Auswahl, Entsperren), Konsole mit Verlauf.
   - Geräteeinstellungen: Arbeitsbereich, S-Wert für 100 %, Baudrate, WLAN-Adresse, Eilgang und Beschleunigung, Rahmen. „Von der Maschine lesen“ holt Arbeitsbereich, Eilgang, Beschleunigung (FluidNC-Konfiguration bzw. GRBL `$$`) und bei GRBL auch die Leistungsskala `$30`.
-  - Drehachse (Laser → „Drehachse …“ bzw. Laser-Menü → „Drehachse (Rotary) …“, je Gerät): Walzen oder Futter, Rotary am Y-Anschluss (statt Y-Motor) oder als eigene Achse A, B, C oder Z, Achsweg pro Umdrehung (mm bzw. Grad), Walzen- und Objektdurchmesser oder Umfang, Drehrichtung umkehren, Testdrehung (eine Objektumdrehung). Die Y-Richtung des Entwurfs wird in Achsweg umgerechnet, der Vorschub so angepasst, dass die Geschwindigkeit auf der Oberfläche stimmt; das gilt für Jobs, Bilder, Rahmen, Verschieben und „Hier starten“. Eine eigene Achse wird zu Beginn mit `G92 A0` (bzw. B, C, Z) auf die aktuelle Stellung gesetzt, der Rahmen fährt danach zum Start zurück. Im Rotary-Modus prüft Laserwerk nur X gegen das Bett, warnt, wenn der Job höher ist als der Objektumfang, und fragt vor einer Referenzfahrt nach, wenn der Rotary am Y-Anschluss steckt.
+  - Drehachse (Laser → „Drehachse …“ bzw. Laser-Menü → „Drehachse (Rotary) …“, je Gerät): Walzen oder Futter, Rotary am Y-Anschluss (statt Y-Motor) oder als eigene Achse A, B, C oder Z, Achsweg pro Umdrehung (mm bzw. Grad), Walzen- und Objektdurchmesser oder Umfang, Drehrichtung umkehren, Testdrehung (eine Objektumdrehung). Die Y-Richtung des Entwurfs wird in Achsweg umgerechnet, der Vorschub so angepasst, dass die Geschwindigkeit auf der Oberfläche stimmt; das gilt für Jobs, Bilder, Rahmen, Verschieben und „Hier starten“. Eine eigene Achse wird zu Beginn mit `G92 A0` (bzw. B, C, Z) auf die aktuelle Stellung gesetzt, der Rahmen fährt danach zum Start zurück. Im Rotary-Modus prüft KizamuBeam nur X gegen das Bett, warnt, wenn der Job höher ist als der Objektumfang, und fragt vor einer Referenzfahrt nach, wenn der Rotary am Y-Anschluss steckt.
 - Kamera (Fenster „Kamera“): USB-Kamera wählen, Bild entzerrt und lagerichtig unter den Objekten auf der Arbeitsfläche, Deckkraft, einmalig oder laufend aktualisieren, als Bild auf T1 einfügen (zum Nachzeichnen). Kalibrieren: 2 × 2 bis 5 × 5 Markierungen lasern (oder als G-Code speichern), im Foto anklicken; daraus werden Lage (Homographie) und ab 3 × 3 die Linsenverzeichnung berechnet, mit Restfehler in mm und entzerrter Kontrollansicht. Mehrere Kameras je Gerät, jede mit eigener Kalibrierung, gleichzeitig verbunden und eingeblendet. Kopfkamera (am Laserkopf): Kalibrierung mit kleinen Markierungen um die Kopfposition, die Bilder landen an der jeweiligen Kopfposition als Mosaik auf der Arbeitsfläche, „Bett erfassen“ bzw. „Auswahl erfassen“ fährt den Bereich ohne Laser ab und setzt ihn aus Einzelbildern zusammen; das Sichtfeld wird an der Kopfposition gestrichelt angezeigt. Unter macOS fragt das System beim ersten Verbinden nach der Kamera-Freigabe.
-- Zugang für KI-Agenten über MCP (Datei → KI-Agenten (MCP)): kleiner HTTP-Server nur auf 127.0.0.1 (Port 47800, `http://127.0.0.1:47800/mcp`), standardmäßig aus, mit Token. Für Clients, die nur stdio sprechen, startet `laserwerk --mcp-stdio` eine Brücke. Vier Stufen: Lesen (Dokument, Layer, Materialien, Geräte, Schriften, Vorschaubild, Zeitschätzung), Entwerfen (Formen, Text, QR-Codes und variabler Text, Boolesche Operationen, Offset, Pfad-Werkzeuge (`path_tool`: schließen, verbinden, zerlegen, Richtung, Startpunkt, trimmen), Arrays, Biegeschnitte, Verbindungen, Layer, Import, Seiten, Dateien; jeder Aufruf ein Undo-Schritt), G-Code und Maschine. Ein Agent sendet nie rohen G-Code: Job, Rahmen und Referenzfahrt fordert er nur an, gestartet wird erst nach Bestätigung in Laserwerk; Jobs müssen im Arbeitsbereich und in den Gerätegrenzen liegen, Anhalten und Stoppen gehen immer, jede Maschinenaktion wird protokolliert. Die Maschinenstufe gilt nur bis zum Beenden der App.
-- Projekt speichern und öffnen (`.lwk`, JSON, Bilder eingebettet), SVG-Export (mit Bildern), automatisches Zwischenspeichern (Bilddaten in IndexedDB).
+- Zugang für KI-Agenten über MCP (Datei → KI-Agenten (MCP)): kleiner HTTP-Server nur auf 127.0.0.1 (Port 47800, `http://127.0.0.1:47800/mcp`), standardmäßig aus, mit Token. Für Clients, die nur stdio sprechen, startet `kizamubeam --mcp-stdio` eine Brücke. Vier Stufen: Lesen (Dokument, Layer, Materialien, Geräte, Schriften, Vorschaubild, Zeitschätzung), Entwerfen (Formen, Text, QR-Codes und variabler Text, Boolesche Operationen, Offset, Pfad-Werkzeuge (`path_tool`: schließen, verbinden, zerlegen, Richtung, Startpunkt, trimmen), Arrays, Biegeschnitte, Verbindungen, Layer, Import, Seiten, Dateien; jeder Aufruf ein Undo-Schritt), G-Code und Maschine. Ein Agent sendet nie rohen G-Code: Job, Rahmen und Referenzfahrt fordert er nur an, gestartet wird erst nach Bestätigung in KizamuBeam; Jobs müssen im Arbeitsbereich und in den Gerätegrenzen liegen, Anhalten und Stoppen gehen immer, jede Maschinenaktion wird protokolliert. Die Maschinenstufe gilt nur bis zum Beenden der App.
+- Projekt speichern und öffnen (`.kzb`, JSON, Bilder eingebettet; ältere `.lwk`-Dateien öffnen weiter), SVG-Export (mit Bildern), automatisches Zwischenspeichern (Bilddaten in IndexedDB).
 
 ## Noch nicht enthalten
 
@@ -112,6 +125,7 @@ Texte stehen im Code auf Deutsch in `t('…')` (Platzhalter in geschweiften Klam
 | `src/editor.ts` | Editor-Klasse: Zustand, Ansicht, Auswahl, Werkzeugwahl; bindet die Teile darunter ein |
 | `src/editor/*.ts` | Teile des Editors: `document` (Undo, Autosave, Seiten), `pointer` (Mauseingaben), `keyboard`, `snapping` (Fangen), `nodes` (Knoten), `paths` (Pfad-Werkzeuge), `shapeops` (Umwandeln, Boolesche Operationen, Offset, Arrays), `joints`, `hinges`, `commands`, `objects`, `text` (QR, variabler Text, Text auf Pfad), `imageops` (Bilder, Import, Nachzeichnen), `render` (Zeichnen der Arbeitsfläche) |
 | `src/ui.ts` | Menü, Aktionen der Funktionsleisten, Eigenschaftenleiste, Layer-Fenster, Palette, Statusleiste, Texteingabe |
+| `src/storageMigration.ts` | Übernimmt Einstellungen unter dem alten Namen (`laserwerk.*`) beim ersten Start nach `kizamubeam.*` |
 | `src/dock.ts` | Andockbare Fenster: Reiter, Gruppen, freie Fenster, Größe, Ein-/Ausblenden, gespeicherte Anordnung |
 | `src/toolbars.ts` | Anpassbare Funktionsleisten: Aktionen, Belegung, Symbolgröße, Anpassen-Dialog, Leisten ein-/ausblenden |
 | `src/layerdialog.ts` | Layer-Einstellungen (Kerf, Haltestege, Füllen, Air Assist) |
@@ -134,7 +148,7 @@ Texte stehen im Code auf Deutsch in `t('…')` (Platzhalter in geschweiften Klam
 | `src/gcode.ts` | Maschinenausgabe: Job aus dem Dokument (Linie, Füllen, Bilder, Reihenfolge), G-Code, Laufzeitschätzung, Rahmen, Start Here, Start-/End-Skripte, Geräteeinstellungen. Tests: `npm run test:gcode` |
 | `src/camera.ts` | Kamera: Zugriff, Kalibriermodell (Homographie und radiale Verzeichnung, Levenberg-Marquardt), Entzerrung aufs Bett |
 | `src/cameraui.ts` | Kamera-Reiter, Kamerabild auf der Arbeitsfläche, Kalibrier-Assistent mit Markierungen |
-| `src/materials.ts`, `src/materialui.ts` | Material-Bibliothek, `.lwm`-Export/-Import, Einlesen von LightBurn-`.clb`, Reiter „Material“ |
+| `src/materials.ts`, `src/materialui.ts` | Material-Bibliothek, `.kzm`-Export/-Import, Einlesen von LightBurn-`.clb`, Reiter „Material“ |
 | `src/materialtest.ts` | Materialtest: Raster mit gestuften Werten und eigenen Testlayern |
 | `src/objectsPanel.ts` | Objekte-Fenster: Seiten, Layer und Objekte als Baum |
 | `src/history.ts`, `src/historyPanel.ts` | Rückgängig-Verlauf mit benannten Schritten, Verlaufsfenster |
@@ -149,7 +163,7 @@ Texte stehen im Code auf Deutsch in `t('…')` (Platzhalter in geschweiften Klam
 | `src-tauri/src/machine.rs` | Seriell (serialport), Telnet (TCP) und WebSocket, Ereignisse an das Fenster |
 | `src-tauri/src/ws.rs` | WebSocket zur Steuerung (tungstenite) als Byte-Strom für die Übertragung, mit Test gegen ein nachgebildetes FluidNC |
 | `src-tauri/src/agent.rs` | MCP-Server (Streamable HTTP auf 127.0.0.1, Token, Stufen) und stdio-Brücke `--mcp-stdio` |
-| `src-tauri/core/` | Rechenkern ohne Oberfläche (`laserwerk-core`): Bildverarbeitung und Dithering, Rasterzeilen der Bilder, G-Code schreiben. Rechnet wie `images.ts`/`gcode.ts`, die Desktop-App nutzt ihn, der Browser die TypeScript-Fassung. Vergleichstest: `npm run test:core` |
+| `src-tauri/core/` | Rechenkern ohne Oberfläche (`kizamubeam-core`): Bildverarbeitung und Dithering, Rasterzeilen der Bilder, G-Code schreiben. Rechnet wie `images.ts`/`gcode.ts`, die Desktop-App nutzt ihn, der Browser die TypeScript-Fassung. Vergleichstest: `npm run test:core` |
 | `src-tauri/src/native.rs` | Rechenkern für die Oberfläche: Graustufen der Bilder und fertiger G-Code bleiben in Rust |
 | `src/native.ts` | Aufruf des Rechenkerns aus der Oberfläche |
 
@@ -157,4 +171,4 @@ Intern rechnet der Editor in mm mit y nach unten; angezeigt wird in Maschinenkoo
 
 ## Marken
 
-LightBurn ist eine Marke der LightBurn Software, LLC. Laserwerk ist ein unabhängiges Projekt und steht in keiner Verbindung zu LightBurn Software; es wird von dort weder unterstützt noch empfohlen.
+LightBurn ist eine Marke der LightBurn Software, LLC. KizamuBeam ist ein unabhängiges Projekt und steht in keiner Verbindung zu LightBurn Software; es wird von dort weder unterstützt noch empfohlen.

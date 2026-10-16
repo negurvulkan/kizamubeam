@@ -6,7 +6,7 @@ import { computeJoint, DEFAULT_JOINT, JointKind, JointOptions } from './joints';
 import { library } from './materials';
 import { dec, t } from './i18n';
 
-const STATE_KEY = 'laserwerk.joints';
+const STATE_KEY = 'kizamubeam.joints';
 
 function loadState(): JointOptions {
   try {

@@ -9,7 +9,7 @@ import { t } from '../i18n';
 import type { Editor } from '../editor';
 import { bumpShapeVersion } from './shared';
 
-const STORAGE_KEY = 'laserwerk.autosave';
+const STORAGE_KEY = 'kizamubeam.autosave';
 
 export class EditorDocument {
   layer(this: Editor, i: number): Layer {

@@ -4,7 +4,7 @@
 fn main() {
     // Brücke für MCP-Clients, die nur stdio sprechen (siehe agent.rs); öffnet kein Fenster
     if std::env::args().any(|a| a == "--mcp-stdio") {
-        return laserwerk_lib::agent::stdio_bridge();
+        return kizamubeam_lib::agent::stdio_bridge();
     }
-    laserwerk_lib::run()
+    kizamubeam_lib::run()
 }

@@ -1720,13 +1720,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "laserwerk"
+name = "kizamubeam"
 version = "1.0.0-alpha"
 dependencies = [
  "dirs",
  "fontdb",
  "getrandom 0.3.4",
- "laserwerk-core",
+ "kizamubeam-core",
  "serde",
  "serde_json",
  "serialport",
@@ -1737,7 +1737,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "laserwerk-core"
+name = "kizamubeam-core"
 version = "1.0.0-alpha"
 dependencies = [
  "rayon",

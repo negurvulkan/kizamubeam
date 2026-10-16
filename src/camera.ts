@@ -453,7 +453,7 @@ export function cameraError(e: unknown): string {
   const mac = /Mac/i.test(navigator.platform || navigator.userAgent);
   if (name === 'NotAllowedError' || name === 'SecurityError')
     return mac
-      ? t('Kein Zugriff auf die Kamera. In den Systemeinstellungen unter Datenschutz & Sicherheit › Kamera Laserwerk erlauben (beim Start aus dem Terminal: das Terminal).')
+      ? t('Kein Zugriff auf die Kamera. In den Systemeinstellungen unter Datenschutz & Sicherheit › Kamera KizamuBeam erlauben (beim Start aus dem Terminal: das Terminal).')
       : t('Kein Zugriff auf die Kamera. Bitte den Zugriff erlauben.');
   if (name === 'NotFoundError' || name === 'OverconstrainedError') return t('Keine Kamera gefunden.');
   if (name === 'NotReadableError') return t('Die Kamera wird gerade von einem anderen Programm benutzt.');

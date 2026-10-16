@@ -87,7 +87,7 @@ pub struct Streamer<P: Read + Write, E: Events> {
     last_progress: Instant,
     progress_dirty: bool,
     proto: Protocol,
-    /// Angehalten durch Laserwerk (Steuerungen ohne Echtzeitbefehle)
+    /// Angehalten durch KizamuBeam (Steuerungen ohne Echtzeitbefehle)
     paused: bool,
     iac: u8,
 }

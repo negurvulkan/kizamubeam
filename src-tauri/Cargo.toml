@@ -1,5 +1,5 @@
 [package]
-name = "laserwerk"
+name = "kizamubeam"
 version = "1.0.0-alpha"
 description = "Freie Laser-Software (Prototyp)"
 license = "GPL-3.0-or-later"
@@ -9,7 +9,7 @@ edition = "2021"
 members = ["core"]
 
 [lib]
-name = "laserwerk_lib"
+name = "kizamubeam_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -23,7 +23,7 @@ serde_json = "1"
 getrandom = "0.3"
 dirs = "7"
 fontdb = "0.23"
-laserwerk-core = { path = "core" }
+kizamubeam-core = { path = "core" }
 # ohne libudev, damit unter Linux keine zusätzliche Systembibliothek nötig ist
 serialport = { version = "4", default-features = false }
 # WebSocket zur Steuerung (FluidNC Port 81), ohne TLS

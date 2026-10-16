@@ -25,7 +25,7 @@ interface DeviceCams {
   cur: number;
 }
 
-const STORE_KEY = 'laserwerk.camera';
+const STORE_KEY = 'kizamubeam.camera';
 const newCamId = () => Math.random().toString(36).slice(2, 10);
 /** Fehlende Felder ergänzen (ältere Einstellungen) */
 function fill(s: Partial<CameraSettings>, i: number): CameraSettings {
@@ -669,7 +669,7 @@ async function markGCode(ed: Editor, m: MarkSettings, pts: Pt[]) {
     imgLayer: (i) => ed.imgLayer(i),
     device: dev,
   });
-  return writeGCode(job, dev, estimate(job.moves, dev), t('Laserwerk Kamera-Markierungen'));
+  return writeGCode(job, dev, estimate(job.moves, dev), t('KizamuBeam Kamera-Markierungen'));
 }
 
 // ---------- Kalibrier-Assistent ----------
