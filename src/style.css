@@ -156,7 +156,7 @@ body {
   box-shadow: 0 4px 14px var(--shadow);
   padding: 4px 0;
 }
-.menu.open .menu-items {
+.menu.open > .menu-items {
   display: block;
 }
 .menu-items button {
@@ -1841,14 +1841,7 @@ body.dock-resizing #canvas {
   padding: 0 8px;
   font-size: 11px;
 }
-#tools /* Viele Knöpfe in der Hauptleiste: in eine zweite Zeile umbrechen statt abschneiden */
-#toolbar {
-  flex-wrap: wrap;
-  white-space: normal;
-  padding-top: 2px;
-  padding-bottom: 2px;
-}
-.bar-empty {
+#tools .bar-empty {
   writing-mode: vertical-rl;
   padding: 8px 0;
 }
@@ -1862,6 +1855,83 @@ body.dock-resizing #canvas {
   width: 18px;
   flex: none;
   color: var(--accent);
+}
+/* Untermenüs: klappen beim Überfahren seitlich auf */
+.submenu {
+  position: relative;
+}
+.menu-items .submenu-head {
+  justify-content: space-between;
+}
+.menu-items.with-checks .submenu-head {
+  padding-left: 32px;
+}
+.menu-items.with-checks .submenu-head > span.submenu-arrow,
+.submenu-arrow {
+  flex: none;
+  color: var(--muted);
+  margin-left: 24px;
+}
+.submenu > .menu-items {
+  top: -5px;
+  left: 100%;
+}
+.submenu.flip > .menu-items {
+  left: auto;
+  right: 100%;
+}
+.submenu:hover > .menu-items {
+  display: block;
+}
+.submenu:hover > .submenu-head {
+  background: var(--accent-soft);
+}
+.menu-items button:disabled {
+  opacity: 0.4;
+  background: none;
+}
+/* Knopfgruppen in den Funktionsleisten: Hauptknopf + schmaler Pfeil */
+.ib-group {
+  display: inline-flex;
+  align-items: stretch;
+  flex: none;
+}
+.ib-more {
+  width: 12px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: none;
+  color: var(--muted);
+  font-size: 9px;
+  padding: 0;
+}
+.ib-more:hover {
+  background: var(--surface);
+  border-color: var(--line);
+}
+#tools .ib-group {
+  position: relative;
+}
+#tools .ib-more {
+  position: absolute;
+  right: -4px;
+  bottom: 0;
+  height: 12px;
+  width: 12px;
+}
+.group-menu button {
+  align-items: center;
+  gap: 8px;
+}
+.group-menu.with-checks button > span.tb-icon {
+  display: inline-flex;
+  width: 18px;
+  flex: none;
+  color: var(--icon);
+}
+.group-menu .tb-icon svg {
+  width: 18px;
+  height: 18px;
 }
 .ctx-menu {
   display: block;
