@@ -5,7 +5,7 @@ import { ICONS } from './icons';
 import { saveText } from './files';
 import { native } from './native';
 import {
-  anchorOf, buildJob, burns, DEFAULT_ROTARY, Device, estimate, Firmware, FIRMWARES, formatDuration, frameGCode, Job, jogLines, loadDevices, Moves, newDevice, PRESETS,
+  anchorOf, BedCheck, Box, buildJob, burns, checkBed, DEFAULT_ROTARY, Device, estimate, Firmware, FIRMWARES, formatDuration, frameGCode, Job, jogLines, loadDevices, Moves, newDevice, PRESETS,
   prepareGCode, Rotary, RotaryAxis, rotaryCirc, rotaryOn, rotaryTestLines, sameMoves, saveDevices, StartFrom, startHere,
 } from './gcode';
 import { isTauri, machine, PortInfo } from './machine';
@@ -90,20 +90,46 @@ function nothingToDo(job: Job): boolean {
   return true;
 }
 
-/** Liegt der Job (inkl. Überfahrwegen) im Arbeitsbereich? Sonst nachfragen. */
-function boundsOk(ed: Editor, job: Job): boolean {
-  const tb = job.travel;
-  if (!tb) return true;
+/** Fahrwege des Jobs gegen den Arbeitsbereich prüfen, mit dem Werkstück-Nullpunkt, den die Steuerung meldet */
+export const bedCheck = (ed: Editor, job: Job): BedCheck => checkBed(job.travel, ed.doc.bed, device, machine.workOffset());
+
+const mm = (v: number) => v.toFixed(1);
+const range = (b: Box) => ({ x0: mm(b.x0), x1: mm(b.x1), y0: mm(b.y0), y1: mm(b.y1) });
+
+/** Warnung zur Prüfung (null = alles im Arbeitsbereich) */
+export function bedProblem(ed: Editor, job: Job, c = bedCheck(ed, job)): string | null {
   const { w, h: bh } = ed.doc.bed;
-  if (device.startFrom === 'user') return true; // Lage hängt vom gesetzten Ursprung ab
-  const e = 0.01;
-  // Mit Drehachse ist Y der Umfang des Objekts, nur X muss aufs Bett passen
-  const yOk = rotaryOn(device) || (tb.y0 >= -e && tb.y1 <= bh + e);
-  if (tb.x0 >= -e && tb.x1 <= w + e && yOk) return true;
-  return confirm(
-    t('Der Job reicht über den Arbeitsbereich ({w} × {bh} mm) hinaus:\n', { w, bh }) +
-      t('X {x0} … {x1}, Y {y0} … {y1} mm (inkl. Überfahrweg).\n\nTrotzdem starten?', { x0: tb.x0.toFixed(1), x1: tb.x1.toFixed(1), y0: tb.y0.toFixed(1), y1: tb.y1.toFixed(1) }),
+  if (c.kind === 'ok') return null;
+  if (c.kind === 'unknown')
+    return (
+      t('Start ab Benutzer-Ursprung: Die Steuerung hat noch nicht gemeldet, wo der Ursprung liegt. Ob der Job im Arbeitsbereich ({w} × {bh} mm) bleibt, lässt sich deshalb nicht prüfen.', { w, bh }) +
+      '\n' +
+      t('Vom Ursprung aus reicht er von X {x0} … {x1}, Y {y0} … {y1} mm (inkl. Überfahrweg).', range(job.travel!))
+    );
+  const o = machine.workOffset();
+  return (
+    t('Der Job reicht über den Arbeitsbereich ({w} × {bh} mm) hinaus:', { w, bh }) +
+    '\n' +
+    (c.measured && o && (o.x || o.y)
+      ? t('Mit dem Ursprung der Steuerung (X {ox}, Y {oy}) liegen die Fahrwege bei X {x0} … {x1}, Y {y0} … {y1} mm Maschinenkoordinaten (inkl. Überfahrweg).', { ox: mm(o.x), oy: mm(o.y), ...range(c.box) })
+      : t('X {x0} … {x1}, Y {y0} … {y1} mm (inkl. Überfahrweg).', range(c.box)))
   );
+}
+
+/** Liegt der Job (inkl. Überfahrwegen) im Arbeitsbereich? Sonst deutlich warnen und nachfragen. */
+function boundsOk(ed: Editor, job: Job): boolean {
+  const c = bedCheck(ed, job);
+  const why = bedProblem(ed, job, c);
+  if (!why) return true;
+  const hint =
+    c.kind === 'unknown'
+      ? t('Prüfe vor dem Start, dass vom Ursprung aus genug Platz ist, zum Beispiel mit dem Rahmen.') +
+        (fw().realtime ? ' ' + t('Den Ursprung meldet die Steuerung meist nach wenigen Sekunden, dann prüft KizamuBeam selbst.') : '')
+      : device.startFrom === 'user'
+        ? t('Wahrscheinlich ist der Ursprung falsch gesetzt oder der Job-Ursprung passt nicht dazu.')
+        : '';
+  notify(why.split('\n')[0], true);
+  return confirm(t('⚠ Achtung') + '\n\n' + why + (hint ? '\n\n' + hint : '') + '\n\n' + t('Trotzdem starten?'));
 }
 
 /** Warum gerade kein Job oder Rahmen laufen kann (null = es geht) */

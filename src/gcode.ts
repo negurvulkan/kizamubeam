@@ -370,6 +370,33 @@ export interface Box {
   y1: number;
 }
 
+/**
+ * Ergebnis der Prüfung „liegen alle Fahrwege auf dem Bett?“. box = Fahrbereich in Maschinenkoordinaten
+ * (Bett von 0,0 bis Breite × Höhe), measured = mit dem von der Steuerung gemeldeten Werkstück-Nullpunkt gerechnet.
+ */
+export type BedCheck =
+  | { kind: 'ok'; measured: boolean }
+  | { kind: 'out'; box: Box; measured: boolean }
+  /** Benutzer-Ursprung, dessen Lage die Steuerung (noch) nicht gemeldet hat */
+  | { kind: 'unknown' };
+
+/**
+ * Fahrwege eines Jobs gegen den Arbeitsbereich prüfen. Der G-Code ist in Werkstückkoordinaten, auf der Maschine
+ * landet er um den Werkstück-Nullpunkt wco versetzt. Ist wco unbekannt (null), gilt bei „Absolut“ und
+ * „Aktuelle Position“ wie bisher Werkstück = Maschine; beim Benutzer-Ursprung lässt sich dann nichts sagen.
+ */
+export function checkBed(travel: Box | null, bed: { w: number; h: number }, d: Device, wco: Pt | null): BedCheck {
+  if (!travel) return { kind: 'ok', measured: !!wco };
+  if (!wco && d.startFrom === 'user') return { kind: 'unknown' };
+  const o = wco ?? { x: 0, y: 0 };
+  const box = { x0: travel.x0 + o.x, y0: travel.y0 + o.y, x1: travel.x1 + o.x, y1: travel.y1 + o.y };
+  const e = 0.01;
+  // Mit Drehachse ist Y der Umfang des Objekts, nur X muss aufs Bett passen
+  const yOk = rotaryOn(d) || (box.y0 >= -e && box.y1 <= bed.h + e);
+  if (box.x0 >= -e && box.x1 <= bed.w + e && yOk) return { kind: 'ok', measured: !!wco };
+  return { kind: 'out', box, measured: !!wco };
+}
+
 export interface Job {
   moves: Moves;
   /** Ausdehnung der Laserbahnen (ohne Überfahrwege) in Ausgabekoordinaten */

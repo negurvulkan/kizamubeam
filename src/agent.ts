@@ -7,7 +7,7 @@ import { IDENT } from './model';
 import { library } from './materials';
 import { systemFonts } from './fonts';
 import { isTauri, machine } from './machine';
-import { deviceList, jobInfo } from './laser';
+import { bedCheck, deviceList, jobInfo } from './laser';
 import { agentLog, Args, describe, findObj, json, layerInfo, log, machineBox, onAgentLog, pageList, r3, Tier, ToolDef, ToolError } from './agentutil';
 import { EDIT_TOOLS } from './agentedit';
 import { GCODE_TOOLS, MACHINE_TOOLS, requestState } from './agentmachine';
@@ -153,15 +153,15 @@ const READ_TOOLS: ToolDef[] = [
       const { job, est, device } = await jobInfo(ed);
       if (!est) return json({ empty: true, note: device.cutSelected ? 'Nur Auswahl lasern ist an, und die Auswahl ist leer.' : 'Keine Objekte auf Layern mit Ausgabe.' });
       const b = job.bounds!;
-      const bed = ed.doc.bed;
-      const tb = job.travel;
+      const bed = bedCheck(ed, job);
       return json({
         device: device.name,
         durationSeconds: Math.round(est.total),
         laserPathMeters: r3(est.cutLength / 1000),
         travelMeters: r3(est.rapidLength / 1000),
         area: { x: r3(b.x0), y: r3(b.y0), w: r3(b.x1 - b.x0), h: r3(b.y1 - b.y0) },
-        insideBed: !tb || device.startFrom === 'user' || (tb.x0 >= -0.01 && tb.y0 >= -0.01 && tb.x1 <= bed.w + 0.01 && tb.y1 <= bed.h + 0.01),
+        // null = Benutzer-Ursprung, dessen Lage die Steuerung noch nicht gemeldet hat
+        insideBed: bed.kind === 'unknown' ? null : bed.kind === 'ok',
         startFrom: device.startFrom,
         cutSelectedOnly: device.cutSelected,
         airAssistLayers: job.air,
