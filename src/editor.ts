@@ -2,8 +2,10 @@
 import {
   about, allObjs, apply, bumpIds, clone, cloneObjs, DEFAULT_ADJUST, defaultImageLayer, defaultLayer, Doc, normalizeLayer, IDENT, loadDoc, pageName, ImageAdjust, ImageLayer,
   ImageShape, inv, Layer, leaves, Mat, mul, newDoc, newId, Node, Obj, PALETTE, Pt, rotate, scale, setLayerDeep, Shape, SubPath,
-  TextPath, TextShape, translate, visibleLeaves, homeLayer,
+  TextPath, TextShape, translate, visibleLeaves, homeLayer, BarcodeShape, VarText,
 } from './model';
+import { advanceVarText, defaultVarText, expand, parseCsv, setVarTextSource, shownText } from './vartext';
+import { barcodeData } from './barcode';
 import { ArcLength } from './textpath';
 import { addAsset, adjustedGray, assetImage, assetUrl, displayCanvas, onImageReady, registerAsset, restoreAssets, sourceSize } from './images';
 import { ImportResult, transformSubs } from './importers';
@@ -153,6 +155,9 @@ export class Editor {
   constructor(public canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
     this.restore();
+    setVarTextSource(() => this.doc.vt);
+    // Datum und Uhrzeit in variablem Text aktuell halten
+    window.setInterval(() => this.refreshVarText(), 15000);
     this.loadSnapSettings();
     this.loadBoolSettings();
     // Texte werden mit den Schriftkonturen gezeichnet; nach dem Laden einer Schrift neu zeichnen
@@ -240,6 +245,14 @@ export class Editor {
     this.jointPicks = [];
     this.jointHover = null;
   }
+  /** Rückgängig/Wiederholen: Zähler und CSV-Daten des variablen Texts gehören nicht zum Verlauf */
+  private loadKeepVarText(json: string) {
+    const vt = this.doc.vt;
+    this.load(json);
+    if (vt) this.doc.vt = vt;
+    else delete this.doc.vt;
+    this.touchVarText();
+  }
   /** Während batch(): alle Änderungen zählen als ein Undo-Schritt */
   private batching = false;
   /**
@@ -277,7 +290,7 @@ export class Editor {
     const s = this.undo.pop();
     if (!s) return;
     this.redo.push(this.state());
-    this.load(s);
+    this.loadKeepVarText(s);
     this.emit('doc');
     this.emit('sel');
   }
@@ -285,7 +298,7 @@ export class Editor {
     const s = this.redo.pop();
     if (!s) return;
     this.undo.push(this.state());
-    this.load(s);
+    this.loadKeepVarText(s);
     this.emit('doc');
     this.emit('sel');
   }
@@ -940,7 +953,7 @@ export class Editor {
         }
         const o = this.hitTest(wp);
         this.setSel(o ? [o] : []);
-        if (o && o.shape.kind === 'text') this.hint = t('Text hat keine Knoten. Erst in einen Pfad umwandeln (folgt mit der Schrift-Engine).');
+        if (o && (o.shape.kind === 'text' || o.shape.kind === 'barcode')) this.hint = t('Text und QR-Codes haben keine Knoten. Erst in einen Pfad umwandeln (Ctrl+Shift+C).');
         else if (o && o.shape.kind === 'group') this.hint = t('Gruppen erst auflösen (Ctrl+U), dann Knoten bearbeiten.');
         else this.hint = TOOL_HINTS.node;
         this.emit('tool');
@@ -1299,6 +1312,9 @@ export class Editor {
         this.setSel([o]);
         this.rotateMode = false;
         this.textEditor?.(o, false);
+      } else if (o && o.shape.kind === 'barcode') {
+        this.setSel([o]);
+        this.onBarcodeEdit?.(o);
       } else if (o && o.shape.kind !== 'group') {
         this.setSel([o]);
         this.setTool('node');
@@ -1387,7 +1403,7 @@ export class Editor {
     this.jointHover = null;
     for (const [leaf, m] of visibleLeaves(this.doc.objs)) {
       const k = leaf.shape.kind;
-      if (k === 'text' || k === 'image' || !this.layer(leaf.layer).show) continue;
+      if (k === 'text' || k === 'image' || k === 'barcode' || !this.layer(leaf.layer).show) continue;
       shapeSubs(leaf.shape).forEach((sp, si) =>
         segments(sp).forEach((sg, gi) => {
           if (sg.curve) return;
@@ -1488,7 +1504,7 @@ export class Editor {
   private nodeTarget(): Obj | null {
     if (this.sel.length !== 1) return null;
     const o = this.sel[0];
-    return o.shape.kind === 'group' || o.shape.kind === 'text' || o.shape.kind === 'image' ? null : o;
+    return o.shape.kind === 'group' || o.shape.kind === 'text' || o.shape.kind === 'image' || o.shape.kind === 'barcode' ? null : o;
   }
 
   private updateNodeHover(sx: number, sy: number) {
@@ -1543,7 +1559,7 @@ export class Editor {
 
   /** Formen und Texte der Auswahl in Pfade umwandeln (Texte über die Schriftkonturen). */
   async convertSelToPath() {
-    const objs = this.sel.filter((o) => ['rect', 'ellipse', 'polygon', 'text', 'group'].includes(o.shape.kind));
+    const objs = this.sel.filter((o) => ['rect', 'ellipse', 'polygon', 'text', 'barcode', 'group'].includes(o.shape.kind));
     if (!objs.length) return;
     const fallbacks = new Set<string>();
     const outlines = new Map<Obj, SubPath[]>();
@@ -2213,11 +2229,131 @@ export class Editor {
     return this.usedLayers().sort((a, b) => (this.layer(a).priority ?? a + 100) - (this.layer(b).priority ?? b + 100));
   }
 
+  // ---------- QR-Codes ----------
+
+  /** Doppelklick auf einen QR-Code: Dialog zum Bearbeiten öffnen */
+  onBarcodeEdit: ((o: Obj) => void) | null = null;
+  selBarcodes(): Obj[] {
+    return this.sel.filter((o) => o.shape.kind === 'barcode');
+  }
+  /** Neuen QR-Code mittig in der sichtbaren Fläche auf dem aktuellen Layer einfügen */
+  addBarcode(shape: BarcodeShape) {
+    let c = this.toWorld(RULER + (this.w - RULER) / 2, RULER + (this.h - RULER) / 2);
+    const bed = this.doc.bed;
+    if (c.x < 0 || c.y < 0 || c.x > bed.w || c.y > bed.h) c = { x: bed.w / 2, y: bed.h / 2 };
+    const o: Obj = { id: newId(), m: translate(c.x - shape.size / 2, c.y - shape.size / 2), layer: this.currentLayer, shape };
+    this.placeNew([o], t('QR-Code eingefügt. Doppelklick öffnet ihn zum Bearbeiten.'));
+  }
+  /** Inhalt oder Einstellungen eines QR-Codes ändern; die Größe bleibt um die Mitte erhalten */
+  updateBarcode(o: Obj, patch: Partial<BarcodeShape>) {
+    if (o.shape.kind !== 'barcode') return;
+    this.snapshot();
+    const old = o.shape.size;
+    Object.assign(o.shape, patch);
+    if (patch.vt === undefined && 'vt' in patch) delete o.shape.vt;
+    if (o.shape.size !== old) {
+      const d = (old - o.shape.size) / 2;
+      o.m = mul(o.m, translate(d, d));
+    }
+    this.touch(o.shape);
+    this.emit('doc');
+    this.emit('sel');
+  }
+
+  // ---------- Variabler Text ----------
+
+  /** Projektweite Einstellungen (werden beim ersten Zugriff angelegt) */
+  get varText(): VarText {
+    return (this.doc.vt ??= defaultVarText());
+  }
+  /** Zähler, Schrittweite usw. ändern (nicht rückgängig zu machen, wie in LightBurn) */
+  setVarText(patch: Partial<VarText>) {
+    Object.assign(this.varText, patch);
+    this.touchVarText();
+    this.emit('doc');
+  }
+  /** Nummer um steps Schritte weiter- (oder zurück-)zählen */
+  stepVarText(steps: number) {
+    advanceVarText(this.varText, steps);
+    this.touchVarText();
+    this.emit('doc');
+  }
+  /** CSV-Datei laden: Zähler läuft danach über alle Datenzeilen */
+  loadCsv(name: string, text: string, header: boolean): number {
+    const rows = parseCsv(text);
+    const head = header && rows.length ? rows.shift()! : null;
+    Object.assign(this.varText, { csv: { name, header: head, rows }, start: 1, end: Math.max(1, rows.length), current: 1 });
+    this.touchVarText();
+    this.emit('doc');
+    return rows.length;
+  }
+  clearCsv() {
+    delete this.varText.csv;
+    this.touchVarText();
+    this.emit('doc');
+  }
+  /** Objekte mit variablem Text (alle Seiten oder nur die aktuelle) */
+  varTextObjs(allPages = true): Obj[] {
+    const out: Obj[] = [];
+    for (const [o] of leaves(allPages ? allObjs(this.doc) : this.doc.objs))
+      if ((o.shape.kind === 'text' || o.shape.kind === 'barcode') && o.shape.vt) out.push(o);
+    return out;
+  }
+  /** Zähler oder CSV haben sich geändert: Zwischenspeicher der betroffenen Objekte leeren */
+  touchVarText() {
+    for (const o of this.varTextObjs()) this.touch(o.shape);
+    this.redraw();
+  }
+  private shownVt = new WeakMap<Shape, string>();
+  /** Regelmäßig: Hat sich durch Datum/Uhrzeit ein angezeigter Inhalt geändert? */
+  private refreshVarText() {
+    let changed = false;
+    for (const o of this.varTextObjs(false)) {
+      const s = o.shape;
+      const v = s.kind === 'text' ? shownText(s) : s.kind === 'barcode' ? barcodeData(s) : '';
+      if (this.shownVt.get(s) === v) continue;
+      if (this.shownVt.has(s)) {
+        this.touch(s);
+        changed = true;
+      }
+      this.shownVt.set(s, v);
+    }
+    if (changed) this.emit('sel');
+  }
+  /** Nach einem gestarteten Job oder gespeicherten G-Code: bei „Automatisch weiterzählen“ die Nummer erhöhen */
+  afterJob() {
+    const vt = this.doc.vt;
+    if (!vt?.autoAdvance || !this.varTextObjs(false).length) return;
+    this.stepVarText(1);
+    this.hint = t('Variabler Text: weiter mit Nummer {n}.', { n: vt.current });
+    this.emit('tool');
+  }
+  /** Variablen Text der Auswahl festschreiben („Bake“): der aktuelle Inhalt wird zu festem Text */
+  bakeVarText(): number {
+    const objs = this.varTextObjs(false).filter((o) => [...leaves(this.sel)].some(([l]) => l === o));
+    if (!objs.length) return 0;
+    this.snapshot();
+    for (const o of objs) {
+      const s = o.shape;
+      if (s.kind === 'text') s.text = shownText(s);
+      else if (s.kind === 'barcode') s.data = barcodeData(s);
+      if (s.kind === 'text' || s.kind === 'barcode') delete s.vt;
+      this.touch(s);
+    }
+    this.emit('doc');
+    this.emit('sel');
+    return objs.length;
+  }
+  /** Vorschau eines Platzhaltertexts mit der aktuellen Nummer */
+  previewVarText(template: string, offset = 0): string {
+    return expand(template, this.varText.current + offset, this.varText);
+  }
+
   selTexts(): Obj[] {
     return this.sel.filter((o) => o.shape.kind === 'text');
   }
   updateTexts(patch: Partial<TextShape>) {
-    Object.assign(this.textDefaults, Object.fromEntries(Object.entries(patch).filter(([k]) => k !== 'text' && k !== 'path')));
+    Object.assign(this.textDefaults, Object.fromEntries(Object.entries(patch).filter(([k]) => k !== 'text' && k !== 'path' && k !== 'vt' && k !== 'maxW')));
     const ts = this.selTexts();
     if (!ts.length) return;
     this.snapshot();

@@ -9,7 +9,8 @@
     "tauri": "tauri",
     "i18n:check": "node scripts/i18n-check.mjs",
     "test:core": "node scripts/core-fixtures.mjs && cd src-tauri && cargo test -p laserwerk-core",
-    "test:gcode": "node scripts/run-ts.mjs scripts/gcode-test.ts"
+    "test:gcode": "node scripts/run-ts.mjs scripts/gcode-test.ts",
+    "test:vartext": "node scripts/run-ts.mjs scripts/vartext-test.ts"
   },
   "license": "GPL-3.0-or-later",
   "devDependencies": {
@@ -25,6 +26,7 @@
     "@tauri-apps/api": "^2.12.4",
     "clipper-lib": "^6.4.2",
     "opentype.js": "^1.3.4",
+    "qrcode-generator": "^2.0.4",
     "utif": "^3.1.0"
   },
   "private": true,

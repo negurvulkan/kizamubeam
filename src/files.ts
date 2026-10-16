@@ -8,11 +8,11 @@ import { t } from './i18n';
 
 const isTauri = () => '__TAURI_INTERNALS__' in window;
 
-export async function saveText(name: string, filterName: string, ext: string, mime: string, contents: string) {
+/** Textdatei speichern; false, wenn der Dialog abgebrochen wurde */
+export async function saveText(name: string, filterName: string, ext: string, mime: string, contents: string): Promise<boolean> {
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('save_text_file', { defaultName: name, filterName, extensions: [ext], contents });
-    return;
+    return (await invoke<string | null>('save_text_file', { defaultName: name, filterName, extensions: [ext], contents })) !== null;
   }
   const url = URL.createObjectURL(new Blob([contents], { type: mime }));
   const a = document.createElement('a');
@@ -20,6 +20,7 @@ export async function saveText(name: string, filterName: string, ext: string, mi
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return true;
 }
 
 /** Textdatei wählen und lesen; liefert [Dateiname, Inhalt] oder null */

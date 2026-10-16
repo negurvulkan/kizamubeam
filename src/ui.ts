@@ -1,7 +1,7 @@
 // Oberfläche: Menü, Leisten, Panels, Palette, Statusleiste.
 import { Editor, Tool } from './editor';
 import { ICONS } from './icons';
-import { DITHER_MODES, DitherMode, ImageAdjust, ImageLayer, ImageShape, isCellMode, Layer, layerLabel, Obj, pageName, PALETTE, SubPath, TextShape } from './model';
+import { DITHER_MODES, DitherMode, ImageAdjust, ImageLayer, ImageShape, isCellMode, Layer, layerLabel, Obj, pageName, PALETTE, SubPath, TextShape, BarcodeShape } from './model';
 import { deletePreset, loadPresets, presetOutput, savePreset } from './imagePresets';
 import { exportSvg, importFile, installDropAndPaste, openProject, saveProcessedBitmap, saveProject } from './files';
 import { assetImage, displayCanvas, onImageReady, outputGrid } from './images';
@@ -10,6 +10,7 @@ import { $, evalExpr, f2, h, iconBtn, numInput, sep, setVal } from './dom';
 import { openCircularArrayDialog, openGridArrayDialog } from './arrayDialogs';
 import { openJointDialog } from './jointDialog';
 import { openHingeDialog } from './hingeDialog';
+import { openQrDialog, openVarTextDialog } from './qrDialog';
 import { buildLaser, frameJob, openDeviceDialog, openDevicesDialog, openPreview, saveGCode, startJob } from './laser';
 import { openLayerDialog } from './layerdialog';
 import { openMaterialTestDialog } from './materialtest';
@@ -98,6 +99,7 @@ export function buildUI(ed: Editor) {
   buildTextEditor(ed);
   ed.onImport = () => importFile(ed);
   ed.onGridArray = () => openGridArrayDialog(ed);
+  ed.onBarcodeEdit = (o) => openQrDialog(ed, o);
   ed.onJointDialog = () => openJointDialog(ed);
   installDropAndPaste(ed, $('#stage'));
   window.addEventListener('keydown', (e) => {
@@ -179,6 +181,9 @@ function buildMenu(ed: Editor) {
       [t('Offset …'), 'Alt+O', () => openOffsetDialog(ed)],
       [t('Text auf Pfad'), '', () => ed.applyPathToText()],
       [t('Text vom Pfad lösen'), '', () => ed.removePathFromText()],
+      [t('QR-Code …'), '', () => openQrDialog(ed)],
+      [t('Variabler Text …'), '', () => openVarTextDialog(ed)],
+      [t('Variablen Text festschreiben'), '', () => bakeVarText(ed)],
       [t('Rasterarray …'), 'Ctrl+Shift+A', () => openGridArrayDialog(ed)],
       [t('Kreisarray …'), '', () => openCircularArrayDialog(ed)],
       [t('Verbindungen (Zinken, Zapfen, Keil, T-Slot) …'), '', () => ed.setTool('joint')],
@@ -508,12 +513,24 @@ function buildNumbar(ed: Editor) {
   bPFlip.addEventListener('click', () => ed.updateTextPath({ flip: !bPFlip.classList.contains('on') }));
   const bPOff = h('button', { class: 'toggle', title: t('Text wieder gerade setzen') }, t('Lösen'));
   bPOff.addEventListener('click', () => ed.removePathFromText());
+  // Variabler Text und Höchstbreite
+  const bVar = h('button', { class: 'toggle', title: t('Variabler Text: Platzhalter wie %# (Seriennummer), %Y (Jahr) oder %0 (CSV-Spalte) ersetzen') }, t('Variabel'));
+  bVar.addEventListener('click', () => {
+    const on = !bVar.classList.contains('on');
+    ed.updateTexts({ vt: on ? { offset: 0 } : undefined });
+    if (on && !ed.selTexts().some((o) => /%/.test((o.shape as TextShape).text)))
+      (ed.hint = t('Variabler Text an. Platzhalter wie %# in den Text schreiben; Übersicht unter „Variabler Text …“.')), ed.emit('tool');
+  });
+  const fVtOff = numInput('small', (v) => ed.updateTexts({ vt: { offset: Math.round(v) } }), t('Versatz: wird zur aktuellen Nummer addiert'));
+  const bVtDlg = h('button', { class: 'toggle', title: t('Nummer, CSV-Datei und Platzhalter'), onclick: () => openVarTextDialog(ed) }, '…');
+  const vtProps = h('span', { class: 'field' }, h('label', {}, t('Versatz|Variabler Text'), fVtOff), bVtDlg);
+  const fMaxW = numInput('small', (v) => ed.updateTexts({ maxW: Math.max(0, v) }), t('Höchstbreite (mm): breitere Zeilen werden gestaucht, 0 = aus'));
   const pathProps = h('span', { class: 'field' }, h('label', {}, t('Versatz'), fPOff), h('label', {}, t('Abstand|Text auf Pfad'), fPDist), bPFlip, bPOff);
   const textProps = h(
     'div',
     { class: 'field' },
     h('label', {}, t('Schrift'), fontSel), h('label', {}, t('Höhe'), fSize),
-    h('label', {}, t('Abst. H'), fHs), h('label', {}, 'V', fVs), ...alignBtns, bBold, bItal, bUp, bWeld, bOnPath, pathProps,
+    h('label', {}, t('Abst. H'), fHs), h('label', {}, 'V', fVs), h('label', {}, t('Max. Breite'), fMaxW), ...alignBtns, bBold, bItal, bUp, bWeld, bOnPath, pathProps, bVar, vtProps,
   );
 
   // Knotenbearbeitung
@@ -548,8 +565,16 @@ function buildNumbar(ed: Editor) {
   imgProps.append(...cropBtns);
   const sepImg = sep();
 
+  // QR-Codes
+  const qrInfo = h('span', { class: 'muted' });
+  const qrProps = h('div', { class: 'field' },
+    h('span', { html: ICONS.qr, class: 'muted icon-inline' }), qrInfo,
+    h('button', { class: 'toggle', title: t('Inhalt, Größe und Fehlerkorrektur ändern (Doppelklick)'), onclick: () => ed.selBarcodes()[0] && openQrDialog(ed, ed.selBarcodes()[0]) }, t('Bearbeiten …')),
+  );
+  const sepQr = sep();
+
   const sepShape = sep();
-  bar.append(geo, sepNode, nodeProps, sepImg, imgProps, sepShape, rectProps, polyProps, sep(), textProps);
+  bar.append(geo, sepNode, nodeProps, sepImg, imgProps, sepQr, qrProps, sepShape, rectProps, polyProps, sep(), textProps);
 
   const refresh = () => {
     const b = ed.selBounds();
@@ -575,6 +600,12 @@ function buildNumbar(ed: Editor) {
       const L = ed.imgLayer(o.layer);
       const g = outputGrid(s, o.m, L.interval);
       imgInfo.textContent = imgs.length > 1 ? t('{n} Bilder', { n: imgs.length }) : t('{pxW} × {pxH} px → {cols} × {rows} Punkte ({dpi} DPI)', { pxW: s.pxW, pxH: s.pxH, cols: g.cols, rows: g.rows, dpi: Math.round(25.4 / L.interval) });
+    }
+    const qrs = ed.selBarcodes();
+    qrProps.hidden = sepQr.hidden = !qrs.length;
+    if (qrs.length) {
+      const q = qrs[0].shape as BarcodeShape;
+      qrInfo.textContent = qrs.length > 1 ? t('{n} QR-Codes', { n: qrs.length }) : `${t('QR-Code')}${q.vt ? ` (${t('variabel')})` : ''}`;
     }
     const nn = ed.nodeSelCount;
     nodeInfo.textContent = nn ? t('{n} Knoten', { n: nn }) : t('Knoten');
@@ -603,6 +634,12 @@ function buildNumbar(ed: Editor) {
     bUp.classList.toggle('on', tx.upper);
     alignBtns.forEach((b) => b.classList.toggle('on', b.dataset.align === tx.align));
     bWeld.classList.toggle('on', !!tx.weld);
+    const tvt = ts.length ? (ts[0].shape as TextShape).vt : undefined;
+    bVar.classList.toggle('on', !!tvt);
+    bVar.hidden = vtProps.hidden = !ts.length;
+    vtProps.hidden = !tvt;
+    if (tvt) setVal(fVtOff, String(tvt.offset));
+    setVal(fMaxW, f2(ts.length ? (ts[0].shape as TextShape).maxW ?? 0 : 0));
     bOnPath.hidden = !ed.canApplyPathToText();
     const tp = ts.length ? (ts[0].shape as TextShape).path : undefined;
     pathProps.hidden = !tp;
@@ -637,6 +674,7 @@ function buildTools(ed: Editor) {
     btns.set(t, b);
     bar.append(b);
   });
+  bar.append(iconBtn('qr', t('QR-Code erstellen'), () => openQrDialog(ed)));
   bar.append(sep());
   const mods = [
     iconBtn('union', t('Vereinen: alle gewählten Formen verschmelzen'), () => ed.booleanSel('union')),
@@ -670,6 +708,14 @@ function buildTools(ed: Editor) {
       openOffsetDialog(ed);
     }
   });
+}
+
+function bakeVarText(ed: Editor) {
+  const n = ed.bakeVarText();
+  ed.hint = n
+    ? tn('{n} Objekt festgeschrieben: der aktuelle Inhalt ist jetzt fester Text.', '{n} Objekte festgeschrieben: der aktuelle Inhalt ist jetzt fester Text.', n)
+    : t('Keine Objekte mit variablem Text ausgewählt.');
+  ed.emit('tool');
 }
 
 // ---------- Boolesche Optionen ----------

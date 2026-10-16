@@ -1554,3 +1554,67 @@ table.layers td:nth-child(2) {
   font-size: 12px;
   resize: vertical;
 }
+
+/* QR-Codes und variabler Text */
+.qr-dialog .form {
+  grid-template-columns: 120px 240px;
+}
+.qr-dialog textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font: inherit;
+}
+.qr-layout {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.qr-preview {
+  width: 160px;
+  height: 160px;
+  border: 1px solid var(--border, #888);
+  image-rendering: pixelated;
+  flex: none;
+}
+.qr-dialog .note,
+.vt-dialog .note {
+  max-width: 540px;
+}
+.vt-dialog .form {
+  grid-template-columns: 120px 340px;
+}
+.vt-inline {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.vt-inline input {
+  width: 70px;
+}
+.vt-dialog h4 {
+  margin: 12px 0 4px;
+}
+.vt-preview {
+  font-size: 12px;
+  display: grid;
+  gap: 2px;
+  max-width: 540px;
+}
+.vt-preview code,
+.vt-codes code {
+  background: var(--surface2, rgba(128, 128, 128, 0.15));
+  padding: 0 3px;
+  border-radius: 3px;
+}
+.vt-codes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 14px;
+  font-size: 12px;
+  margin-top: 6px;
+}
+.vt-dialog details {
+  margin-top: 10px;
+}

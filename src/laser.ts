@@ -129,7 +129,7 @@ export async function startJob(ed: Editor, src?: JobSource) {
   const est = estimate(job.moves, device);
   const g = await prepareGCode(job, device, est, src?.name);
   notify(t('Job gestartet, geschätzt {total}.', { total: formatDuration(est.total) }));
-  await machine.runPrepared(g);
+  if ((await machine.runPrepared(g)) && !src) ed.afterJob();
 }
 
 /**
@@ -174,8 +174,10 @@ export async function saveGCode(ed: Editor, src?: JobSource) {
   if (device.startFrom === 'current') notify(t('Hinweis: Die Datei enthält die aktuelle Laserposition als Startpunkt.'));
   const g = await prepareGCode(job, device, estimate(job.moves, device), src?.name);
   const name = src ? `${src.name.toLowerCase().replace(/[^a-z0-9äöüß]+/g, '-')}.gcode` : 'projekt.gcode';
-  if (g.lines) await saveText(name, 'G-Code', 'gcode', 'text/plain', g.lines.join('\n') + '\n');
-  else await native('gcode_save', { id: g.id, defaultName: name, filterName: 'G-Code' });
+  const saved = g.lines
+    ? await saveText(name, 'G-Code', 'gcode', 'text/plain', g.lines.join('\n') + '\n')
+    : (await native<string | null>('gcode_save', { id: g.id, defaultName: name, filterName: 'G-Code' })) !== null;
+  if (saved && !src) ed.afterJob();
 }
 
 /** Job und Zeitschätzung des Dokuments ohne Ausgabe (für KI-Agenten) */
