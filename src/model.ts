@@ -59,6 +59,8 @@ export interface Node {
 export interface SubPath {
   nodes: Node[];
   closed: boolean;
+  /** Vom Nutzer gesetzter Startpunkt (Set Start Point): Knoten 0 und die Knotenreihenfolge bestimmen Anfang und Richtung des Schnitts, die Optimierung ändert sie nicht */
+  start?: boolean;
 }
 
 export type Shape =

@@ -62,6 +62,8 @@ export const ICONS: Record<string, string> = {
   alignTextR: svg('<path d="M4 6h16M10 10h10M4 14h16M10 18h10"/>'),
   moon: svg('<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>'),
   sun: svg('<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>'),
+  trim: svg('<path d="M3 8h18M8 3v18" opacity=".45"/><circle cx="14" cy="18" r="2.2"/><circle cx="19.5" cy="13" r="2.2"/><path d="M15.6 16.4L11 12M18 14.6L13 10"/>'),
+  startpoint: svg('<rect x="4" y="7" width="14" height="12" rx="1" opacity=".45"/><circle cx="4" cy="7" r="2.4"/><path d="M6.5 7H16M13 4l3 3-3 3"/>'),
   union: svg('<path d="M4 9a5 5 0 0 1 9-3 5 5 0 1 1 1 10 5 5 0 0 1-9 3A5 5 0 0 1 4 9z" fill="currentColor" fill-opacity=".25"/>'),
   subtract: svg('<circle cx="9" cy="10" r="5.5" fill="currentColor" fill-opacity=".25"/><circle cx="15" cy="14" r="5.5" stroke-dasharray="2 1.6"/>'),
   intersect: svg('<circle cx="9.5" cy="10" r="5.5" stroke-dasharray="2 1.6"/><circle cx="14.5" cy="14" r="5.5" stroke-dasharray="2 1.6"/><path d="M15 8.6a5.5 5.5 0 0 1-.4 7.4 5.5 5.5 0 0 1-5.6-.6 5.5 5.5 0 0 1 6-6.8z" fill="currentColor" fill-opacity=".45" stroke="none"/>'),

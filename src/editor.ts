@@ -19,8 +19,12 @@ import {
 } from './geom';
 import { AlignGuide, alignBox, alignPoint, buildSnapSet, findSnap, SNAP_LABELS, SnapHit, SnapSet } from './snap';
 import { dec, t, tn } from './i18n';
+import {
+  breakApart, breakAtNode, CLOSE_TOL, copySub, CloseStats, closeSubs, cutParams, extract, JOIN_TOL, joinSubs, nearestParam, pointAt, reverseSub,
+  setStart, trimSpan, trimSub,
+} from './pathtools';
 
-export type Tool = 'select' | 'node' | 'line' | 'rect' | 'ellipse' | 'polygon' | 'text' | 'joint';
+export type Tool = 'select' | 'node' | 'line' | 'rect' | 'ellipse' | 'polygon' | 'text' | 'joint' | 'trim' | 'start';
 
 export const RULER = 22; // px
 
@@ -86,6 +90,23 @@ const SNAP_PX_ALT = 20;
 /** Werkzeug-Layer T1: Hilfslinien liegen dort und werden nie gelasert */
 const GUIDE_LAYER = 30;
 type Mods = { altKey: boolean; ctrlKey: boolean; metaKey: boolean };
+/** Trimmen: Reste werden mit offenen Pfaden verbunden, deren Enden so nah am Schnittpunkt liegen (mm) */
+const TRIM_JOIN = 0.01;
+
+/** Rahmen über alle Knoten und Anfasser (schnelle Vorauswahl, etwas größer als die Kurve selbst) */
+function subsBox(subs: SubPath[]): Box {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const sp of subs)
+    for (const n of sp.nodes)
+      for (const p of [n, n.cin, n.cout]) {
+        if (!p) continue;
+        x0 = Math.min(x0, p.x);
+        y0 = Math.min(y0, p.y);
+        x1 = Math.max(x1, p.x);
+        y1 = Math.max(y1, p.y);
+      }
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
 
 /** Längste Kontur einer Form (z. B. die äußere bei mehreren) als Kurve für Text auf Pfad */
 function linkCurve(s: Shape): SubPath | null {
@@ -600,6 +621,8 @@ export class Editor {
     this.nodeHover = this.segHover = null;
     this.jointPicks = [];
     this.jointHover = null;
+    this.trimHover = null;
+    this.startHover = null;
     this.clearSnap();
     this.hint = TOOL_HINTS[t];
     this.canvas.style.cursor = t === 'select' ? 'default' : t === 'text' ? 'text' : 'crosshair';
@@ -864,6 +887,21 @@ export class Editor {
         this.textEditor?.(t, true);
         return;
       }
+      case 'trim': {
+        const h = this.trimHover;
+        if (h) this.applyTrim(h, { keepCopy: e.shiftKey, noJoin: e.ctrlKey || e.metaKey });
+        return;
+      }
+      case 'start': {
+        const h = this.startHover;
+        if (h) {
+          this.setStartPoint(h.obj, h.sub, h.idx, e.ctrlKey || e.metaKey ? 'reset' : e.shiftKey ? 'reverse' : 'set');
+          return;
+        }
+        const o = this.hitTest(wp);
+        this.setSel(o ? [o] : []);
+        return;
+      }
       case 'joint': {
         const h = this.jointHover;
         if (!h) return;
@@ -984,6 +1022,8 @@ export class Editor {
                 : 'default';
       } else if (this.tool === 'node') this.updateNodeHover(sx, sy);
       else if (this.tool === 'joint') this.updateJointHover(sx, sy);
+      else if (this.tool === 'trim') this.updateTrimHover(sx, sy);
+      else if (this.tool === 'start') this.updateStartHover(sx, sy);
       return;
     }
     switch (d.type) {
@@ -1369,6 +1409,464 @@ export class Editor {
   }
 
   // ---------- Knotenbearbeitung ----------
+
+  // ---------- Pfad-Werkzeuge (Schließen, Verbinden, Zerlegen, Startpunkt, Trimmen) ----------
+
+  /** Formen, die Pfad-Werkzeuge bearbeiten (Grundformen werden dabei zu Pfaden) */
+  private static VECTOR = ['path', 'rect', 'ellipse', 'polygon'];
+
+  /** Pfad-Blätter der Auswahl samt Weltmatrix (Gruppen werden durchsucht, Texte und Bilder ausgelassen) */
+  private selPathLeaves(): [Obj, Mat][] {
+    return [...leaves(this.sel)].filter(([l]) => Editor.VECTOR.includes(l.shape.kind));
+  }
+
+  /** Pfade der Auswahl schließen (Close Path bzw. Close Selected Paths with Tolerance) */
+  closeSel(tol = CLOSE_TOL, mode: 'line' | 'move' = 'line'): CloseStats {
+    const st = this.closeStats(tol);
+    if (!st.closed) {
+      this.hint = st.open
+        ? tn('{n} offener Pfad, Anfang und Ende liegen weiter als {tol} mm auseinander.', '{n} offene Pfade, Anfang und Ende liegen weiter als {tol} mm auseinander.', st.open, { tol: dec(String(tol)) })
+        : t('Keine offenen Pfade in der Auswahl.');
+      this.emit('tool');
+      return st;
+    }
+    this.snapshot();
+    for (const [l, m] of this.selPathLeaves()) {
+      if (l.shape.kind !== 'path') continue;
+      // Abstand in Welt-mm prüfen, geschlossen wird in lokalen Koordinaten
+      const subs = l.shape.subs;
+      const world = transformSubs(subs, m);
+      const hit = subs.filter((_, i) => closeSubs([copySub(world[i])], tol, mode).closed);
+      if (hit.length && closeSubs(hit, Infinity, mode).closed) this.touch(l.shape);
+    }
+    this.hint = tn('{n} Pfad geschlossen', '{n} Pfade geschlossen', st.closed) + (st.open > st.closed ? t(', {n} offen geblieben.', { n: st.open - st.closed }) : '.');
+    this.emit('doc');
+    return st;
+  }
+
+  /** Wie viele offene Pfade der Auswahl sich mit dieser Toleranz schließen ließen (für den Dialog) */
+  closeStats(tol: number): CloseStats {
+    const st: CloseStats = { open: 0, closed: 0 };
+    for (const [l, m] of this.selPathLeaves()) {
+      if (l.shape.kind !== 'path') continue;
+      // Abstände in Welt-mm messen
+      const r = closeSubs(transformSubs(l.shape.subs, m), tol, 'line', false);
+      st.open += r.open;
+      st.closed += r.closed;
+    }
+    return st;
+  }
+
+  /** Offene Pfade der Auswahl verbinden, deren Enden höchstens tol auseinanderliegen (Auto-Join, Alt+J) */
+  joinSel(tol = JOIN_TOL): number {
+    const objs = this.sel.filter((o) => o.shape.kind === 'path');
+    if (!objs.length) {
+      this.hint = this.sel.some((o) => o.shape.kind === 'group') ? t('Gruppen erst auflösen (Ctrl+U), dann verbinden.') : t('Keine Pfade in der Auswahl.');
+      this.emit('tool');
+      return 0;
+    }
+    const all: SubPath[] = [],
+      owner: number[] = [];
+    objs.forEach((o, k) => {
+      for (const sp of transformSubs(shapeSubs(o.shape), o.m)) {
+        all.push(sp);
+        owner.push(k);
+      }
+    });
+    const r = joinSubs(all, tol);
+    if (!r.joins) {
+      this.hint = t('Keine Enden gefunden, die höchstens {tol} mm auseinanderliegen.', { tol: dec(String(tol)) });
+      this.emit('tool');
+      return 0;
+    }
+    this.snapshot();
+    const res = this.mergeJoined(objs, r, owner);
+    this.setSel([...new Set([...this.sel.filter((o) => this.doc.objs.includes(o)), ...res])]);
+    this.hint = tn('{n} Verbindung hergestellt.', '{n} Verbindungen hergestellt.', r.joins);
+    this.emit('doc');
+    return r.joins;
+  }
+
+  /**
+   * Ergebnis von joinSubs ins Dokument übernehmen: Objekte, deren Pfade verbunden wurden, werden zu einem
+   * Pfadobjekt (in Weltkoordinaten) am Platz des hintersten; unbeteiligte bleiben unverändert.
+   */
+  private mergeJoined(objs: Obj[], r: ReturnType<typeof joinSubs>, owner: number[]): Obj[] {
+    // Objekte zusammenfassen, deren Teile in einem Ergebnis aufgehen (Union-Find)
+    const parent = objs.map((_, i) => i);
+    const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    for (const from of r.origin) for (const i of from.slice(1)) parent[find(owner[i])] = find(owner[from[0]]);
+    const changed = new Set<number>();
+    r.origin.forEach((from) => from.length > 1 && changed.add(find(owner[from[0]])));
+    const out: Obj[] = [];
+    for (const root of changed) {
+      const members = objs.filter((_, i) => find(i) === root);
+      const keep = members.reduce((a, b) => (this.doc.objs.indexOf(a) <= this.doc.objs.indexOf(b) ? a : b));
+      const subs = r.subs.filter((_, k) => find(owner[r.origin[k][0]]) === root);
+      keep.shape = { kind: 'path', subs };
+      keep.m = IDENT;
+      this.touch(keep.shape);
+      this.doc.objs = this.doc.objs.filter((o) => o === keep || !members.includes(o));
+      out.push(keep);
+    }
+    return out;
+  }
+
+  /** Auswahl in einzelne Geraden und Kurven zerlegen (Break Apart, Alt+B); Texte über ihre Konturen */
+  async breakApartSel(): Promise<number> {
+    const tops = this.sel.filter((o) => o.shape.kind !== 'image');
+    const outlines = new Map<Obj, SubPath[]>();
+    for (const [leaf] of leaves(tops)) {
+      if (leaf.shape.kind !== 'text') continue;
+      const tx = leaf.shape;
+      outlines.set(leaf, textToSubs(tx, (await loadFont(tx.font, tx.bold, tx.italic)).font));
+    }
+    const parts = new Map<Obj, Obj[]>();
+    let count = 0;
+    for (const top of tops) {
+      const list: Obj[] = [];
+      for (const [leaf, m] of leaves([top])) {
+        if (leaf.shape.kind === 'image') continue;
+        const subs = outlines.get(leaf) ?? shapeSubs(leaf.shape);
+        for (const sp of subs)
+          for (const p of breakApart(sp)) list.push({ id: newId(), m, layer: leaf.layer, shape: { kind: 'path', subs: [p] } });
+      }
+      count += list.length;
+      parts.set(top, list);
+    }
+    if (count > MAX_COPIES) {
+      this.hint = t('Zerlegen: zu viele Teile ({n}, höchstens {max}).', { n: count, max: MAX_COPIES });
+      this.emit('tool');
+      return 0;
+    }
+    if (![...parts.values()].some((l) => l.length > 1)) {
+      this.hint = t('Nichts zu zerlegen: Pfade, Formen oder Texte auswählen.');
+      this.emit('tool');
+      return 0;
+    }
+    this.snapshot();
+    const next: Obj[] = [];
+    for (const o of this.doc.objs) next.push(...(parts.get(o) ?? [o]));
+    this.doc.objs = next;
+    const all = [...parts.values()].flat();
+    this.setSel(all);
+    this.hint = tn('In {n} Teil zerlegt.', 'In {n} Teile zerlegt.', count);
+    this.emit('doc');
+    return count;
+  }
+
+  /** Laufrichtung der Auswahl umkehren (Startpunkt bleibt) */
+  reverseSel() {
+    const ls = this.selPathLeaves();
+    if (!ls.length) return;
+    this.snapshot();
+    for (const [l] of ls) {
+      this.convertObjToPath(l);
+      for (const sp of (l.shape as { subs: SubPath[] }).subs) reverseSub(sp);
+      this.touch(l.shape);
+    }
+    this.hint = t('Richtung umgekehrt.');
+    this.emit('doc');
+  }
+
+  // Startpunkt setzen
+
+  /** Knoten unter dem Mauszeiger im Startpunkt-Werkzeug */
+  startHover: { obj: Obj; m: Mat; sub: number; idx: number } | null = null;
+
+  /** Objekte, deren Knoten das Startpunkt- und Trimm-Werkzeug anbieten (sichtbar, nicht gesperrt, oberste Ebene) */
+  private toolTargets(): Obj[] {
+    return this.doc.objs.filter((o) => !o.hidden && this.selectable(o) && Editor.VECTOR.includes(o.shape.kind) && this.layer(o.layer).show);
+  }
+
+  private updateStartHover(sx: number, sy: number) {
+    const prev = this.startHover;
+    this.startHover = null;
+    let best = 8;
+    // Ausgewählte Objekte haben Vorrang
+    const cands = [...this.sel.filter((o) => Editor.VECTOR.includes(o.shape.kind)), ...this.toolTargets()];
+    for (const o of cands) {
+      shapeSubs(o.shape).forEach((sp, si) =>
+        sp.nodes.forEach((n, ni) => {
+          const q = this.toScreen(apply(o.m, n.x, n.y));
+          const d = Math.hypot(q.x - sx, q.y - sy);
+          if (d < best) {
+            best = d;
+            this.startHover = { obj: o, m: o.m, sub: si, idx: ni };
+          }
+        }),
+      );
+      if (this.startHover && this.sel.includes(o)) break;
+    }
+    const h = this.startHover as Editor['startHover'];
+    this.canvas.style.cursor = h ? 'pointer' : 'crosshair';
+    if (!h !== !prev || (h && prev && (h.obj !== prev.obj || h.sub !== prev.sub || h.idx !== prev.idx))) this.redraw();
+  }
+
+  /**
+   * Startpunkt auf einen Knoten legen. mode 'reverse' kehrt dabei die Richtung um, 'reset' gibt Startpunkt
+   * und Richtung wieder der Optimierung frei. Grundformen werden zu Pfaden.
+   */
+  setStartPoint(o: Obj, sub: number, idx: number, mode: 'set' | 'reverse' | 'reset' = 'set'): boolean {
+    const sp0 = shapeSubs(o.shape)[sub];
+    if (!sp0) return false;
+    if (mode !== 'reset' && !sp0.closed && idx !== 0 && idx !== sp0.nodes.length - 1) {
+      this.hint = t('Offene Pfade beginnen an einem ihrer Enden.');
+      this.emit('tool');
+      return false;
+    }
+    this.snapshot();
+    this.convertObjToPath(o);
+    const sp = (o.shape as { subs: SubPath[] }).subs[sub];
+    if (mode === 'reset') {
+      delete sp.start;
+      this.hint = t('Startpunkt und Richtung wählt wieder die Optimierung.');
+    } else {
+      // offene Pfade: Shift beginnt am anderen Ende
+      const target = !sp.closed && mode === 'reverse' ? (idx === 0 ? sp.nodes.length - 1 : 0) : idx;
+      setStart(sp, target, sp.closed && mode === 'reverse');
+      this.hint = mode === 'reverse' ? t('Startpunkt gesetzt, Richtung umgekehrt.') : t('Startpunkt gesetzt.');
+    }
+    this.touch(o.shape);
+    if (!this.sel.includes(o)) this.setSel([o]);
+    this.startHover = null;
+    this.emit('doc');
+    return true;
+  }
+
+  // Trimmen
+
+  /** Abschnitt unter dem Mauszeiger im Trimm-Werkzeug (Welt) */
+  trimHover: { obj: Obj; sub: number; span: [number, number] | null; piece: SubPath } | null = null;
+  private trimCache: { ver: number; world: Map<Obj, SubPath[]>; cuts: Map<string, number[]> } | null = null;
+
+  private trimData() {
+    if (!this.trimCache || this.trimCache.ver !== this.snapVer) this.trimCache = { ver: this.snapVer, world: new Map(), cuts: new Map() };
+    return this.trimCache;
+  }
+
+  /** Weltkurven eines Objekts (zwischengespeichert, bis sich das Dokument ändert) */
+  private worldSubs(o: Obj): SubPath[] {
+    const c = this.trimData();
+    let w = c.world.get(o);
+    if (!w) c.world.set(o, (w = transformSubs(shapeSubs(o.shape), o.m)));
+    return w;
+  }
+
+  /** Schnittstellen von Unterpfad sub des Objekts o mit allen sichtbaren Kurven der Seite und mit sich selbst */
+  private trimCuts(o: Obj, sub: number): number[] {
+    const c = this.trimData();
+    const key = `${o.id}:${sub}`;
+    const hit = c.cuts.get(key);
+    if (hit) return hit;
+    const target = this.worldSubs(o)[sub];
+    const tb = subsBox([target]);
+    const others: SubPath[] = [];
+    this.worldSubs(o).forEach((sp, i) => i !== sub && others.push(sp));
+    for (const [leaf, m] of visibleLeaves(this.doc.objs)) {
+      if (leaf === o || leaf.shape.kind === 'image' || !this.layer(leaf.layer).show) continue;
+      const subs = leaf.shape.kind === 'text' ? textOutline(leaf.shape)?.subs ?? [] : shapeSubs(leaf.shape);
+      for (const sp of transformSubs(subs, m)) {
+        const b = subsBox([sp]);
+        if (b.x > tb.x + tb.w || tb.x > b.x + b.w || b.y > tb.y + tb.h || tb.y > b.y + b.h) continue;
+        others.push(sp);
+      }
+    }
+    const cuts = cutParams(target, others);
+    c.cuts.set(key, cuts);
+    return cuts;
+  }
+
+  /** Trimm-Abschnitt an Pfadparameter u von Unterpfad sub */
+  private trimAt(o: Obj, sub: number, u: number) {
+    const sp = this.worldSubs(o)[sub];
+    const span = trimSpan(sp, this.trimCuts(o, sub), u);
+    return { obj: o, sub, span, piece: span ? extract(sp, span[0], span[1]) : sp };
+  }
+
+  private updateTrimHover(sx: number, sy: number) {
+    const prev = this.trimHover;
+    const wp = this.toWorld(sx, sy);
+    const tol = 7 / this.view.zoom;
+    let best: { o: Obj; sub: number; u: number; d: number } | null = null;
+    for (const o of this.toolTargets()) {
+      this.worldSubs(o).forEach((sp, si) => {
+        const b = subsBox([sp]);
+        if (wp.x < b.x - tol || wp.x > b.x + b.w + tol || wp.y < b.y - tol || wp.y > b.y + b.h + tol) return;
+        const r = nearestParam(sp, wp);
+        if (r.d < tol && (!best || r.d < best.d)) best = { o, sub: si, u: r.u, d: r.d };
+      });
+    }
+    const bb = best as { o: Obj; sub: number; u: number } | null;
+    this.trimHover = bb ? this.trimAt(bb.o, bb.sub, bb.u) : null;
+    this.canvas.style.cursor = this.trimHover ? 'pointer' : 'crosshair';
+    const same = (a: Editor['trimHover'], b: Editor['trimHover']) =>
+      a === b || (!!a && !!b && a.obj === b.obj && a.sub === b.sub && JSON.stringify(a.span) === JSON.stringify(b.span));
+    if (!same(prev, this.trimHover)) this.redraw();
+  }
+
+  /**
+   * Abschnitt entfernen (Trim). keepCopy: das entfernte Stück bleibt als eigenes Objekt auf dem aktuellen Layer (Shift).
+   * Ohne noJoin werden die Reste an den Schnittpunkten mit anliegenden offenen Pfaden verbunden (wie LightBurn).
+   */
+  applyTrim(h: NonNullable<Editor['trimHover']>, opt: { keepCopy?: boolean; noJoin?: boolean } = {}) {
+    const o = h.obj;
+    if (!this.doc.objs.includes(o)) return;
+    const world = transformSubs(shapeSubs(o.shape), o.m);
+    const sp = world[h.sub];
+    if (!sp) return;
+    this.snapshot();
+    const r = trimSub(sp, h.span);
+    const subs = [...world.slice(0, h.sub), ...r.kept, ...world.slice(h.sub + 1)];
+    const extra: Obj[] = [];
+    if (opt.keepCopy) extra.push({ id: newId(), m: IDENT, layer: this.currentLayer, shape: { kind: 'path', subs: [r.removed] } });
+    let result: Obj | null = null;
+    if (!subs.length) this.doc.objs = this.doc.objs.filter((x) => x !== o);
+    else {
+      o.shape = { kind: 'path', subs };
+      o.m = IDENT;
+      this.touch(o.shape);
+      result = o;
+      if (h.span && !opt.noJoin) {
+        // Reste an den Schnittpunkten mit anliegenden offenen Pfaden verbinden
+        const ends = [pointAt(sp, h.span[0]), pointAt(sp, h.span[1])];
+        const near = (sp2: SubPath) =>
+          !sp2.closed && sp2.nodes.length > 1 && [sp2.nodes[0], sp2.nodes[sp2.nodes.length - 1]].some((n) => ends.some((e) => Math.hypot(n.x - e.x, n.y - e.y) < TRIM_JOIN));
+        const group = [o, ...this.doc.objs.filter((x) => x !== o && x.shape.kind === 'path' && this.selectable(x) && transformSubs(shapeSubs(x.shape), x.m).some(near))];
+        const all: SubPath[] = [],
+          owner: number[] = [];
+        group.forEach((g, k) => transformSubs(shapeSubs(g.shape), g.m).forEach((s) => (all.push(s), owner.push(k))));
+        const j = joinSubs(all, TRIM_JOIN);
+        if (j.joins) result = this.mergeJoined(group, j, owner)[0] ?? o;
+      }
+    }
+    if (extra.length) {
+      this.doc.objs.push(...extra);
+      this.hint = extra[0].layer === o.layer ? t('Entferntes Stück liegt auf demselben Layer wie die Form (anderen Layer wählen, damit es nicht mitgeschnitten wird).') : t('Entferntes Stück auf Layer {n} behalten.', { n: extra[0].layer + 1 });
+    } else this.hint = TOOL_HINTS.trim;
+    this.setSel(result && this.doc.objs.includes(result) ? [result] : this.sel.filter((x) => this.doc.objs.includes(x)));
+    this.trimHover = null;
+    this.emit('doc');
+  }
+
+  /** Für Agenten: Abschnitt an Weltpunkt p trimmen wie mit einem Klick im Trimm-Werkzeug. false = keine Kurve im Umkreis tol */
+  trimAtPoint(p: Pt, tol: number, opt: { keepCopy?: boolean; noJoin?: boolean } = {}): boolean {
+    let best: { o: Obj; sub: number; u: number; d: number } | null = null;
+    for (const o of this.toolTargets())
+      this.worldSubs(o).forEach((sp, si) => {
+        const r = nearestParam(sp, p);
+        if (r.d <= tol && (!best || r.d < best.d)) best = { o, sub: si, u: r.u, d: r.d };
+      });
+    const b = best as { o: Obj; sub: number; u: number } | null;
+    if (!b) return false;
+    this.applyTrim(this.trimAt(b.o, b.sub, b.u), opt);
+    return true;
+  }
+
+  /** Für Agenten: Startpunkt auf den Knoten von o legen, der Weltpunkt p am nächsten liegt */
+  startAtPoint(o: Obj, p: Pt, mode: 'set' | 'reverse' | 'reset'): boolean {
+    let best = { sub: -1, idx: -1, d: Infinity };
+    shapeSubs(o.shape).forEach((sp, si) =>
+      sp.nodes.forEach((n, ni) => {
+        const q = apply(o.m, n.x, n.y);
+        const d = Math.hypot(q.x - p.x, q.y - p.y);
+        if (d < best.d) best = { sub: si, idx: ni, d };
+      }),
+    );
+    return best.sub >= 0 && this.setStartPoint(o, best.sub, best.idx, mode);
+  }
+
+  /** Knoteneditor, Taste T: Abschnitt der Kante unter dem Mauszeiger bis zu den nächsten Schnittpunkten entfernen */
+  private trimNodeSegment() {
+    const o = this.nodeTarget();
+    if (!o || !this.segHover || !this.doc.objs.includes(o)) {
+      this.hint = t('Auf eine Kante zeigen, dann T zum Trimmen.');
+      this.emit('tool');
+      return;
+    }
+    const { sub, seg, t: tt } = this.segHover;
+    this.applyTrim(this.trimAt(o, sub, seg + tt));
+    this.nodeSel.clear();
+    this.segHover = this.nodeHover = null;
+  }
+
+  /** Knoteneditor, Taste B: Pfad am Knoten unter dem Mauszeiger (oder am einzigen gewählten) aufbrechen */
+  private breakAtNodeKey() {
+    const o = this.nodeTarget();
+    if (!o) return;
+    const targets = this.nodesToEdit(o);
+    if (targets.length !== 1) {
+      this.hint = t('Auf einen Knoten zeigen (oder genau einen wählen), dann B zum Aufbrechen.');
+      this.emit('tool');
+      return;
+    }
+    const { sub, idx } = targets[0];
+    const parts = breakAtNode(shapeSubs(o.shape)[sub], idx);
+    if (!parts) {
+      this.hint = t('Am Ende eines offenen Pfads gibt es nichts aufzubrechen.');
+      this.emit('tool');
+      return;
+    }
+    this.snapshot();
+    const subs = this.pathTarget()!;
+    subs.splice(sub, 1, ...parts);
+    this.nodeSel.clear();
+    this.nodeHover = this.segHover = null;
+    this.hint = t('Pfad am Knoten aufgebrochen.');
+    this.touch(o.shape);
+    this.emit('doc');
+    this.emit('sel');
+  }
+
+  /** Startpfeile: blau = gesetzter Startpunkt, grau = Standard (Optimierung darf ihn verlegen) */
+  private drawStartPoints(ctx: CanvasRenderingContext2D, px: number) {
+    const objs = new Set(this.sel.filter((o) => Editor.VECTOR.includes(o.shape.kind)));
+    if (this.startHover) objs.add(this.startHover.obj);
+    ctx.save();
+    for (const o of objs) {
+      shapeSubs(o.shape).forEach((sp, si) => {
+        if (!sp.nodes.length) return;
+        for (const [ni, n] of sp.nodes.entries()) {
+          const q = apply(o.m, n.x, n.y);
+          const hot = this.startHover?.obj === o && this.startHover.sub === si && this.startHover.idx === ni;
+          const r = (hot ? 4.5 : 3) * px;
+          ctx.fillStyle = hot ? SNAP_COLOR : this.dark ? '#24272d' : '#ffffff';
+          ctx.strokeStyle = hot ? SNAP_COLOR : '#5a6470';
+          ctx.lineWidth = px;
+          ctx.fillRect(q.x - r, q.y - r, 2 * r, 2 * r);
+          ctx.strokeRect(q.x - r, q.y - r, 2 * r, 2 * r);
+        }
+        // Richtung: erstes Stück des ersten Segments
+        const sg = segments(sp)[0];
+        if (!sg) return;
+        const a = apply(o.m, sg.a.x, sg.a.y);
+        const b0 = sg.curve ? bezierPt(sg.a, sg.c1, sg.c2, sg.b, 0.05) : sg.b;
+        const b = apply(o.m, b0.x, b0.y);
+        const l = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        const ux = (b.x - a.x) / l,
+          uy = (b.y - a.y) / l;
+        const len = 18 * px,
+          w = 6 * px;
+        const tip = { x: a.x + ux * len, y: a.y + uy * len };
+        ctx.strokeStyle = ctx.fillStyle = sp.start ? '#2070ff' : '#8a9099';
+        ctx.lineWidth = 2.5 * px;
+        ctx.beginPath();
+        ctx.arc(a.x, a.y, 5 * px, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(tip.x - ux * w, tip.y - uy * w);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(tip.x, tip.y);
+        ctx.lineTo(tip.x - ux * w * 1.6 - uy * w, tip.y - uy * w * 1.6 + ux * w);
+        ctx.lineTo(tip.x - ux * w * 1.6 + uy * w, tip.y - uy * w * 1.6 - ux * w);
+        ctx.closePath();
+        ctx.fill();
+      });
+    }
+    ctx.restore();
+  }
 
   // ---------- Verbindungen (Fingerzinken, Schlitz und Zapfen) ----------
 
@@ -2636,12 +3134,16 @@ export class Editor {
       if (k === 'l') return run(() => this.setTool('line'));
       if (k === 't') return run(() => this.setTool('text'));
       if (k === '`' || e.code === 'Backquote') return run(() => this.setTool('node'));
+      if (k === 'k') return run(() => this.setTool('trim'));
       if (k === '0') return run(() => this.zoomPage());
       return;
     }
     if (k === 'pageup' && !e.altKey) return run(() => this.setPage(this.doc.page - 1));
     if (k === 'pagedown' && !e.altKey) return run(() => this.setPage(this.doc.page + 1));
     if (e.altKey && k === 'w') return run(() => ((this.filled = !this.filled), this.emit('view')));
+    // Alt+J / Alt+B (Mac: Option, dort liefert e.key ein Sonderzeichen, daher e.code)
+    if (e.altKey && !e.shiftKey && e.code === 'KeyJ') return run(() => this.joinSel());
+    if (e.altKey && !e.shiftKey && e.code === 'KeyB') return run(() => this.breakApartSel());
     if (k === 'escape')
       return run(() => {
         if (this.drag) return this.cancelDrag();
@@ -2660,6 +3162,8 @@ export class Editor {
       if (k === 'c') return run(() => this.setSegmentType(true));
       if (k === 'e') return run(() => this.setNodeType(false));
       if (k === 's') return run(() => this.setNodeType(true));
+      if (k === 'b') return run(() => this.breakAtNodeKey());
+      if (k === 't') return run(() => this.trimNodeSegment());
       const st = e.shiftKey ? 10 : 1;
       const arrows: Record<string, [number, number]> = { arrowleft: [-st, 0], arrowright: [st, 0], arrowup: [0, -st], arrowdown: [0, st] };
       if (arrows[k] && this.selectedNodes().length) return run(() => this.nudgeNodes(...arrows[k]));
@@ -2955,6 +3459,19 @@ export class Editor {
       }
       ctx.restore();
     }
+
+    // Trimmen: Abschnitt unter dem Mauszeiger rot
+    if (this.tool === 'trim' && this.trimHover) {
+      ctx.save();
+      ctx.strokeStyle = '#e02020';
+      ctx.lineWidth = 3 * px;
+      ctx.lineCap = 'round';
+      ctx.stroke(subsToPath2D([this.trimHover.piece]));
+      ctx.restore();
+    }
+
+    // Startpunkt: Knoten und Startpfeile der gewählten Formen und der Form unter dem Mauszeiger
+    if (this.tool === 'start') this.drawStartPoints(ctx, px);
 
     // Array-Vorschau: Umrisse der Kopien
     if (this.arrayPreview && this.sel.length) {
@@ -3367,13 +3884,15 @@ function normBox(a: Pt, b: Pt): Box {
 
 export const TOOL_HINTS: Record<Tool, string> = {
   select: t('Drehen: knapp außerhalb einer Ecke ziehen oder Auswahl nochmals anklicken. Rahmen nach rechts: umschließend, nach links: kreuzend.'),
-  node: t('Klick/Rahmen wählt Knoten, Shift ergänzt. Entf löschen, L Gerade, C Kurve, E Ecke, S glatt, I einfügen (oder Doppelklick auf Kante).'),
+  node: t('Klick/Rahmen wählt Knoten, Shift ergänzt. Entf löschen, L Gerade, C Kurve, E Ecke, S glatt, I einfügen (oder Doppelklick auf Kante), B aufbrechen, T trimmen.'),
   line: t('Klicken für Ecken, Ziehen für Kurven. Startpunkt anklicken schließt, Doppelklick/Enter/Rechtsklick beendet.'),
   rect: t('Ziehen zum Zeichnen. Shift: Quadrat, Ctrl: von der Mitte.'),
   ellipse: t('Ziehen zum Zeichnen. Shift: Kreis, Ctrl: von der Mitte.'),
   polygon: t('Von der Mitte aus ziehen. Shift: nicht drehen.'),
   text: t('Klicken, um Text zu setzen, oder vorhandenen Text anklicken.'),
   joint: t('Verbindung: erste gerade Kante anklicken (Zinken, Zapfen oder Schlitze). Esc hebt die Wahl auf.'),
+  trim: t('Trimmen: Abschnitt bis zu den nächsten Schnittpunkten anklicken (rot) zum Entfernen. Shift: Stück auf aktuellem Layer behalten, Ctrl: nicht verbinden.'),
+  start: t('Startpunkt: Knoten anklicken, dort beginnt der Schnitt. Shift+Klick: Richtung umkehren, Ctrl+Klick: zurücksetzen (Optimierung wählt).'),
 };
 
 const JOINT_HINT_SECOND =

@@ -511,6 +511,60 @@ export const EDIT_TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'path_tool',
+    title: 'Pfad-Werkzeuge',
+    description:
+      'Pfad-Werkzeuge wie in LightBurn. op "close": offene Pfade schließen, deren Anfang und Ende höchstens tolerance mm (Standard 0.5) auseinanderliegen; close_mode "line" fügt eine Gerade ein, "move" zieht die Enden zusammen. ' +
+      'op "join": offene Pfade verbinden, deren Enden höchstens tolerance mm (Standard 0.05) auseinanderliegen (Auto-Join); beteiligte Objekte werden zu einem. ' +
+      'op "break_apart": in einzelne Geraden und Kurven zerlegen (Texte über ihre Konturen). op "reverse": Laufrichtung umkehren. ' +
+      'op "set_start": Startpunkt des Schnitts auf den Knoten legen, der x/y am nächsten liegt (ein Objekt in ids); reverse kehrt dabei die Richtung um, reset überlässt Startpunkt und Richtung wieder der Optimierung. Offene Pfade beginnen nur an einem Ende. ' +
+      'op "trim": den Abschnitt der Kurve bei x/y bis zu den nächsten Schnittpunkten mit anderen Kurven entfernen (ids nicht nötig); ohne Schnittpunkt wird der ganze Pfad entfernt. Reste werden an den Schnittpunkten verbunden, außer no_join; keep_piece behält das entfernte Stück auf dem aktuellen Layer. ' +
+      'Ergebnisse bleiben Bézierkurven; Grundformen werden dabei zu Pfaden.',
+    tier: Tier.Edit,
+    inputSchema: obj({
+      op: { type: 'string', enum: ['close', 'join', 'break_apart', 'reverse', 'set_start', 'trim'] }, ids: IDS,
+      tolerance: { type: 'number', exclusiveMinimum: 0 }, close_mode: { type: 'string', enum: ['line', 'move'] },
+      x: { type: 'number' }, y: { type: 'number' }, reverse: { type: 'boolean' }, reset: { type: 'boolean' },
+      keep_piece: { type: 'boolean' }, no_join: { type: 'boolean' },
+    }, ['op']),
+    run: async (ed, a) => {
+      const before = snapshotIds(ed);
+      const op = oneOf(a, 'op', ['close', 'join', 'break_apart', 'reverse', 'set_start', 'trim'] as const);
+      ed.hint = '';
+      if (op === 'trim') {
+        const p = W(ed, num(a, 'x'), num(a, 'y'));
+        if (!ed.trimAtPoint(p, num(a, 'tolerance', { def: 1, min: 0.001, max: 100 }), { keepCopy: bool(a, 'keep_piece', false), noJoin: bool(a, 'no_join', false) }))
+          throw new ToolError('Keine trimmbare Kurve (Pfad, Rechteck, Ellipse, Polygon auf oberster Ebene) in der Nähe von x/y');
+        return result(ed, before, { selection: ed.sel.map((o) => o.id) });
+      }
+      const objs = topObjs(ed, ids(a));
+      ed.setSel(objs);
+      if (op === 'close') {
+        const st = ed.closeSel(num(a, 'tolerance', { def: 0.5, min: 0.001, max: 1000 }), oneOf(a, 'close_mode', ['line', 'move'] as const, 'line'));
+        return result(ed, before, { open: st.open, closed: st.closed, objects: describeAll(ed, objs.filter((o) => ed.doc.objs.includes(o))) });
+      }
+      if (op === 'join') {
+        const joins = ed.joinSel(num(a, 'tolerance', { def: 0.05, min: 0.0001, max: 100 }));
+        return result(ed, before, { joins, objects: describeAll(ed, ed.sel) });
+      }
+      if (op === 'break_apart') {
+        const n = await ed.breakApartSel();
+        if (!n) throw new ToolError(ed.hint || 'Nichts zu zerlegen');
+        return result(ed, before);
+      }
+      if (op === 'reverse') {
+        ed.reverseSel();
+        return result(ed, before, { objects: describeAll(ed, objs) });
+      }
+      if (objs.length !== 1) throw new ToolError('set_start braucht genau ein Objekt in ids');
+      const o = objs[0];
+      if (!['path', 'rect', 'ellipse', 'polygon'].includes(o.shape.kind)) throw new ToolError(`Objekt ${o.id} (${o.shape.kind}) hat keine Knoten`);
+      const mode = bool(a, 'reset', false) ? 'reset' : bool(a, 'reverse', false) ? 'reverse' : 'set';
+      if (!ed.startAtPoint(o, W(ed, num(a, 'x'), num(a, 'y')), mode)) throw new ToolError(ed.hint || 'Startpunkt nicht gesetzt');
+      return result(ed, before, { object: describe(ed, o, IDENT, false) });
+    },
+  },
+  {
     name: 'array_grid',
     title: 'Rasterarray',
     description:
