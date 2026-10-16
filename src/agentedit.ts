@@ -485,7 +485,7 @@ export const EDIT_TOOLS: ToolDef[] = [
     name: 'apply_path_to_text',
     title: 'Text auf Pfad',
     description:
-      'Lässt einen Text einer Form folgen (Linie/Pfad, Rechteck, Ellipse, Polygon), wie „Apply Path to Text“ in LightBurn. Der Text übernimmt eine Kopie der Kurve, die Form bleibt als eigenes Objekt erhalten (bei Bedarf löschen). Offene Kurven: Anfang/Mitte/Ende je nach align des Texts; geschlossene Formen: oberster Punkt. Feinjustieren mit edit_object (pathOffset, pathDistance, pathFlip).',
+      'Lässt einen Text einer Form folgen (Linie/Pfad, Rechteck, Ellipse, Polygon), wie „Apply Path to Text“ in LightBurn. Text und Form bleiben verknüpft: Wird die Form verschoben oder geändert, folgt der Text; wird nur der Text verschoben, wandert die Form mit. Die Form wird mitgelasert (auf Layer T1/T2 legen oder ausblenden, wenn nicht); wird sie gelöscht, behält der Text die letzte Kurve. Offene Kurven: Anfang/Mitte/Ende je nach align des Texts; geschlossene Formen: oberster Punkt. Feinjustieren mit edit_object (pathOffset, pathDistance, pathFlip).',
     tier: Tier.Edit,
     inputSchema: obj({ textId: { type: 'integer' }, shapeId: { type: 'integer' } }, ['textId', 'shapeId']),
     run: (ed, a) => {
@@ -494,7 +494,7 @@ export const EDIT_TOOLS: ToolDef[] = [
       if (!['path', 'rect', 'ellipse', 'polygon'].includes(so.shape.kind)) throw new ToolError(`Objekt ${so.id} (${so.shape.kind}) taugt nicht als Kurve`);
       ed.setSel([to, so]);
       if (!ed.applyPathToText()) throw new ToolError(ed.hint || 'Text auf Pfad nicht möglich');
-      return { object: describe(ed, to, IDENT, false), note: 'Die Form bleibt erhalten und wird mitgelasert, solange sie nicht gelöscht oder ausgeblendet ist.' };
+      return { object: describe(ed, to, IDENT, false), note: 'Die Form ist mit dem Text verknüpft und wird mitgelasert, außer auf Layer T1/T2 oder ausgeblendet.' };
     },
   },
   {

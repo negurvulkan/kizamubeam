@@ -170,6 +170,11 @@ export interface TextPath {
   dist: number;
   /** Laufrichtung umkehren: Text auf der anderen Seite der Kurve */
   flip: boolean;
+  /** ID der verknüpften Form: Ändert sie sich, folgt der Text (wie in LightBurn). Fehlt sie, bleibt die letzte Kurve. */
+  link?: number;
+  /** Zuletzt abgeglichene Weltmatrizen von Text und Form, um zu erkennen, was sich bewegt hat */
+  textM?: Mat;
+  linkM?: Mat;
 }
 
 export interface Obj {
@@ -389,13 +394,34 @@ export function clone<T>(v: T): T {
 
 /** Tiefe Kopie mit neuen IDs. */
 export function cloneObj(o: Obj): Obj {
-  const c = clone(o);
+  return cloneObjs([o])[0];
+}
+
+/**
+ * Objekte gemeinsam kopieren (neue IDs). Text auf Pfad, dessen Form mitkopiert wird, folgt der Kopie der Form;
+ * fehlt die Form, verliert die Kopie die Verknüpfung und behält nur die Kurve.
+ */
+export function cloneObjs(objs: Obj[]): Obj[] {
+  const ids = new Map<number, number>();
+  const texts: TextShape[] = [];
   const re = (x: Obj) => {
-    x.id = newId();
+    const id = newId();
+    ids.set(x.id, id);
+    x.id = id;
     if (x.shape.kind === 'group') x.shape.children.forEach(re);
+    if (x.shape.kind === 'text' && x.shape.path?.link !== undefined) texts.push(x.shape);
   };
-  re(c);
-  return c;
+  const out = objs.map((o) => {
+    const c = clone(o);
+    re(c);
+    return c;
+  });
+  for (const s of texts) {
+    const link = ids.get(s.path!.link!);
+    if (link !== undefined) s.path!.link = link;
+    else delete s.path!.link;
+  }
+  return out;
 }
 
 /** Alle Blatt-Objekte samt Welt-Matrix. */
