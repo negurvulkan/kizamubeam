@@ -15,6 +15,8 @@ npm run dev            # nur die Oberfläche im Browser: http://localhost:1420
 npm run tauri build    # Installationspaket
 ```
 
+Unter Windows baut `npm run tauri build` nur den NSIS-Installer (`.exe`, siehe `src-tauri/tauri.windows.conf.json`): Der MSI-Installer akzeptiert keine Vorabversionen wie `1.0.0-alpha`.
+
 ## Was Laserwerk kann
 
 - LightBurn-Layout: Menü, Symbolleiste, Zahlenleiste oben, Werkzeuge links, Schnitte/Layer und Laser rechts, Farbpalette 00–29 plus T1/T2 unten, Statusleiste.
