@@ -85,6 +85,7 @@ export const ICONS: Record<string, string> = {
   refresh: svg('<path d="M19 12a7 7 0 11-2.1-5M19 4v4h-4"/>'),
   target: svg('<circle cx="12" cy="12" r="6"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/>'),
   offset: svg('<rect x="8" y="8" width="8" height="8" rx="1"/><rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke-dasharray="2.2 1.8"/>'),
+  nest: svg('<rect x="2.5" y="2.5" width="19" height="19" rx="1" stroke-dasharray="2 1.6"/><path d="M5 5h7v4H9v4H5z"/><path d="M19 19h-7v-4h3v-4h4z"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>'),
   gridArray: svg('<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1" stroke-dasharray="2 1.5"/><rect x="3" y="14" width="7" height="7" rx="1" stroke-dasharray="2 1.5"/><rect x="14" y="14" width="7" height="7" rx="1" stroke-dasharray="2 1.5"/>'),
   circArray: svg('<circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="4.5" r="2.5"/><circle cx="19.5" cy="12" r="2.5" stroke-dasharray="1.8 1.4"/><circle cx="12" cy="19.5" r="2.5" stroke-dasharray="1.8 1.4"/><circle cx="4.5" cy="12" r="2.5" stroke-dasharray="1.8 1.4"/>'),
   hinge: svg('<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M7 4v6M7 14v6M12 7v10M17 4v6M17 14v6"/>'),

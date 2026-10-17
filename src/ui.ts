@@ -8,6 +8,7 @@ import { assetImage, displayCanvas, onImageReady, outputGrid } from './images';
 import { systemFonts } from './fonts';
 import { $, evalExpr, f2, h, iconBtn, numInput, sep, setVal } from './dom';
 import { openCircularArrayDialog, openGridArrayDialog } from './arrayDialogs';
+import { openNestDialog } from './nestDialog';
 import { openJointDialog } from './jointDialog';
 import { openHingeDialog } from './hingeDialog';
 import { openQrDialog, openVarTextDialog } from './qrDialog';
@@ -268,6 +269,8 @@ function buildMenu(ed: Editor) {
         [t('Horizontal verteilen'), '', () => ed.distribute(true)],
         [t('Vertikal verteilen'), '', () => ed.distribute(false)],
       ] },
+      'sep',
+      [t('Verschachteln …'), '', () => openNestDialog(ed)],
     ]],
     [t('Seiten'), [
       [t('Neue Seite'), '', () => ed.addPage()],
@@ -822,6 +825,7 @@ function buildBars(ed: Editor) {
     { id: 'offset', cat: M, icon: 'offset', label: t('Offset (Alt+O)'), run: () => openOffsetDialog(ed), enabled: sel1 },
     { id: 'gridarray', cat: M, icon: 'gridArray', label: t('Rasterarray: Auswahl in Spalten und Zeilen kopieren (Ctrl+Shift+A)'), run: () => openGridArrayDialog(ed), enabled: sel1 },
     { id: 'circarray', cat: M, icon: 'circArray', label: t('Kreisarray: Auswahl im Kreis um einen Mittelpunkt kopieren'), run: () => openCircularArrayDialog(ed), enabled: sel1 },
+    { id: 'nest', cat: M, icon: 'nest', label: t('Verschachteln: Auswahl mit ihren echten Konturen platzsparend auf Bett, Material oder Reststück legen'), run: () => openNestDialog(ed), enabled: sel1 },
     { id: 'hinge', cat: M, icon: 'hinge', label: t('Biegeschnitte (Living Hinge): gewählte Form mit einem Schnittmuster füllen, damit sich die Platte dort biegen lässt'), run: () => openHingeDialog(ed) },
     { id: 'adjust', cat: I, icon: 'adjust', label: t('Bild anpassen …'), run: () => openAdjustDialog(ed), enabled: () => ed.selImages().length > 0 },
     { id: 'trace', cat: I, icon: 'trace', label: t('Bild nachzeichnen (Alt+T)'), run: () => openTraceDialog(ed), enabled: () => ed.selImages().length > 0 },
@@ -856,7 +860,7 @@ function buildBars(ed: Editor) {
       ],
       tools: [
         'tool:select', 'tool:node', SEP, 'tool:line', 'tool:rect', 'tool:ellipse', 'tool:polygon', 'tool:text', 'qr', 'grp:gen', SEP,
-        'grp:bool', 'offset', 'grp:path', 'grp:array', 'tool:joint', 'lidhinge', 'hinge',
+        'grp:bool', 'offset', 'grp:path', 'grp:array', 'nest', 'tool:joint', 'lidhinge', 'hinge',
       ],
     },
     // Gespeicherte Leisten von vor den Knopfgruppen: die alten Standardfolgen durch die Gruppe ersetzen

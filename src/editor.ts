@@ -28,6 +28,7 @@ import { EditorSnapping } from './editor/snapping';
 import { EditorText } from './editor/text';
 import { EditorGenerators } from './editor/generators';
 import { EditorParams } from './editor/params';
+import { EditorNest } from './editor/nest';
 import { t } from './i18n';
 
 export type { Tool } from './editor/shared';
@@ -405,6 +406,7 @@ export interface Editor
     EditorText,
     EditorGenerators,
     EditorParams,
+    EditorNest,
     EditorImages,
     EditorRender {}
 
@@ -423,6 +425,7 @@ const PARTS = [
   EditorText,
   EditorGenerators,
   EditorParams,
+  EditorNest,
   EditorImages,
   EditorRender,
 ];

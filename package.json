@@ -16,7 +16,8 @@
     "test:joints": "node scripts/run-ts.mjs scripts/joints-test.ts",
     "test:generators": "node scripts/run-ts.mjs scripts/generators-test.ts",
     "test:params": "node scripts/run-ts.mjs scripts/params-test.ts",
-    "test:3d": "node scripts/run-ts.mjs scripts/view3d-test.ts"
+    "test:3d": "node scripts/run-ts.mjs scripts/view3d-test.ts",
+    "test:nest": "node scripts/run-ts.mjs scripts/nest-test.ts"
   },
   "license": "GPL-3.0-or-later",
   "devDependencies": {

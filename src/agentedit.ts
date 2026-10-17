@@ -19,6 +19,7 @@ import { buildGen, checkInput, GENERATORS, getGenerator, normalizeParams, resolv
 import type { Generator, Params } from './generators';
 import { coerce, ParamType, ProjectParam } from './params';
 import { genLeaves } from './editor/generators';
+import { DEFAULT_NEST_SETTINGS, NestSettings } from './editor/nest';
 import { Args, describe, findObj, flip, machineBox, pageList, r3, Tier, ToolDef, ToolError } from './agentutil';
 
 // ---------- Eingaben prüfen ----------
@@ -901,6 +902,49 @@ export const EDIT_TOOLS: ToolDef[] = [
       });
       ed.applyArray(mats, bool(a, 'group', false), t('Kreisarray'));
       return result(ed, before);
+    },
+  },
+  {
+    name: 'nest',
+    title: 'Verschachteln',
+    description:
+      'Verschachtelt (Nesting) Objekte der aktuellen Seite platzsparend mit ihren echten Konturen. sheet: bed (Arbeitsbereich), material (Rechteck width × height, linke untere Ecke x/y) oder shape (Form container aus ids bzw. die größte gewählte als Platte, z. B. ein Reststück; sie bleibt liegen). gap: Abstand zwischen Teilen, margin: zum Rand (mm). rotation_step in Grad (0 = nicht drehen, Standard 90). corner: Ecke, an der begonnen wird (bl, br, tl, tr). holes: kleine Teile in Löcher legen. avoid_others: nicht gewählte Objekte umgehen. new_pages: was nicht passt, auf neue Seiten hinter der aktuellen. Objekte, die sich überschneiden (Gravur auf einem Teil, Loch als eigene Form), und Text auf Pfad bleiben beisammen. quality: fast, normal, fine.',
+    tier: Tier.Edit,
+    inputSchema: obj({
+      ids: IDS, sheet: { type: 'string', enum: ['bed', 'material', 'shape'] }, width: { type: 'number', exclusiveMinimum: 0 }, height: { type: 'number', exclusiveMinimum: 0 },
+      x: { type: 'number' }, y: { type: 'number' }, container: { type: 'integer' }, gap: { type: 'number', minimum: 0 }, margin: { type: 'number', minimum: 0 },
+      rotation_step: { type: 'number', minimum: 0, maximum: 180 }, corner: { type: 'string', enum: ['bl', 'br', 'tl', 'tr'] },
+      holes: { type: 'boolean' }, avoid_others: { type: 'boolean' }, new_pages: { type: 'boolean' }, quality: { type: 'string', enum: ['fast', 'normal', 'fine'] },
+    }, ['ids']),
+    run: async (ed, a) => {
+      const objs = topObjs(ed, ids(a));
+      const sheet = oneOf(a, 'sheet', ['bed', 'material', 'shape'] as const, 'bed');
+      const d = DEFAULT_NEST_SETTINGS;
+      const s: NestSettings = {
+        sheet,
+        w: num(a, 'width', { def: sheet === 'material' ? undefined : d.w, min: 1 }),
+        h: num(a, 'height', { def: sheet === 'material' ? undefined : d.h, min: 1 }),
+        x: num(a, 'x', { def: 0 }), y: num(a, 'y', { def: 0 }),
+        gap: num(a, 'gap', { def: d.gap, min: 0 }), margin: num(a, 'margin', { def: d.margin, min: 0 }),
+        rotStep: num(a, 'rotation_step', { def: d.rotStep, min: 0, max: 180 }),
+        corner: oneOf(a, 'corner', ['bl', 'br', 'tl', 'tr'] as const, d.corner),
+        holes: bool(a, 'holes', d.holes), avoid: bool(a, 'avoid_others', d.avoid), newPages: bool(a, 'new_pages', d.newPages),
+        quality: oneOf(a, 'quality', ['fast', 'normal', 'fine'] as const, 'normal'),
+        container: a.container === undefined ? undefined : num(a, 'container', { int: true }),
+      };
+      if (s.container !== undefined && !objs.some((o) => o.id === s.container)) throw new ToolError('„container“ muss eine der ids sein');
+      ed.setSel(objs);
+      const r = await ed.nestSel(s);
+      if (!r || !r.placed.length) throw new ToolError(ed.hint || 'Nichts verschachtelt');
+      const pageOf = (o: Obj) => ed.doc.pages.findIndex((p) => p.objs.includes(o)) + 1;
+      return {
+        placed: r.placed.map((u) => ({ ids: u.map((o) => o.id), page: pageOf(u[0]) })),
+        ...(r.unplaced.length ? { unplaced: r.unplaced.map((u) => u.map((o) => o.id)) } : {}),
+        new_pages: r.newPages,
+        usage_percent: r.usage.map((u) => Math.round(u * 100)),
+        hint: ed.hint,
+        pages: pageList(ed),
+      };
     },
   },
   {
