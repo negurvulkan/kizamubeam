@@ -21,6 +21,7 @@ import { agentStatus, openAgentDialog } from './agentui';
 import { startAgentBridge } from './agent';
 import { buildObjectsPanel } from './objectsPanel';
 import { buildHistoryPanel } from './historyPanel';
+import { buildParamsPanel } from './paramsPanel';
 import { buildView3dPanel } from './view3d/panel';
 import { dockWindow, initDock, isHidden, resetLayout, toggleWindow, windowList } from './dock';
 import { Action, BarKey, barNames, initToolbars, isBarHidden, openToolbarDialog, refreshBars, SEP, showAllBars, toggleBar } from './toolbars';
@@ -104,6 +105,7 @@ export function buildUI(ed: Editor) {
   buildLayers(ed);
   buildObjectsPanel(ed);
   buildHistoryPanel(ed);
+  buildParamsPanel(ed);
   buildView3dPanel(ed);
   buildLaser(ed);
   initDock();

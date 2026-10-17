@@ -15,7 +15,9 @@ import { buildSvg, importBytesOrThrow } from './files';
 import { t } from './i18n';
 import { library, layerPatch } from './materials';
 import { isTauri } from './machine';
-import { buildGen, checkInput, GENERATORS, getGenerator, normalizeParams } from './generators';
+import { buildGen, checkInput, GENERATORS, getGenerator, normalizeParams, resolveBinds } from './generators';
+import type { Generator, Params } from './generators';
+import { coerce, ParamType, ProjectParam } from './params';
 import { genLeaves } from './editor/generators';
 import { Args, describe, findObj, flip, machineBox, pageList, r3, Tier, ToolDef, ToolError } from './agentutil';
 
@@ -116,6 +118,7 @@ const describeAll = (ed: Editor, objs: Obj[]) => objs.map((o) => describe(ed, o,
 const IDS = { type: 'array', items: { type: 'integer' }, minItems: 1, description: 'Objekt-ids (oberste Ebene, aus get_document)' };
 const LAYER = { type: 'integer', minimum: 0, maximum: 31, description: 'Layer 0–29 (Standard: aktueller Layer der Oberfläche)' };
 const ROT = { type: 'number', description: 'Drehung in Grad gegen den Uhrzeigersinn um die Mitte' };
+const BIND = { type: 'object', description: 'Formeln für Felder nach Schlüssel, mit Projekt-Parametern (siehe project_parameters), z. B. {"thickness": "Dicke", "width": "Breite + 2 * Dicke"}' };
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, ...(required.length ? { required } : {}) });
 
 const LAYER_KEYS: Record<string, string> = {
@@ -132,6 +135,30 @@ const JOINT_NUM_KEYS = [
 ] as const;
 
 /** Parameter eines Generator-Aufrufs (Objekt params) */
+/** Formeln für Felder (bind): Schlüssel → Formel mit Projekt-Parametern, leer = Feld wieder fest */
+function bindArg(g: Generator, a: Args): Record<string, string> {
+  const b = a.bind ?? {};
+  if (typeof b !== 'object' || Array.isArray(b) || b === null) throw new ToolError('„bind“ muss ein Objekt sein');
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(b)) {
+    if (!g.schema.some((s) => s.key === k)) throw new ToolError(`Unbekannter Parameter „${k}“`);
+    if (typeof v !== 'string') throw new ToolError(`bind.${k} muss eine Formel (Text) sein`);
+    out[k] = v.trim();
+  }
+  return out;
+}
+
+/** Formeln auswerten und Teile erzeugen; Fehler in Formeln sind Fehler des Aufrufs */
+function buildBound(g: Generator, params: Params, bind: Record<string, string>) {
+  const rb = resolveBinds(g, params, bind);
+  const bad = rb.issues.filter((i) => i.level === 'error');
+  if (bad.length) throw new ToolError(bad.map((i) => i.msg).join('; '));
+  const r = buildGen(g, rb.params);
+  r.issues.unshift(...rb.issues);
+  if (Object.keys(bind).length) for (const p of r.parts) p.shape.bind = { ...bind };
+  return r;
+}
+
 function paramArg(a: Args): Record<string, unknown> {
   const p = a.params ?? {};
   if (typeof p !== 'object' || Array.isArray(p) || p === null) throw new ToolError('„params“ muss ein Objekt sein');
@@ -273,6 +300,7 @@ export const EDIT_TOOLS: ToolDef[] = [
     tier: Tier.Edit,
     inputSchema: obj({
       generator: { type: 'string', enum: GENERATORS.map((g) => g.id) }, params: { type: 'object', description: 'Parameter nach Schlüssel, siehe Beschreibung' },
+      bind: BIND,
       x: { type: 'number' }, y: { type: 'number' }, layer: LAYER, rotation: ROT,
     }, ['generator', 'x', 'y']),
     run: (ed, a) => {
@@ -281,7 +309,8 @@ export const EDIT_TOOLS: ToolDef[] = [
       const raw = paramArg(a);
       const bad = checkInput(g, raw);
       if (bad.length) throw new ToolError(bad.map((i) => i.msg).join('; '));
-      const r = buildGen(g, normalizeParams(g, raw));
+      const bind = Object.fromEntries(Object.entries(bindArg(g, a)).filter(([, v]) => v));
+      const r = buildBound(g, normalizeParams(g, raw), bind);
       if (!r.parts.length) throw new ToolError(r.issues.map((i) => i.msg).join('; '));
       const p = W(ed, num(a, 'x'), num(a, 'y'));
       const layer = layerOf(ed, a);
@@ -298,9 +327,9 @@ export const EDIT_TOOLS: ToolDef[] = [
     name: 'edit_generator',
     title: 'Parameter eines Bauteils ändern',
     description:
-      'Ändert Parameter eines parametrischen Bauteils (aus generate_part). Nur die angegebenen Parameter ändern sich, die übrigen bleiben. Lage und Drehung bleiben erhalten, die Kontur wird neu berechnet. Bei einem Teil einer Baugruppe gilt die Änderung für alle Teile; entfallende Teile werden entfernt, neue neben das Teil gelegt.',
+      'Ändert Parameter eines parametrischen Bauteils (aus generate_part). Nur die angegebenen Parameter ändern sich, die übrigen bleiben. Ein fester Wert in params löst eine Formel dieses Feldes; bind setzt Formeln mit Projekt-Parametern (leer = wieder fest). Lage und Drehung bleiben erhalten, die Kontur wird neu berechnet. Bei einem Teil einer Baugruppe gilt die Änderung für alle Teile; entfallende Teile werden entfernt, neue neben das Teil gelegt.',
     tier: Tier.Edit,
-    inputSchema: obj({ id: { type: 'integer' }, params: { type: 'object' } }, ['id', 'params']),
+    inputSchema: obj({ id: { type: 'integer' }, params: { type: 'object' }, bind: BIND }, ['id']),
     run: (ed, a) => {
       const hit = findObj(ed.doc.objs, num(a, 'id', { int: true }));
       if (!hit) throw new ToolError(`Kein Objekt mit id ${a.id}`);
@@ -311,9 +340,18 @@ export const EDIT_TOOLS: ToolDef[] = [
       const raw = paramArg(a);
       const bad = checkInput(g, raw);
       if (bad.length) throw new ToolError(bad.map((i) => i.msg).join('; '));
-      const r = buildGen(g, normalizeParams(g, raw, normalizeParams(g, o.shape.params)));
+      // Feste Werte lösen Formeln, bind setzt oder entfernt sie
+      const bind: Record<string, string> = { ...o.shape.bind };
+      for (const k of Object.keys(raw)) delete bind[k];
+      for (const [k, v] of Object.entries(bindArg(g, a))) {
+        if (v) bind[k] = v;
+        else delete bind[k];
+      }
+      const r = buildBound(g, normalizeParams(g, raw, normalizeParams(g, o.shape.params)), bind);
       if (!r.parts.length) throw new ToolError(r.issues.map((i) => i.msg).join('; '));
       const asm = o.shape.asm;
+      // Ohne Formeln: auch eine alte Formel an den übrigen Teilen der Baugruppe entfernen
+      if (!Object.keys(bind).length && asm) for (const m of ed.asmMembers(asm)) delete (m.o.shape as { bind?: unknown }).bind;
       ed.updateGen(o, r);
       const info = Object.fromEntries(r.info),
         warnings = r.issues.map((i) => i.msg);
@@ -351,6 +389,88 @@ export const EDIT_TOOLS: ToolDef[] = [
         current: vt.current, start: vt.start, end: vt.end, advance: vt.advance, autoAdvance: vt.autoAdvance,
         csv: vt.csv ? { file: vt.csv.name, rows: vt.csv.rows.length, columns: vt.csv.header ?? null } : null,
         objects: ed.varTextObjs(false).map((o) => describe(ed, o, IDENT, false)),
+      };
+    },
+  },
+  {
+    name: 'project_parameters',
+    title: 'Projekt-Parameter (Vorlagen)',
+    description:
+      'Liest und ändert die Parameter des Projekts: benannte Werte (type number, text oder bool), die überall benutzt werden. In Texten und QR-Codes setzt {Name} den Wert ein, auch Formeln wie {Breite / 2}, {round(Länge; 1)} oder {Name + " GmbH"} ({{ und }} = Klammern als Text). Felder parametrischer Bauteile bekommen Formeln über bind in generate_part/edit_generator (z. B. bind {"thickness": "Dicke"}). Ändert sich ein Wert, wird alles neu berechnet. Formeln: + - * / % ^, Vergleiche, && || !, a ? b : c, min max abs sqrt floor ceil round(x; Stellen) sin cos tan (Grad) len upper lower if(c; a; b), Argumente mit ; trennen, Zahlen mit Punkt. Reihenfolge der Änderungen: add, edit, set, remove. Ohne Angaben nur lesen.',
+    tier: Tier.Edit,
+    inputSchema: obj({
+      add: {
+        type: 'array',
+        description: 'Neue Parameter',
+        items: obj({
+          name: { type: 'string' }, type: { type: 'string', enum: ['number', 'text', 'bool'] }, value: {},
+          min: { type: 'number' }, max: { type: 'number' }, step: { type: 'number' }, unit: { type: 'string' }, note: { type: 'string' },
+        }, ['name', 'type']),
+      },
+      edit: {
+        type: 'array',
+        description: 'Eigenschaften ändern; newName benennt auch alle Verwendungen um',
+        items: obj({
+          name: { type: 'string' }, newName: { type: 'string' }, type: { type: 'string', enum: ['number', 'text', 'bool'] },
+          min: { type: ['number', 'null'] }, max: { type: ['number', 'null'] }, step: { type: ['number', 'null'] }, unit: { type: 'string' }, note: { type: 'string' },
+        }, ['name']),
+      },
+      set: { type: 'object', description: 'Neue Werte nach Name, z. B. {"Name": "Anna", "Breite": 80}' },
+      remove: { type: 'array', items: { type: 'string' }, description: 'Namen der zu löschenden Parameter (Platzhalter bleiben als Text, Formeln werden zu festen Werten)' },
+    }),
+    run: (ed, a) => {
+      const types = ['number', 'text', 'bool'];
+      for (const x of (Array.isArray(a.add) ? a.add : []) as Record<string, unknown>[]) {
+        if (!types.includes(String(x.type))) throw new ToolError(`type muss number, text oder bool sein`);
+        try {
+          ed.addParam(x.type as ParamType, {
+            name: String(x.name ?? ''), value: x.value as never,
+            ...(typeof x.min === 'number' ? { min: x.min } : {}), ...(typeof x.max === 'number' ? { max: x.max } : {}),
+            ...(typeof x.step === 'number' ? { step: x.step } : {}), ...(typeof x.unit === 'string' && x.unit ? { unit: x.unit } : {}),
+            ...(typeof x.note === 'string' && x.note ? { note: x.note } : {}),
+          });
+        } catch (e) {
+          throw new ToolError(e instanceof Error ? e.message : String(e));
+        }
+      }
+      for (const x of (Array.isArray(a.edit) ? a.edit : []) as Record<string, unknown>[]) {
+        const p = ed.findParam(String(x.name));
+        if (!p) throw new ToolError(`Unbekannter Parameter „${x.name}“`);
+        const patch: Partial<ProjectParam> = {};
+        if (typeof x.newName === 'string') patch.name = x.newName;
+        if (x.type !== undefined) {
+          if (!types.includes(String(x.type))) throw new ToolError(`type muss number, text oder bool sein`);
+          patch.type = x.type as ParamType;
+          if (patch.type !== p.type) patch.value = coerce({ ...p, type: patch.type, min: undefined, max: undefined }, p.value);
+        }
+        for (const k of ['min', 'max', 'step'] as const) if (k in x) patch[k] = typeof x[k] === 'number' ? (x[k] as number) : undefined;
+        if (typeof x.unit === 'string') patch.unit = x.unit;
+        if (typeof x.note === 'string') patch.note = x.note;
+        try {
+          ed.editParam(p, patch);
+        } catch (e) {
+          throw new ToolError(e instanceof Error ? e.message : String(e));
+        }
+      }
+      if (a.set !== undefined) {
+        if (typeof a.set !== 'object' || a.set === null || Array.isArray(a.set)) throw new ToolError('„set“ muss ein Objekt sein');
+        for (const [k, v] of Object.entries(a.set as Record<string, unknown>)) {
+          const p = ed.findParam(k);
+          if (!p) throw new ToolError(`Unbekannter Parameter „${k}“`);
+          if (p.type === 'number' && (typeof v !== 'number' || !isFinite(v))) throw new ToolError(`„${k}“ erwartet eine Zahl`);
+          if (p.type === 'bool' && typeof v !== 'boolean') throw new ToolError(`„${k}“ erwartet true oder false`);
+        }
+        ed.setParamValues(a.set as Record<string, unknown>);
+      }
+      for (const n of (Array.isArray(a.remove) ? a.remove : []) as unknown[]) {
+        const p = ed.findParam(String(n));
+        if (!p) throw new ToolError(`Unbekannter Parameter „${n}“`);
+        ed.removeParam(p);
+      }
+      const problems = ed.applyParams();
+      return {
+        parameters: ed.paramList().map((p) => ({ ...p, usedBy: ed.paramUsers(p).map((o) => o.id) })),
+        problems: problems.map(({ obj, issues }) => ({ id: obj.id, issues: issues.map((i) => `${i.level}: ${i.msg}`) })),
       };
     },
   },

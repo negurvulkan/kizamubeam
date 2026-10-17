@@ -3,6 +3,7 @@
 // Job weiterzählen kann.
 import { lang, t } from './i18n';
 import { TextShape, VarText, VarTextRef } from './model';
+import { fillTemplate } from './params';
 
 export function defaultVarText(): VarText {
   return { start: 1, end: 9999, current: 1, advance: 1, autoAdvance: false };
@@ -81,9 +82,10 @@ export function expand(template: string, n: number, vt: VarText = varText(), now
 /** Nummer eines Objekts mit variablem Text */
 export const numberOf = (ref: VarTextRef, vt: VarText = varText()) => vt.current + (ref.offset || 0);
 
-/** Angezeigter und gelaserter Text */
+/** Angezeigter und gelaserter Text: erst Projekt-Parameter ({Name}), dann variabler Text */
 export function shownText(t: TextShape): string {
-  return t.vt ? expand(t.text, numberOf(t.vt)) : t.text;
+  const s = fillTemplate(t.text);
+  return t.vt ? expand(s, numberOf(t.vt)) : s;
 }
 
 /** Nummer weiterzählen (nach dem Ende wieder von vorn) */

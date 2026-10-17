@@ -4,6 +4,7 @@
 import qrcode from 'qrcode-generator';
 import { BarcodeShape, Node, SubPath } from './model';
 import { expand, numberOf } from './vartext';
+import { fillTemplate, scopeOf } from './params';
 import { subsToPath2D } from './geom';
 
 // Inhalte als UTF-8 kodieren (Umlaute, Emoji); die Bibliothek nimmt sonst nur das untere Byte
@@ -11,7 +12,9 @@ qrcode.stringToBytes = (s: string) => [...new TextEncoder().encode(s)];
 
 /** Inhalt, der tatsächlich kodiert wird (variabler Text eingesetzt) */
 export function barcodeData(s: BarcodeShape): string {
-  return s.vt ? expand(s.data, numberOf(s.vt)) : s.data;
+  // Zahlen immer mit Punkt (Adressen, Kennungen)
+  const d = fillTemplate(s.data, scopeOf(), true);
+  return s.vt ? expand(d, numberOf(s.vt)) : d;
 }
 
 export interface QrMatrix {

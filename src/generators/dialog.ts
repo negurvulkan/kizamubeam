@@ -7,7 +7,9 @@ import type { GenShape, Obj } from '../model';
 import type { BuildResult } from './index';
 import { subsToPath2D } from '../geom';
 import { dec, t, tn } from '../i18n';
-import { buildGen, defaultParams, fieldActive, genLabel, getGenerator, normalizeParams } from './index';
+import { buildGen, defaultParams, fieldActive, genLabel, getGenerator, normalizeParams, resolveBinds } from './index';
+import { evalExpr, f2 } from '../dom';
+import { evaluate, formatNumber, namesIn, projectParams } from '../params';
 import type { Generator, Params, ParamSpec } from './types';
 
 const LAST_KEY = (id: string) => `kizamubeam.gen.${id}`;
@@ -21,6 +23,7 @@ function lastParams(g: Generator): Params {
 }
 
 const UNIT: Record<string, string> = { length: 'mm', angle: '°' };
+const fmtNum = (v: number) => (Number.isInteger(v) ? String(v) : f2(v));
 
 /** Generator-Dialog: neues Bauteil erzeugen (ohne o) oder die Parameter eines vorhandenen ändern */
 export function openGenDialog(ed: Editor, genId: string, o?: Obj) {
@@ -32,6 +35,9 @@ export function openGenDialog(ed: Editor, genId: string, o?: Obj) {
     return;
   }
   const p: Params = old ? normalizeParams(g, old.params) : lastParams(g);
+  // Felder mit Formel aus Projekt-Parametern (z. B. Dicke); beim Erstellen ohne Formeln
+  const binds: Record<string, string> = { ...(old?.bind ?? {}) };
+  const hasParams = projectParams().length > 0;
   const layerKerf = ed.layer(o?.layer ?? ed.currentLayer).kerf;
 
   const rows = new Map<string, HTMLElement[]>();
@@ -39,12 +45,82 @@ export function openGenDialog(ed: Editor, genId: string, o?: Obj) {
     const id = `gen-${s.key}`;
     const unit = s.type === 'length' || s.type === 'angle' ? ` (${UNIT[s.type]})` : '';
     let input: HTMLElement;
-    if (s.type === 'enum') input = select(id, String(p[s.key]), s.options, (v) => ((p[s.key] = v), update()));
-    else if (s.type === 'bool') return [h('span'), check(!!p[s.key], (v) => ((p[s.key] = v), update()), s.label)];
+    if (s.type === 'enum' || s.type === 'bool') {
+      const control = s.type === 'enum'
+        ? select(id, String(p[s.key]), s.options, (v) => ((p[s.key] = v), update()))
+        : check(!!p[s.key], (v) => ((p[s.key] = v), update()), s.label);
+      const els = s.type === 'enum' ? [h('label', { for: id, title: s.title ?? '' }, s.label), control] : [h('span'), control];
+      if (s.title) control.title = s.title;
+      if (!hasParams && !binds[s.key]) return els;
+      // Auswahl und Ja/Nein: Knopf ƒ schaltet auf eine Formel um (z. B. Deckel ? "closed" : "open")
+      const ff = formulaField(s, `${id}-fx`);
+      const fx = h('button', { class: 'small gen-fx', title: t('Formel mit Projekt-Parametern') }, 'ƒ') as HTMLButtonElement;
+      let on = !!binds[s.key];
+      const show = () => {
+        control.hidden = on;
+        ff.hidden = !on;
+        fx.classList.toggle('on', on);
+      };
+      fx.onclick = () => {
+        on = !on;
+        if (!on) delete binds[s.key];
+        show();
+        if (on) ff.querySelector('input')!.focus();
+        update();
+      };
+      show();
+      return [els[0], h('div', { class: 'gen-linkable' }, control, ff, fx)];
+    } else if (hasParams || binds[s.key]) input = formulaField(s, id);
     else input = numField(id, Number(p[s.key]), (v) => ((p[s.key] = v), update()), s.title);
     if (s.title) input.title = s.title;
     return [h('label', { for: id, title: s.title ?? '' }, s.label + unit), input];
   };
+  /**
+   * Feld, das Formeln mit Projekt-Parametern annimmt (z. B. „Dicke“ oder „Breite / 2“). Zahlenfelder nehmen
+   * auch weiter einfache Zahlen; Auswahl- und Ja/Nein-Felder nur Formeln.
+   */
+  function formulaField(s: ParamSpec, id: string): HTMLElement {
+    const isNum = s.type !== 'enum' && s.type !== 'bool';
+    const el = h('input', { type: 'text', id, value: binds[s.key] ?? (isNum ? fmtNum(Number(p[s.key])) : '') }) as HTMLInputElement;
+    if (s.type === 'enum') el.placeholder = s.options.map(([k]) => `"${k}"`).join(' / ');
+    if (s.type === 'bool') el.placeholder = s.label;
+    const shown = h('span', { class: 'gen-bound muted' });
+    const sync = () => {
+      const src = el.value.trim();
+      const plain = isNum ? evalExpr(src) : null;
+      el.classList.remove('invalid');
+      shown.textContent = '';
+      if (plain !== null) {
+        delete binds[s.key];
+        p[s.key] = plain;
+      } else if (src && (!isNum || namesIn(src).length)) {
+        binds[s.key] = src;
+        try {
+          const v = evaluate(src);
+          if (typeof v === 'number') p[s.key] = v;
+          shown.textContent = `= ${typeof v === 'number' ? formatNumber(v) : String(v)}`;
+        } catch (e) {
+          shown.textContent = e instanceof Error ? e.message : String(e);
+          el.classList.add('invalid');
+        }
+      } else if (src || isNum) el.classList.add('invalid');
+      else delete binds[s.key];
+      el.classList.toggle('bound', !!binds[s.key]);
+      update();
+    };
+    el.addEventListener('input', sync);
+    el.addEventListener('focus', () => el.select());
+    el.addEventListener('blur', () => {
+      if (isNum && !binds[s.key] && evalExpr(el.value) !== null) el.value = fmtNum(evalExpr(el.value)!);
+    });
+    el.title = (s.title ? s.title + '\n' : '') + (isNum
+      ? t('Zahl oder Formel mit Projekt-Parametern, z. B. „Dicke“ oder „Breite / 2“')
+      : s.type === 'enum'
+        ? t('Formel, die eine der Auswahlen ergibt: {values}', { values: s.options.map(([k, l]) => `"${k}" = ${l}`).join(', ') })
+        : t('Formel mit Projekt-Parametern, die ja oder nein ergibt, z. B. „Deckel“ oder „Breite > 100“'));
+    if (binds[s.key]) setTimeout(sync, 0);
+    return h('div', { class: 'gen-formula' }, el, shown);
+  }
   const main: HTMLElement[] = [],
     adv: HTMLElement[] = [];
   for (const s of g.schema) {
@@ -61,9 +137,14 @@ export function openGenDialog(ed: Editor, genId: string, o?: Obj) {
 
   const update = () => {
     // Werte für die Prüfung auf den gültigen Bereich bringen; die Eingabefelder behalten, was getippt wurde
-    const np = normalizeParams(g, p);
+    // Formeln mit den aktuellen Parameterwerten auswerten (fehlerhafte Formeln sperren Erzeugen)
+    const rb = resolveBinds(g, normalizeParams(g, p), binds);
+    const np = rb.params;
     for (const s of g.schema) rows.get(s.key)!.forEach((el) => (el.hidden = !fieldActive(s, np)));
     const r = buildGen(g, np);
+    r.issues.unshift(...rb.issues);
+    if (rb.issues.some((i) => i.level === 'error')) r.parts = [];
+    if (Object.keys(binds).length) for (const pt of r.parts) pt.shape.bind = { ...binds };
     built = r.parts.length ? r : null;
     issuesEl.replaceChildren(...r.issues.map((i) => h('div', { class: i.level === 'error' ? 'error' : 'warn' }, i.msg)));
     for (const s of g.schema) {

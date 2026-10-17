@@ -68,12 +68,13 @@ export class EditorGenerators {
    * Parameter ändern: Die Geometrie wird ersetzt, Lage und Drehung bleiben. Bei Baugruppen werden alle Teile
    * (auf allen Seiten) neu berechnet; Teile, die die neuen Parameter nicht mehr ergeben, fallen weg, neu
    * hinzukommende (z. B. ein Deckel) kommen an ihren Platz in der Anordnung. Teile, die der Nutzer gelöscht
-   * hat, bleiben gelöscht.
+   * hat, bleiben gelöscht. silent: ohne eigenen Undo-Schritt, Hinweis und Meldung (Neuberechnung nach einer
+   * Parameter-Änderung, die selbst den Schritt anlegt).
    */
-  updateGen(this: Editor, o: Obj, r: BuildResult) {
+  updateGen(this: Editor, o: Obj, r: BuildResult, silent = false) {
     if (o.shape.kind !== 'gen' || !r.parts.length) return;
     const old = o.shape;
-    this.snapshot(t('{name} ändern', { name: groupLabel(old) }));
+    if (!silent) this.snapshot(t('{name} ändern', { name: groupLabel(old) }));
     const g = getGenerator(old.gen);
     if (!old.asm || !g) {
       o.shape = { ...r.parts[0].shape };
@@ -120,8 +121,10 @@ export class EditorGenerators {
       }
       this.doc.objs.push(...added);
       const alive = new Set(this.doc.objs);
-      this.setSel([...this.sel.filter((x) => alive.has(x)), ...added]);
+      if (silent) this.sel = this.sel.filter((x) => alive.has(x));
+      else this.setSel([...this.sel.filter((x) => alive.has(x)), ...added]);
     }
+    if (silent) return;
     const n = r.parts.length;
     this.hint = n > 1
       ? t('{name}: {n} Teile neu berechnet.', { name: groupLabel(r.parts[0].shape), n })

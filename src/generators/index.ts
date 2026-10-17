@@ -11,6 +11,7 @@ import { GEARPAIR } from './gearpair';
 import { PULLEY } from './pulley';
 import { RACK } from './rack';
 import type { Generator, Issue, Params, ParamSpec, ParamValue } from './types';
+import { evaluate, ExprError, scopeOf, type Scope } from '../params';
 
 export type { GenPart, Generator, Issue, Params, ParamSpec } from './types';
 
@@ -118,4 +119,33 @@ export function loadGen(s: GenShape) {
   if (!g) return;
   if (g.migrate && s.v < g.version) s.params = g.migrate(s.params, s.v);
   s.v = Math.max(s.v, g.version);
+}
+
+/**
+ * Formeln der Felder (GenShape.bind) mit den Projekt-Parametern auswerten. Felder, deren Formel nicht
+ * auswertbar ist, behalten ihren bisherigen Wert; die Meldung steht in issues.
+ */
+export function resolveBinds(g: Generator, params: Params, bind: Record<string, string> | undefined, scope: Scope = scopeOf()): { params: Params; issues: Issue[] } {
+  const raw: Record<string, unknown> = { ...params };
+  const issues: Issue[] = [];
+  for (const [key, src] of Object.entries(bind ?? {})) {
+    const s = g.schema.find((x) => x.key === key);
+    if (!s) continue;
+    try {
+      const v = evaluate(src, scope);
+      if (s.type === 'bool') raw[key] = typeof v === 'string' ? v !== '' : !!v;
+      else if (s.type === 'enum') {
+        if (!s.options.some(([k]) => k === v)) throw new ExprError(t('„{v}“ ist keine Auswahl für „{label}“ ({values})', { v: String(v), label: s.label, values: s.options.map(([k]) => k).join(', ') }));
+        raw[key] = v;
+      } else {
+        const n = typeof v === 'number' ? v : Number(v);
+        if (!isFinite(n)) throw new ExprError(t('„{label}“: Die Formel ergibt keine Zahl.', { label: s.label }));
+        if (n < s.min || n > s.max) issues.push({ key, level: 'warn', msg: t('„{label}“ = {v} liegt außerhalb von {min} … {max} und wird begrenzt.', { label: s.label, v: n, min: s.min, max: s.max }) });
+        raw[key] = n;
+      }
+    } catch (e) {
+      issues.push({ key, level: 'error', msg: `${s.label}: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  }
+  return { params: normalizeParams(g, raw, params), issues };
 }
