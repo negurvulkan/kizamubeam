@@ -1,7 +1,7 @@
 // Oberfläche: Menü, Leisten, Panels, Palette, Statusleiste.
 import { Editor, Tool } from './editor';
 import { ICONS } from './icons';
-import { DITHER_MODES, DitherMode, ImageAdjust, ImageLayer, ImageShape, isCellMode, Layer, layerLabel, Obj, pageName, PALETTE, SubPath, TextShape, BarcodeShape } from './model';
+import { DITHER_MODES, DitherMode, ImageAdjust, ImageLayer, ImageShape, isCellMode, Layer, layerLabel, Obj, pageName, PALETTE, SubPath, TextShape, BarcodeShape, GenShape } from './model';
 import { deletePreset, loadPresets, presetOutput, savePreset } from './imagePresets';
 import { exportSvg, importFile, installDropAndPaste, openProject, saveProcessedBitmap, saveProject } from './files';
 import { assetImage, displayCanvas, onImageReady, outputGrid } from './images';
@@ -11,6 +11,8 @@ import { openCircularArrayDialog, openGridArrayDialog } from './arrayDialogs';
 import { openJointDialog } from './jointDialog';
 import { openHingeDialog } from './hingeDialog';
 import { openQrDialog, openVarTextDialog } from './qrDialog';
+import { askGenConvert, openGenDialog } from './generators/dialog';
+import { genLabel } from './generators';
 import { buildLaser, frameJob, openDeviceDialog, openDevicesDialog, openPreview, openRotaryDialog, saveGCode, startJob } from './laser';
 import { openLayerDialog } from './layerdialog';
 import { openMaterialTestDialog } from './materialtest';
@@ -111,6 +113,8 @@ export function buildUI(ed: Editor) {
   ed.onImport = () => importFile(ed);
   ed.onGridArray = () => openGridArrayDialog(ed);
   ed.onBarcodeEdit = (o) => openQrDialog(ed, o);
+  ed.onGenEdit = (o) => openGenDialog(ed, '', o);
+  ed.onGenGuard = askGenConvert;
   ed.onJointDialog = () => openJointDialog(ed);
   installDropAndPaste(ed, $('#stage'));
   window.addEventListener('keydown', (e) => {
@@ -183,6 +187,9 @@ function buildMenu(ed: Editor) {
       [t('Polygon'), '', () => ed.setTool('polygon')],
       [t('Text'), 'Ctrl+T', () => ed.setTool('text')],
       [t('QR-Code …'), '', () => openQrDialog(ed)],
+      { sub: t('Generatoren'), items: [
+        [t('Zahnrad …'), '', () => openGenDialog(ed, 'gear')],
+      ] },
       'sep',
       { sub: t('Boolesche Operationen'), items: [
         [t('Vereinen'), '', () => ed.booleanSel('union')],
@@ -608,8 +615,17 @@ function buildNumbar(ed: Editor) {
   );
   const sepQr = sep();
 
+  // Parametrische Bauteile
+  const genInfo = h('span', { class: 'muted' });
+  const genProps = h('div', { class: 'field' },
+    h('span', { html: ICONS.gear, class: 'muted icon-inline' }), genInfo,
+    h('button', { class: 'toggle', title: t('Parameter ändern, die Kontur wird neu berechnet (Doppelklick)'), onclick: () => ed.selGens()[0] && openGenDialog(ed, '', ed.selGens()[0]) }, t('Parameter …')),
+    h('button', { class: 'toggle', title: t('In gewöhnliche Pfade umwandeln; die Parameter gehen verloren (Ctrl+Shift+C)'), onclick: () => ed.convertSelToPath() }, t('In Pfade umwandeln')),
+  );
+  const sepGen = sep();
+
   const sepShape = sep();
-  bar.append(geo, sepNode, nodeProps, sepImg, imgProps, sepQr, qrProps, sepShape, rectProps, polyProps, sep(), textProps);
+  bar.append(geo, sepNode, nodeProps, sepImg, imgProps, sepQr, qrProps, sepGen, genProps, sepShape, rectProps, polyProps, sep(), textProps);
 
   const refresh = () => {
     const b = ed.selBounds();
@@ -642,6 +658,9 @@ function buildNumbar(ed: Editor) {
       const q = qrs[0].shape as BarcodeShape;
       qrInfo.textContent = qrs.length > 1 ? t('{n} QR-Codes', { n: qrs.length }) : `${t('QR-Code')}${q.vt ? ` (${t('variabel')})` : ''}`;
     }
+    const gens = ed.selGens();
+    genProps.hidden = sepGen.hidden = !gens.length;
+    if (gens.length) genInfo.textContent = gens.length > 1 ? t('{n} Bauteile', { n: gens.length }) : genLabel(gens[0].shape as GenShape);
     const nn = ed.nodeSelCount;
     nodeInfo.textContent = nn ? t('{n} Knoten', { n: nn }) : t('Knoten');
     nodeProps.classList.toggle('group-disabled', ed.tool === 'node' && !ed.sel.length);
@@ -762,6 +781,7 @@ function buildBars(ed: Editor) {
       run: () => ed.startHingeTool(), on: () => ed.tool === 'joint' && ed.jointHingeMode,
     },
     { id: 'qr', cat: W, icon: 'qr', label: t('QR-Code erstellen'), run: () => openQrDialog(ed) },
+    { id: 'gear', cat: W, icon: 'gear', label: t('Zahnrad erstellen (Evolventenverzahnung, Parameter bleiben erhalten)'), run: () => openGenDialog(ed, 'gear') },
     { id: 'vartext', cat: W, short: t('Var. Text'), label: t('Variabler Text …'), run: () => openVarTextDialog(ed) },
     { id: 'textpath', cat: W, short: t('Auf Pfad'), label: t('Text auf Pfad'), run: () => ed.applyPathToText(), enabled: sel2 },
     { id: 'union', cat: M, icon: 'union', label: t('Vereinen: alle gewählten Formen verschmelzen'), run: () => ed.booleanSel('union'), enabled: sel2 },
@@ -806,7 +826,7 @@ function buildBars(ed: Editor) {
         'group', 'ungroup', 'grp:transform', 'tolines', SEP, 'grp:align', SEP, 'theme',
       ],
       tools: [
-        'tool:select', 'tool:node', SEP, 'tool:line', 'tool:rect', 'tool:ellipse', 'tool:polygon', 'tool:text', 'qr', SEP,
+        'tool:select', 'tool:node', SEP, 'tool:line', 'tool:rect', 'tool:ellipse', 'tool:polygon', 'tool:text', 'qr', 'gear', SEP,
         'grp:bool', 'offset', 'grp:path', 'grp:array', 'tool:joint', 'lidhinge', 'hinge',
       ],
     },

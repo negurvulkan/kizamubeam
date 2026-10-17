@@ -232,7 +232,14 @@ async function handle(ed: Editor, req: RpcRequest): Promise<object> {
       // Meldungen des Editors gehören zum jeweiligen Aufruf
       if (def.tier === Tier.Edit) ed.hint = '';
       // Änderungen eines Aufrufs bilden genau einen Undo-Schritt; die übrigen Stufen ändern das Dokument nicht
-      const r = def.tier !== Tier.Edit || def.ownUndo ? await def.run(ed, args) : await ed.batch(() => def.run(ed, args), t('KI-Agent: {tool}', { tool: name }));
+      // Während des Aufrufs keine Rückfragen an den Nutzer (z. B. vor dem Umwandeln parametrischer Bauteile)
+      ed.agentCall = true;
+      let r: Awaited<ReturnType<ToolDef['run']>>;
+      try {
+        r = def.tier !== Tier.Edit || def.ownUndo ? await def.run(ed, args) : await ed.batch(() => def.run(ed, args), t('KI-Agent: {tool}', { tool: name }));
+      } finally {
+        ed.agentCall = false;
+      }
       log({ time: new Date(), tool: name, summary: summarize(args), ok: true });
       return { result: { content: Array.isArray(r) ? r : json(r) } };
     } catch (e) {

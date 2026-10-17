@@ -17,7 +17,7 @@ export class EditorShapeOps {
 
   /** Formen und Texte der Auswahl in Pfade umwandeln (Texte über die Schriftkonturen). */
   async convertSelToPath(this: Editor) {
-    const objs = this.sel.filter((o) => ['rect', 'ellipse', 'polygon', 'text', 'barcode', 'group'].includes(o.shape.kind));
+    const objs = this.sel.filter((o) => ['rect', 'ellipse', 'polygon', 'text', 'barcode', 'gen', 'group'].includes(o.shape.kind));
     if (!objs.length) return;
     const fallbacks = new Set<string>();
     const outlines = new Map<Obj, SubPath[]>();
@@ -91,8 +91,10 @@ export class EditorShapeOps {
       this.emit('tool');
       return;
     }
-    const subs = booleanOp(op, await this.withTextOutlines(inputs));
     const keep = this.boolKeep;
+    // Ohne „Originale behalten“ gehen parametrische Bauteile im Ergebnis auf: vorher fragen
+    if (!keep && !(await this.guardGen(inputs, t('Boolesche Operation')))) return;
+    const subs = booleanOp(op, await this.withTextOutlines(inputs));
     if (!subs.length && keep) {
       this.hint = t('Ergebnis ist leer (keine gemeinsame Fläche).');
       this.emit('tool');
@@ -120,6 +122,7 @@ export class EditorShapeOps {
   async offsetSel(this: Editor, opt: OffsetOptions, keepOriginal: boolean) {
     const inputs = this.sel.filter((o) => o.shape.kind !== 'image');
     if (!inputs.length) return;
+    if (!keepOriginal && !(await this.guardGen(inputs, t('Offset')))) return;
     const subs = offsetOp(await this.withTextOutlines(inputs), opt);
     this.snapshot(t('Offset'));
     if (!keepOriginal) this.doc.objs = this.doc.objs.filter((o) => !inputs.includes(o));

@@ -8,7 +8,7 @@ export class EditorNodes {
   nodeTarget(this: Editor): Obj | null {
     if (this.sel.length !== 1) return null;
     const o = this.sel[0];
-    return o.shape.kind === 'group' || o.shape.kind === 'text' || o.shape.kind === 'image' || o.shape.kind === 'barcode' ? null : o;
+    return o.shape.kind === 'group' || o.shape.kind === 'text' || o.shape.kind === 'image' || o.shape.kind === 'barcode' || o.shape.kind === 'gen' ? null : o;
   }
 
   updateNodeHover(this: Editor, sx: number, sy: number) {

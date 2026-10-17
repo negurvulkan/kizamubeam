@@ -5,6 +5,7 @@
 // Aufbau: Ganz oben stehen die Seiten des Projekts. Unter der aktuellen Seite liefert sections() je Layer einen
 // Abschnitt mit dessen Objekten; die anderen Seiten zeigen nur ihre Objektzahl (Klick wechselt dorthin).
 import type { Editor } from './editor';
+import { genLabel } from './generators';
 import { ICONS } from './icons';
 import { homeLayer, layerLabel, Obj, PALETTE } from './model';
 import { $, h } from './dom';
@@ -37,13 +38,15 @@ export function objLabel(o: Obj): string {
       const line = s.data.split('\n')[0].trim();
       return line ? `QR „${line.length > 24 ? line.slice(0, 23) + '…' : line}“` : t('QR-Code');
     }
+    case 'gen':
+      return genLabel(s);
     case 'group':
       return tn('Gruppe ({n} Objekt)', 'Gruppe ({n} Objekte)', s.children.length);
   }
 }
 
 const KIND_ICON: Record<Obj['shape']['kind'], string> = {
-  rect: 'rect', ellipse: 'ellipse', polygon: 'polygon', path: 'path', text: 'text', image: 'image', barcode: 'qr', group: 'group',
+  rect: 'rect', ellipse: 'ellipse', polygon: 'polygon', path: 'path', text: 'text', image: 'image', barcode: 'qr', gen: 'gear', group: 'group',
 };
 
 interface Section {

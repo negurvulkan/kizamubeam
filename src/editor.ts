@@ -24,6 +24,7 @@ import { EditorRender } from './editor/render';
 import { EditorShapeOps } from './editor/shapeops';
 import { EditorSnapping } from './editor/snapping';
 import { EditorText } from './editor/text';
+import { EditorGenerators } from './editor/generators';
 import { t } from './i18n';
 
 export type { Tool } from './editor/shared';
@@ -153,6 +154,14 @@ export class Editor {
     return (this.doc.vt ??= defaultVarText());
   }
   shownVt = new WeakMap<Shape, string>();
+
+  // Parametrische Bauteile (Generatoren)
+  /** Doppelklick auf ein Bauteil: Generator-Dialog mit seinen Parametern öffnen */
+  onGenEdit: ((o: Obj) => void) | null = null;
+  /** Rückfrage, bevor eine Aktion Bauteile in Pfade umwandelt (von der Oberfläche gesetzt) */
+  onGenGuard: ((objs: Obj[], action: string) => Promise<'convert' | 'edit' | 'cancel'>) | null = null;
+  /** Läuft gerade ein Aufruf eines KI-Agenten? Dann gibt es keine Rückfragen, sondern Fehlermeldungen. */
+  agentCall = false;
 
   // Zeichnen der Arbeitsfläche
   get colors() {
@@ -386,6 +395,7 @@ export interface Editor
     EditorCommands,
     EditorObjects,
     EditorText,
+    EditorGenerators,
     EditorImages,
     EditorRender {}
 
@@ -402,6 +412,7 @@ const PARTS = [
   EditorCommands,
   EditorObjects,
   EditorText,
+  EditorGenerators,
   EditorImages,
   EditorRender,
 ];

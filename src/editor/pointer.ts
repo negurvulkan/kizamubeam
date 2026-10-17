@@ -4,6 +4,7 @@ import { Box, boundsOf, leafIntersectsBox, segments, shapeSubs } from '../geom';
 import { buildSnapSet, findSnap } from '../snap';
 import { t } from '../i18n';
 import type { Editor } from '../editor';
+import { genLeaves } from './generators';
 import { HINGE_HINT_FIRST, HINGE_HINT_SECOND, RULER, SNAP_PX, TOOL_HINTS } from './shared';
 
 const ROTATE_CURSOR =
@@ -54,6 +55,15 @@ export class EditorPointer {
         const h = this.hitHandle(sx, sy);
         if (h >= 0) {
           if (this.rotateMode) return this.startRotate(wp);
+          if (genLeaves(this.sel).length) {
+            // Skalieren würde Modul und Maße eines parametrischen Bauteils verfälschen: erst fragen
+            void this.guardGen(this.sel, t('Skalieren')).then((ok) => {
+              if (!ok) return;
+              this.hint = t('In Pfade umgewandelt. Jetzt lässt sich die Auswahl skalieren.');
+              this.emit('tool');
+            });
+            return;
+          }
           this.snapshot(t('Größe ändern'));
           this.drag = { type: 'scale', handle: h, box: this.selBounds()!, orig: this.sel.map((o) => o.m) };
           return;
@@ -222,6 +232,14 @@ export class EditorPointer {
         }
         const o = this.hitTest(wp);
         this.setSel(o ? [o] : []);
+        if (o && genLeaves([o]).length) {
+          void this.guardGen([o], t('Knoten bearbeiten')).then((ok) => {
+            if (!ok) return;
+            this.hint = TOOL_HINTS.node;
+            this.emit('tool');
+          });
+          return;
+        }
         if (o && (o.shape.kind === 'text' || o.shape.kind === 'barcode')) this.hint = t('Text und QR-Codes haben keine Knoten. Erst in einen Pfad umwandeln (Ctrl+Shift+C).');
         else if (o && o.shape.kind === 'group') this.hint = t('Gruppen erst auflösen (Ctrl+U), dann Knoten bearbeiten.');
         else this.hint = TOOL_HINTS.node;
@@ -586,6 +604,9 @@ export class EditorPointer {
       } else if (o && o.shape.kind === 'barcode') {
         this.setSel([o]);
         this.onBarcodeEdit?.(o);
+      } else if (o && o.shape.kind === 'gen') {
+        this.setSel([o]);
+        this.onGenEdit?.(o);
       } else if (o && o.shape.kind !== 'group') {
         this.setSel([o]);
         this.setTool('node');

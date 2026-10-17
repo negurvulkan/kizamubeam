@@ -8,7 +8,7 @@ import type { Editor } from '../editor';
 export class EditorHinges {
   /** Gewählte Formen, die ein Biegemuster füllen kann (geschlossene Konturen, keine Bilder und Texte) */
   hingeTargets(this: Editor): Obj[] {
-    return this.sel.filter((o) => [...leaves([o])].some(([l]) => l.shape.kind !== 'image' && l.shape.kind !== 'text' && shapeSubs(l.shape).some((sp) => sp.closed)));
+    return this.sel.filter((o) => [...leaves([o])].some(([l]) => l.shape.kind !== 'image' && l.shape.kind !== 'text' && l.shape.kind !== 'gen' && shapeSubs(l.shape).some((sp) => sp.closed)));
   }
   setHingePreview(this: Editor, subs: SubPath[] | null) {
     this.hingePreview = subs;

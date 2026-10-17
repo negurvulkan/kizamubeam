@@ -6,6 +6,7 @@ import type { Editor } from './editor';
 import { boundsOf, Box, shapeSubs, subsToD, textOutline } from './geom';
 import { IDENT, layerLabel, Mat, mul, Obj } from './model';
 import { library } from './materials';
+import { genLabel } from './generators';
 
 /** Stufen, wie im Rust-Teil: 1 Lesen, 2 Entwerfen, 3 G-Code, 4 Maschine */
 export enum Tier {
@@ -108,6 +109,9 @@ export function describe(ed: Editor, o: Obj, parent: Mat, detail: boolean): Reco
     case 'barcode':
       Object.assign(out, { type: s.type, data: s.data, errorCorrection: s.ec, size: r3(s.size * sx), invert: s.invert, quietZone: s.quiet });
       if (s.vt) out.variable = { offset: s.vt.offset, shown: barcodeData(s) };
+      break;
+    case 'gen':
+      Object.assign(out, { generator: s.gen, label: genLabel(s), params: s.params });
       break;
     case 'image':
       Object.assign(out, { file: s.name ?? null, pixels: `${s.pxW}×${s.pxH}` });

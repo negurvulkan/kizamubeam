@@ -71,7 +71,24 @@ export type Shape =
   | TextShape
   | ImageShape
   | BarcodeShape
+  | GenShape
   | { kind: 'group'; children: Obj[] };
+
+/**
+ * Parametrisches Bauteil aus einem Generator (z. B. Zahnrad). Die Parameter bleiben erhalten, ein Doppelklick
+ * öffnet den Generator wieder. subs ist die zuletzt berechnete Kontur: Sie wird gezeichnet, gelasert und
+ * exportiert und bleibt auch dann nutzbar, wenn der Generator fehlt (z. B. in einer älteren Programmversion).
+ */
+export interface GenShape {
+  kind: 'gen';
+  /** ID des Generators (src/generators) */
+  gen: string;
+  /** Version des Generators, mit der die Parameter gespeichert wurden */
+  v: number;
+  params: Record<string, number | string | boolean>;
+  /** Lokale Koordinaten in mm */
+  subs: SubPath[];
+}
 
 /** Bildanpassungen je Bild (wie „Adjust Image“ in LightBurn) */
 export interface ImageAdjust {
