@@ -3,9 +3,10 @@ import { Editor } from './editor';
 import { check, numField, select } from './arrayDialogs';
 import { h } from './dom';
 import { BarcodeShape, Obj, QrLevel } from './model';
-import { cellOutlines, qrMatrix, vcardData, wifiData } from './barcode';
+import { barcodeData, cellOutlines, qrMatrix, vcardData, wifiData } from './barcode';
+import { fillTemplate, scopeOf } from './params';
 import { subsToPath2D } from './geom';
-import { CODES, expand } from './vartext';
+import { CODES, shownText } from './vartext';
 import { openText } from './files';
 import { dec, t, tn } from './i18n';
 
@@ -77,7 +78,8 @@ export function openQrDialog(ed: Editor, o?: Obj) {
     for (const [k, els] of Object.entries(groups)) els.forEach((el) => (el.hidden = k !== form.kind));
     offRow.forEach((el) => (el.hidden = !variable));
     st.data = dataOf();
-    const shown = variable ? ed.previewVarText(st.data, offset) : st.data;
+    const filled = fillTemplate(st.data, scopeOf(), true);
+    const shown = variable ? ed.previewVarText(filled, offset) : filled;
     const m = qrMatrix(shown, st.ec);
     const ctx = canvas.getContext('2d')!;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -178,7 +180,7 @@ export function openVarTextDialog(ed: Editor) {
       const s = o.shape;
       if (s.kind !== 'text' && s.kind !== 'barcode') continue;
       const tpl = s.kind === 'text' ? s.text : s.data;
-      const out = expand(tpl, vt.current + (s.vt?.offset ?? 0), vt);
+      const out = s.kind === 'text' ? shownText(s) : barcodeData(s);
       preview.append(h('div', {}, h('code', {}, tpl.split('\n')[0]), ' → ', h('b', {}, out.split('\n')[0] || ' ')));
     }
   };

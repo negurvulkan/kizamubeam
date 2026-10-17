@@ -2,6 +2,8 @@
 // und werden unten in die Klasse eingehängt.
 import { Doc, Mat, newDoc, Obj, Pt, Shape, SubPath, TextShape, visibleLeaves, VarText } from './model';
 import { defaultVarText, setVarTextSource } from './vartext';
+import { setParamSource } from './params';
+import type { Issue } from './generators';
 import { onImageReady } from './images';
 import { BoolBase } from './ops';
 import { onFontLoaded } from './fonts';
@@ -25,6 +27,7 @@ import { EditorShapeOps } from './editor/shapeops';
 import { EditorSnapping } from './editor/snapping';
 import { EditorText } from './editor/text';
 import { EditorGenerators } from './editor/generators';
+import { EditorParams } from './editor/params';
 import { EditorNest } from './editor/nest';
 import { t } from './i18n';
 
@@ -164,6 +167,10 @@ export class Editor {
   /** Läuft gerade ein Aufruf eines KI-Agenten? Dann gibt es keine Rückfragen, sondern Fehlermeldungen. */
   agentCall = false;
 
+  // Projekt-Parameter
+  /** Formeln, die sich bei der letzten Neuberechnung nicht auswerten ließen (für das Parameter-Fenster) */
+  paramProblems: { obj: Obj; issues: Issue[] }[] = [];
+
   // Zeichnen der Arbeitsfläche
   get colors() {
     return this.dark ? CANVAS_THEMES.dark : CANVAS_THEMES.light;
@@ -173,6 +180,7 @@ export class Editor {
     this.ctx = canvas.getContext('2d')!;
     this.restore();
     setVarTextSource(() => this.doc.vt);
+    setParamSource(() => this.doc.params);
     // Datum und Uhrzeit in variablem Text aktuell halten
     window.setInterval(() => this.refreshVarText(), 15000);
     this.loadSnapSettings();
@@ -397,6 +405,7 @@ export interface Editor
     EditorObjects,
     EditorText,
     EditorGenerators,
+    EditorParams,
     EditorNest,
     EditorImages,
     EditorRender {}
@@ -415,6 +424,7 @@ const PARTS = [
   EditorObjects,
   EditorText,
   EditorGenerators,
+  EditorParams,
   EditorNest,
   EditorImages,
   EditorRender,

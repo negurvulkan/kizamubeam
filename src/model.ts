@@ -1,4 +1,5 @@
 import { t } from './i18n';
+import type { ProjectParam } from './params';
 // Datenmodell: Dokument, Objekte, Layer, Matrizen.
 // Interne Koordinaten sind Millimeter mit y nach unten (wie SVG), Ursprung oben links am Bett.
 // Angezeigt wird in Maschinenkoordinaten (Ursprung unten links, y nach oben).
@@ -91,6 +92,8 @@ export interface GenShape {
   /** Baugruppen: Schlüssel des Teils (z. B. 'front') und Kennung der Baugruppe, zu der es gehört */
   part?: string;
   asm?: string;
+  /** Felder, die aus Projekt-Parametern berechnet werden: Schlüssel → Formel (z. B. thickness: 'Dicke') */
+  bind?: Record<string, string>;
 }
 
 /** Bildanpassungen je Bild (wie „Adjust Image“ in LightBurn) */
@@ -411,6 +414,8 @@ export interface Doc {
   layers: Record<number, Layer>;
   /** Variabler Text: Zähler und CSV-Daten des Projekts */
   vt?: VarText;
+  /** Projekt-Parameter (Zahlen, Texte, Ja/Nein) für Platzhalter und Formeln; Grundlage für Vorlagen */
+  params?: ProjectParam[];
   /** Nur in Projektdateien: Bilddaten (Asset-ID → data:-URL) */
   assets?: Record<string, string>;
 }
