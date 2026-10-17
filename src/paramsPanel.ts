@@ -8,6 +8,8 @@ import { check, select } from './arrayDialogs';
 import { evalNumber, evaluate, formatNumber, nameError, ParamType, PARAM_HELP, ProjectParam } from './params';
 import type { Obj } from './model';
 import { objLabel } from './objectsPanel';
+import { canSlide } from './templates';
+import { openSaveTemplateDialog } from './templateDialogs';
 
 const TYPES = (): [ParamType, string][] => [
   ['number', t('Zahl')],
@@ -27,10 +29,11 @@ export function buildParamsPanel(ed: Editor) {
     const p = ed.addParam(type);
     openParamDialog(ed, p, true);
   };
-  const bar = h('div', { class: 'hist-bar' },
+  const bar = h('div', { class: 'hist-bar param-bar' },
     h('button', { class: 'small', onclick: () => add('number'), title: t('Neuer Zahl-Parameter') }, t('+ Zahl')),
     h('button', { class: 'small', onclick: () => add('text'), title: t('Neuer Text-Parameter') }, t('+ Text')),
     h('button', { class: 'small', onclick: () => add('bool'), title: t('Neuer Ja/Nein-Parameter') }, t('+ Ja/Nein')),
+    h('button', { class: 'small', onclick: () => openSaveTemplateDialog(ed), title: t('Projekt als Vorlage speichern und festlegen, welche Werte beim Ausfüllen gefragt werden') }, t('Vorlage …')),
   );
   const list = h('div', { class: 'param-list' });
   const problems = h('div', { class: 'param-problems' });
@@ -41,62 +44,9 @@ export function buildParamsPanel(ed: Editor) {
   const setters = new Map<ProjectParam, () => void>();
 
   const valueControl = (p: ProjectParam): HTMLElement => {
-    // Ein Undo-Schritt je Bearbeitung: beim ersten Ändern nach dem Fokussieren
-    let snapped = false;
-    const begin = () => (snapped = false);
-    const set = (v: unknown) => {
-      ed.setParamValue(p, v, !snapped);
-      snapped = true;
-    };
-    if (p.type === 'bool') {
-      const el = check(!!p.value, (v) => ed.setParamValue(p, v), p.value ? t('ja') : t('nein'));
-      const cb = el.querySelector('input')!;
-      setters.set(p, () => {
-        cb.checked = !!p.value;
-        el.lastChild!.textContent = p.value ? t('ja') : t('nein');
-      });
-      return el;
-    }
-    if (p.type === 'text') {
-      const el = h('input', { type: 'text', value: String(p.value), class: 'param-value' }) as HTMLInputElement;
-      el.addEventListener('focus', begin);
-      el.addEventListener('input', () => set(el.value));
-      el.addEventListener('keydown', (e) => e.key === 'Enter' && el.blur());
-      setters.set(p, () => document.activeElement !== el && (el.value = String(p.value)));
-      return el;
-    }
-    const n = Number(p.value);
-    const el = h('input', { type: 'text', value: formatNumber(n), class: 'param-value num' }) as HTMLInputElement;
-    const wrap = h('div', { class: 'param-num' }, el);
-    el.addEventListener('focus', () => (begin(), el.select()));
-    el.addEventListener('input', () => {
-      const v = evalNumber(el.value);
-      el.classList.toggle('invalid', v === null);
-      if (v !== null) set(v);
-    });
-    el.addEventListener('blur', () => (el.value = formatNumber(Number(p.value)), el.classList.remove('invalid')));
-    el.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') el.blur();
-      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
-      e.preventDefault();
-      const step = (p.step || 1) * (e.shiftKey ? 10 : e.altKey ? 0.1 : 1);
-      set(Number(p.value) + (e.key === 'ArrowUp' ? step : -step));
-      el.value = formatNumber(Number(p.value));
-    });
-    let slider: HTMLInputElement | null = null;
-    if (p.min !== undefined && p.max !== undefined && p.max > p.min) {
-      slider = h('input', { type: 'range', min: p.min, max: p.max, step: p.step || 'any', value: n, class: 'param-slider' }) as HTMLInputElement;
-      slider.addEventListener('pointerdown', begin);
-      slider.addEventListener('keydown', begin);
-      slider.addEventListener('input', () => set(Number(slider!.value)));
-      wrap.prepend(slider);
-    }
-    if (p.unit) wrap.append(h('span', { class: 'muted' }, p.unit));
-    setters.set(p, () => {
-      if (document.activeElement !== el) el.value = formatNumber(Number(p.value));
-      if (slider && document.activeElement !== slider) slider.value = String(p.value);
-    });
-    return wrap;
+    const c = paramControl(p, (v, first) => ed.setParamValue(p, v, first), canSlide(p));
+    setters.set(p, c.refresh);
+    return c.el;
   };
 
   const render = () => {
@@ -154,6 +104,69 @@ export function buildParamsPanel(ed: Editor) {
     render();
   });
   schedule();
+}
+
+/**
+ * Eingabe für den Wert eines Parameters (Ja/Nein, Text, Zahl mit Pfeiltasten und optional Schieberegler).
+ * set bekommt first = true beim ersten Ändern nach dem Fokussieren (ein Undo-Schritt je Bearbeitung).
+ * refresh übernimmt den aktuellen Wert, außer in dem Feld, das gerade bearbeitet wird.
+ */
+export function paramControl(p: ProjectParam, set: (v: unknown, first: boolean) => void, slide: boolean): { el: HTMLElement; refresh: () => void } {
+  let snapped = false;
+  const begin = () => (snapped = false);
+  const change = (v: unknown) => {
+    set(v, !snapped);
+    snapped = true;
+  };
+  if (p.type === 'bool') {
+    const el = check(!!p.value, (v) => set(v, true), p.value ? t('ja') : t('nein'));
+    const cb = el.querySelector('input')!;
+    const refresh = () => {
+      cb.checked = !!p.value;
+      el.lastChild!.textContent = p.value ? t('ja') : t('nein');
+    };
+    cb.addEventListener('change', refresh);
+    return { el, refresh };
+  }
+  if (p.type === 'text') {
+    const el = h('input', { type: 'text', value: String(p.value), class: 'param-value' }) as HTMLInputElement;
+    el.addEventListener('focus', begin);
+    el.addEventListener('input', () => change(el.value));
+    el.addEventListener('keydown', (e) => e.key === 'Enter' && el.blur());
+    return { el, refresh: () => void (document.activeElement !== el && (el.value = String(p.value))) };
+  }
+  const n = Number(p.value);
+  const el = h('input', { type: 'text', value: formatNumber(n), class: 'param-value num' }) as HTMLInputElement;
+  const wrap = h('div', { class: 'param-num' }, el);
+  el.addEventListener('focus', () => (begin(), el.select()));
+  el.addEventListener('input', () => {
+    const v = evalNumber(el.value);
+    el.classList.toggle('invalid', v === null);
+    if (v !== null) change(v);
+  });
+  el.addEventListener('blur', () => (el.value = formatNumber(Number(p.value)), el.classList.remove('invalid')));
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') el.blur();
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    e.preventDefault();
+    const step = (p.step || 1) * (e.shiftKey ? 10 : e.altKey ? 0.1 : 1);
+    change(Number(p.value) + (e.key === 'ArrowUp' ? step : -step));
+    el.value = formatNumber(Number(p.value));
+  });
+  let slider: HTMLInputElement | null = null;
+  if (slide && canSlide(p)) {
+    slider = h('input', { type: 'range', min: p.min, max: p.max, step: p.step || 'any', value: n, class: 'param-slider' }) as HTMLInputElement;
+    slider.addEventListener('pointerdown', begin);
+    slider.addEventListener('keydown', begin);
+    slider.addEventListener('input', () => change(Number(slider!.value)));
+    wrap.prepend(slider);
+  }
+  if (p.unit) wrap.append(h('span', { class: 'muted' }, p.unit));
+  const refresh = () => {
+    if (document.activeElement !== el) el.value = formatNumber(Number(p.value));
+    if (slider && document.activeElement !== slider) slider.value = String(p.value);
+  };
+  return { el: wrap, refresh };
 }
 
 /** Dialog für Name, Art, Bereich und Einheit eines Parameters. isNew: Abbrechen entfernt ihn wieder. */

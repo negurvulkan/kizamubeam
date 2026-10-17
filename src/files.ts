@@ -1,7 +1,7 @@
 // Dateien öffnen/speichern: in Tauri über native Dialoge, im Browser per Download/Dateiauswahl.
 import type { Editor } from './editor';
-import { visibleLeaves, PALETTE } from './model';
-import { subsToD, shapeSubs, textLayout, textOutline } from './geom';
+import { IDENT, visibleLeaves, PALETTE } from './model';
+import { boundsOf, subsToD, shapeSubs, textLayout, textOutline } from './geom';
 import { assetUrl, processedPng, readDpi } from './images';
 import { importDxf, importSvg } from './importers';
 import { t } from './i18n';
@@ -56,7 +56,7 @@ export async function openProject(ed: Editor) {
   };
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core');
-    const res = await invoke<[string, string] | null>('open_text_file', { filterName: t('KizamuBeam-Projekt'), extensions: ['kzb', 'lwk', 'json'] });
+    const res = await invoke<[string, string] | null>('open_text_file', { filterName: t('KizamuBeam-Projekt'), extensions: ['kzb', 'kzt', 'lwk', 'json'] });
     if (res) apply(res[1]);
     return;
   }
@@ -71,25 +71,42 @@ export async function openProject(ed: Editor) {
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-export function buildSvg(ed: Editor): string {
+/**
+ * SVG der aktuellen Seite. preview: kleine Vorschau (z. B. für Vorlagen) nur um die Objekte herum, Linien
+ * unabhängig von der Größe sichtbar, große Bilder als graue Fläche.
+ */
+export function buildSvg(ed: Editor, opts: { preview?: boolean } = {}): string {
   const { w, h } = ed.doc.bed;
   const parts: string[] = [];
+  const box = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+  const sw = opts.preview ? 'stroke-width="1" vector-effect="non-scaling-stroke"' : 'stroke-width="0.1"';
   for (const [o, m] of visibleLeaves(ed.doc.objs)) {
     const L = ed.layer(o.layer);
     if (!L.show) continue;
+    if (opts.preview) {
+      // m enthält schon die Lage des Objekts
+      const b = boundsOf([{ ...o, m: IDENT }], m);
+      if (b) {
+        box.x0 = Math.min(box.x0, b.x);
+        box.y0 = Math.min(box.y0, b.y);
+        box.x1 = Math.max(box.x1, b.x + b.w);
+        box.y1 = Math.max(box.y1, b.y + b.h);
+      }
+    }
     const color = PALETTE[o.layer];
     const fill = L.mode === 'fill' ? color : 'none';
     if (o.shape.kind === 'image') {
       const url = assetUrl(o.shape.asset);
-      if (url)
-        parts.push(`<image transform="matrix(${m.join(' ')})" width="${o.shape.w}" height="${o.shape.h}" preserveAspectRatio="none" href="${url}"/>`);
+      const tf = `transform="matrix(${m.join(' ')})" width="${o.shape.w}" height="${o.shape.h}"`;
+      if (url && opts.preview && url.length > 150_000) parts.push(`<rect ${tf} fill="#bbb"/>`);
+      else if (url) parts.push(`<image ${tf} preserveAspectRatio="none" href="${url}"/>`);
       continue;
     }
     if (o.shape.kind === 'text') {
       const t = o.shape;
       const ol = textOutline(t);
       if (ol) {
-        parts.push(`<path d="${subsToD(ol.subs, m)}" fill="${fill}" fill-rule="evenodd" stroke="${color}" stroke-width="0.1"/>`);
+        parts.push(`<path d="${subsToD(ol.subs, m)}" fill="${fill}" fill-rule="evenodd" stroke="${color}" ${sw}/>`);
         continue;
       }
       const lay = textLayout(t);
@@ -101,11 +118,17 @@ export function buildSvg(ed: Editor): string {
         `<text transform="matrix(${m.join(' ')})" font-family="${esc(t.font)}" font-size="${t.size}" ` +
           `font-weight="${t.bold ? 'bold' : 'normal'}" font-style="${t.italic ? 'italic' : 'normal'}" ` +
           `letter-spacing="${t.hSpace}" text-anchor="${anchor}" fill="${fill === 'none' ? 'none' : color}" ` +
-          `stroke="${fill === 'none' ? color : 'none'}" stroke-width="0.1">${lines}</text>`,
+          `stroke="${fill === 'none' ? color : 'none'}" ${sw}>${lines}</text>`,
       );
       continue;
     }
-    parts.push(`<path d="${subsToD(shapeSubs(o.shape), m)}" fill="${fill}" fill-rule="evenodd" stroke="${color}" stroke-width="0.1"/>`);
+    parts.push(`<path d="${subsToD(shapeSubs(o.shape), m)}" fill="${fill}" fill-rule="evenodd" stroke="${color}" ${sw}/>`);
+  }
+  if (opts.preview) {
+    if (!isFinite(box.x0)) return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"></svg>';
+    const pad = Math.max(box.x1 - box.x0, box.y1 - box.y0) * 0.04 + 0.5;
+    const vb = [box.x0 - pad, box.y0 - pad, box.x1 - box.x0 + 2 * pad, box.y1 - box.y0 + 2 * pad].map((v) => +v.toFixed(2));
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb.join(' ')}">${parts.join('')}</svg>`;
   }
   return (
     `<?xml version="1.0" encoding="UTF-8"?>\n` +
@@ -247,7 +270,12 @@ export function installDropAndPaste(ed: Editor, stage: HTMLElement) {
     const files = [...(e.dataTransfer?.files ?? [])];
     if (!files.length) return;
     e.preventDefault();
-    for (const f of files) await importBytes(ed, f.name, new Uint8Array(await f.arrayBuffer()));
+    for (const f of files) {
+      if (/\.kzt$/i.test(f.name)) {
+        const { useTemplateFile } = await import('./templateDialogs');
+        await useTemplateFile(ed, f.name, await f.text());
+      } else await importBytes(ed, f.name, new Uint8Array(await f.arrayBuffer()));
+    }
   });
   ed.externalPaste = async (data) => {
     const file = [...data.files].find((f) => f.type.startsWith('image/'));
