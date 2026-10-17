@@ -37,6 +37,7 @@ export const ICONS: Record<string, string> = {
   zoomin: svg('<circle cx="10" cy="10" r="6"/><path d="M15 15l5 5M7.5 10h5M10 7.5v5"/>'),
   zoomout: svg('<circle cx="10" cy="10" r="6"/><path d="M15 15l5 5M7.5 10h5"/>'),
   zoompage: svg('<rect x="4" y="4" width="16" height="16"/><path d="M8 9V8h1M15 8h1v1M16 15v1h-1M9 16H8v-1"/>'),
+  view3d: svg('<path d="M12 3.5 19.5 7.7v8.6L12 20.5l-7.5-4.2V7.7z"/><path d="M4.5 7.7 12 12l7.5-4.3M12 12v8.5"/>'),
   zoomsel: svg('<circle cx="10" cy="10" r="6"/><path d="M15 15l5 5"/><rect x="7.5" y="7.5" width="5" height="5" stroke-dasharray="1.5 1"/>'),
   group: svg('<rect x="3" y="3" width="18" height="18" stroke-dasharray="2 2"/><rect x="6" y="6" width="6" height="6"/><circle cx="15" cy="15" r="3"/>'),
   ungroup: svg('<rect x="6" y="6" width="6" height="6"/><circle cx="16" cy="16" r="3"/><path d="M3 3l3 3M21 21l-2-2"/>'),
