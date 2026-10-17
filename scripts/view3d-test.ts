@@ -6,6 +6,11 @@ import type { Solid } from '../src/view3d/solids';
 const { asmSolids, findOverlaps, solidBounds } = await import('../src/view3d/solids');
 const { rotatePose } = await import('../src/view3d/poses');
 const { defaultParams, getGenerator } = await import('../src/generators/index');
+const { computeJoint, jointMate, DEFAULT_JOINT } = await import('../src/joints');
+const { assembleMates } = await import('../src/view3d/mates');
+const { subsPolys } = await import('../src/view3d/solids');
+import type { Obj, Mate } from '../src/model';
+import type { JointOptions } from '../src/joints';
 
 let failed = 0;
 function test(name: string, fn: () => void) {
@@ -106,6 +111,134 @@ test('Teile ohne räumlichen Aufbau', () => {
   assert.equal(asmSolids('unbekannt', {}, 3), null);
   const some = asmSolids('box', { ...defaultParams(getGenerator('box')!), top: 'closed' }, 3, new Set(['front', 'left']))!;
   assert.deepEqual(some.map((x) => x.key).sort(), ['front', 'left']);
+});
+
+// ---------- Teile aus dem Verbindungs-Werkzeug ----------
+
+const I: [number, number, number, number, number, number] = [1, 0, 0, 1, 0, 0];
+let nid = 1;
+const rect = (x: number, y: number, w: number, h: number): Obj => ({
+  id: nid++, m: [...I], layer: 0,
+  shape: { kind: 'path', subs: [{ closed: true, nodes: [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }] }] },
+});
+/** Verbindung wie im Editor anwenden und merken (Weltmatrix = Identität, lokal = Welt) */
+function join(a: Obj, segA: number, b: Obj, segB: number, o: Partial<JointOptions>) {
+  const opt = { ...DEFAULT_JOINT, ...o };
+  const picks = [{ obj: a, m: I, sub: 0, seg: segA }, { obj: b, m: I, sub: 0, seg: segB }];
+  const mw = jointMate(picks, opt);
+  const r = computeJoint(picks, opt);
+  assert.ok(!r.error, r.error);
+  for (const [obj, c] of r.changes) obj.shape = { kind: 'path', subs: c.subs };
+  assert.ok(mw, 'keine Lage');
+  const m: Mate = { to: b.id, kind: opt.kind, th: opt.thickness, a: mw!.a, b: mw!.b, ...(mw!.out ? { out: true } : {}), ...(mw!.lap ? { lap: mw!.lap } : {}) };
+  a.mates = [...(a.mates ?? []), m];
+}
+function assembled(objs: Obj[]) {
+  const parts = objs.map((o) => ({ id: o.id, label: String(o.id), polys: subsPolys((o.shape as { subs: never }).subs), m: I, mates: o.mates ?? [] }));
+  return assembleMates(parts, 3).solids;
+}
+const perp = (a: Solid, b: Solid) => Math.abs(a.pose.n[0] * b.pose.n[0] + a.pose.n[1] * b.pose.n[1] + a.pose.n[2] * b.pose.n[2]) < 1e-9;
+
+test('Verbindungen: Fingerzinken stellen die Wand senkrecht an die Kante', () => {
+  for (const direction of ['in', 'out'] as const) {
+    for (const clearance of [0, 0.2]) {
+      const bottom = rect(0, 0, 100, 80),
+        front = rect(0, 100, 100, 50);
+      // Unterkante des Bodens (Segment 2) mit Oberkante der Wand (Segment 0)
+      join(bottom, 2, front, 0, { kind: 'finger', direction, clearance, thickness: 3, fingerWidth: 10 });
+      const s = assembled([bottom, front]);
+      assert.equal(s.length, 2);
+      assert.ok(perp(s[0], s[1]), 'nicht senkrecht');
+      assert.deepEqual(pairs(s), [], `${direction} ${clearance}`);
+      const b = bounds(s);
+      near(b[2][1] - b[2][0], direction === 'in' ? 50 : 53, 1e-6, `Höhe ${direction}`);
+      near(b[1][1] - b[1][0], direction === 'in' ? 80 : 83, 1e-6, `Tiefe ${direction}`);
+    }
+    const bottom = rect(0, 0, 100, 80),
+      front = rect(0, 100, 100, 50);
+    join(bottom, 2, front, 0, { kind: 'finger', direction, clearance: -0.2 });
+    assert.equal(findOverlaps(assembled([bottom, front])).length, 1, `Presspassung ${direction}`);
+  }
+});
+
+test('Verbindungen: Box aus Boden und vier Wänden', () => {
+  // Außenmaß 100 × 80 × 50, Zinken nach innen, jede Wand mit dem Boden verbunden
+  const bottom = rect(0, 0, 100, 80);
+  const front = rect(0, 100, 100, 50),
+    back = rect(0, 160, 100, 50),
+    left = rect(120, 100, 80, 50),
+    right = rect(120, 160, 80, 50);
+  const o = { kind: 'finger' as const, direction: 'in' as const, thickness: 3, fingerWidth: 10 };
+  // Hinten anfangen: eingefügte Zinken verschieben die Nummern der folgenden Segmente
+  join(bottom, 3, left, 2, o);
+  join(bottom, 2, front, 2, o);
+  join(bottom, 1, right, 2, o);
+  join(bottom, 0, back, 2, o);
+  const s = assembled([bottom, front, back, left, right]);
+  const b = bounds(s);
+  near(b[0][1] - b[0][0], 100, 1e-6, 'Breite');
+  near(b[1][1] - b[1][0], 80, 1e-6, 'Tiefe');
+  near(b[2][1] - b[2][0], 50, 1e-6, 'Höhe');
+  // Nur der Boden ist verbunden: jede Wand berührt ihn ohne Durchdringung
+  const touch = findOverlaps(s).filter((x) => [x.a, x.b].includes(String(bottom.id)));
+  assert.deepEqual(touch.map((x) => `${x.a}/${x.b}`), []);
+});
+
+test('Verbindungen: Zapfen stecken in den Schlitzen der Gegenplatte', () => {
+  for (const kind of ['tenon', 'wedge', 'snap', 'tslot'] as const) {
+    const plate = rect(0, 0, 100, 80),
+      wall = rect(200, 0, 60, 40);
+    // Unterkante der Wand (Segment 2) bekommt Zapfen, die Oberkante der Platte (Segment 0) mit 20 mm Abstand die Schlitze
+    join(wall, 2, plate, 0, { kind, tenonCount: 2, tenonWidth: 10, slotOffset: 20, thickness: 3 });
+    const s = assembled([wall, plate]);
+    assert.ok(perp(s[0], s[1]), `${kind}: nicht senkrecht`);
+    assert.deepEqual(pairs(s), [], kind);
+  }
+  const plate = rect(0, 0, 100, 80),
+    wall = rect(200, 0, 60, 40);
+  join(wall, 2, plate, 0, { kind: 'tenon', tenonCount: 2, tenonWidth: 10, slotOffset: 20, clearance: -0.2 });
+  assert.equal(findOverlaps(assembled([wall, plate])).length, 1, 'Presspassung');
+});
+
+test('Verbindungen: Schlitze auf einer Hilfslinie gehören zur Platte darunter', () => {
+  const side = rect(0, 0, 120, 160),
+    shelf = rect(200, 40, 100, 40);
+  const guide: Obj = { id: nid++, m: [...I], layer: 0, shape: { kind: 'path', subs: [{ closed: false, nodes: [{ x: 20, y: 80 }, { x: 100, y: 80 }] }] } };
+  // Linke Kante des Regalbodens (Segment 3) bekommt die Zapfen, die Hilfslinie die Schlitze
+  join(shelf, 3, guide, 0, { kind: 'tenon', tenonCount: 2, tenonWidth: 15, thickness: 3 });
+  shelf.mates![0].to = side.id;
+  side.shape = { kind: 'path', subs: [...(side.shape as { subs: never[] }).subs, ...(guide.shape as { subs: never[] }).subs] };
+  const s = assembled([shelf, side]);
+  assert.ok(perp(s[0], s[1]));
+  assert.deepEqual(pairs(s), []);
+});
+
+test('Verbindungen: Überblattung kreuzt die Platten', () => {
+  for (const [lapDepth, clearance, expect] of [[50, 0, 0], [30, 0.1, 0], [50, -0.2, 1]] as const) {
+    const a = rect(0, 0, 100, 40),
+      b = rect(0, 60, 120, 40);
+    join(a, 0, b, 2, { kind: 'lap', lapCount: 1, lapDepth, clearance, thickness: 3 });
+    const s = assembled([a, b]);
+    assert.ok(perp(s[0], s[1]));
+    assert.equal(findOverlaps(s).length, expect, `${lapDepth} ${clearance}`);
+    // Gleich breite Platten liegen bündig: beide reichen quer zur Kreuzung gleich weit (A liegt flach, Kante bei y = 0)
+    const ya = solidBounds(s[0]),
+      yb = solidBounds(s[1]);
+    near(ya.min[1], yb.min[1], 1e-3, 'bündig unten');
+    near(ya.max[1], yb.max[1], 1e-3, 'bündig oben');
+  }
+});
+
+test('Verbindungen: Deckel liegt geschlossen auf der Rückwand', () => {
+  const back = rect(0, 0, 100, 50),
+    lid = rect(0, 70, 100, 80);
+  join(back, 0, lid, 0, { kind: 'lidhinge', thickness: 3 });
+  const s = assembled([back, lid]);
+  assert.ok(perp(s[0], s[1]));
+  assert.deepEqual(pairs(s), []);
+  // Rückwand flach (100 × 50), Deckel senkrecht auf ihrer Oberkante, nach außen: 100 × 53 × 80
+  const dims = bounds(s).map(([lo, hi]) => hi - lo).sort((x, y) => x - y);
+  [53, 80, 100].forEach((v, i) => near(dims[i], v, 1e-6, 'Maße'));
 });
 
 if (failed) {

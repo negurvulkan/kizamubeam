@@ -312,6 +312,44 @@ export function lidHingeProfiles(o: JointOptions): { box: SubPath[]; lid: SubPat
   return { box: [box, hole()], lid: [lid, hole()] };
 }
 
+/** Lage einer Verbindung in Weltkoordinaten, für die 3D-Ansicht (siehe Mate in model.ts) */
+export interface MateWorld {
+  a: [Pt, Pt, Pt];
+  b: [Pt, Pt, Pt];
+  out?: boolean;
+  lap?: { ua: number; ub: number; da: number; db: number };
+}
+
+/**
+ * Welche Linie an welche gehört, vor dem Anwenden der Verbindung berechnet: Kante 1 mit einem Punkt im Material,
+ * am Gegenstück die Kante bzw. (Zapfen-Familie) die Mittellinie der Schlitze. null bei nur einer Kante.
+ */
+export function jointMate(picks: EdgePick[], o: JointOptions): MateWorld | null {
+  if (picks.length < 2 || picks[0].obj === picks[1].obj) return null;
+  const subs = picks.map((p) => worldSubs(p.obj, p.m));
+  const [g, s] = picks.map((p, i) => edgeGeom(p, subs[i]));
+  const side = (e: EdgeGeom): [Pt, Pt, Pt] => [e.a, e.b, at(e, e.len / 2, -1)];
+  if (o.kind === 'finger' || o.kind === 'lidhinge') return { a: side(g), b: side(s), out: o.kind === 'finger' && o.direction === 'out' };
+  if (o.kind === 'lap') {
+    if (!g.closed || !s.closed) return null;
+    // Zwei ebene Platten kreuzen sich nur einmal: der mittlere Schlitz (bei gerader Anzahl der erste der Mitte)
+    const n = Math.max(1, Math.round(o.lapCount));
+    const k = Math.floor((n - 1) / 2);
+    const frac = Math.max(1, Math.min(99, o.lapDepth)) / 100;
+    const depth = (e: EdgeGeom, sub: SubPath[], f: number) => {
+      const c = lapCenters(e.len, n)[k];
+      return { u: c / e.len, d: rayDistance(sub, at(e, c, -1e-4), { x: -e.out.x, y: -e.out.y }) * f };
+    };
+    const da = depth(g, subs[0], frac),
+      db = depth(s, subs[1], 1 - frac);
+    if (!isFinite(da.d) || !isFinite(db.d)) return null;
+    return { a: side(g), b: side(s), lap: { ua: da.u, ub: db.u, da: da.d, db: db.d } };
+  }
+  // Zapfen-Familie: Schlitzmitten liegen um slotOffset neben der Linie (bei geschlossenen Formen nach innen)
+  const v = (s.closed ? -1 : 1) * o.slotOffset;
+  return { a: side(g), b: [at(s, 0, v), at(s, s.len, v), at(s, s.len / 2, v - 1)] };
+}
+
 /**
  * Verbindung berechnen. Fingerzinken: eine oder zwei Kanten (die zweite bekommt das Gegenstück).
  * Schlitz und Zapfen: erste Kante bekommt die Zapfen, die zweite Linie (Kante oder einzelne Hilfslinie) die Schlitze.

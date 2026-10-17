@@ -264,6 +264,29 @@ export interface Obj {
   hidden?: boolean;
   /** Gesperrt: auf der Arbeitsfläche nicht auswählbar (nur oberste Ebene) */
   locked?: boolean;
+  /** Mit dem Verbindungs-Werkzeug angelegte Verbindungen zu anderen Teilen (für die 3D-Ansicht) */
+  mates?: Mate[];
+}
+
+/**
+ * Verbindung zwischen zwei Teilen, gespeichert beim Teil mit der ersten Kante. Alle Punkte in lokalen Koordinaten
+ * des jeweiligen Objekts; der dritte Punkt liegt jeweils auf der Materialseite der Linie.
+ */
+export interface Mate {
+  /** ID des Gegenstücks */
+  to: number;
+  /** Art der Verbindung (JointKind aus joints.ts) */
+  kind: string;
+  /** Materialdicke */
+  th: number;
+  /** Kante am eigenen Teil: Anfang, Ende, Punkt im Material */
+  a: [Pt, Pt, Pt];
+  /** Am Gegenstück: Kante (Zinken, Überblattung, Scharnier) bzw. Mittellinie der Schlitze (Zapfen-Familie) */
+  b: [Pt, Pt, Pt];
+  /** Fingerzinken stehen heraus (Teile im Innenmaß gezeichnet) */
+  out?: boolean;
+  /** Überblattung: Kreuzungspunkt auf beiden Kanten (Anteil vom Anfang) und Schlitztiefen */
+  lap?: { ua: number; ub: number; da: number; db: number };
 }
 
 export type LayerMode = 'line' | 'fill';
@@ -485,6 +508,7 @@ export function cloneObjs(objs: Obj[]): Obj[] {
   const ids = new Map<number, number>();
   const asms = new Map<string, string>();
   const texts: TextShape[] = [];
+  const mated: Obj[] = [];
   const re = (x: Obj) => {
     const id = newId();
     ids.set(x.id, id);
@@ -496,6 +520,7 @@ export function cloneObjs(objs: Obj[]): Obj[] {
       x.shape.asm = asms.get(x.shape.asm);
     }
     if (x.shape.kind === 'text' && x.shape.path?.link !== undefined) texts.push(x.shape);
+    if (x.mates) mated.push(x);
   };
   const out = objs.map((o) => {
     const c = clone(o);
@@ -506,6 +531,11 @@ export function cloneObjs(objs: Obj[]): Obj[] {
     const link = ids.get(s.path!.link!);
     if (link !== undefined) s.path!.link = link;
     else delete s.path!.link;
+  }
+  // Verbindungen bleiben nur zwischen mitkopierten Teilen erhalten
+  for (const x of mated) {
+    x.mates = x.mates!.filter((m) => ids.has(m.to)).map((m) => ({ ...m, to: ids.get(m.to)! }));
+    if (!x.mates.length) delete x.mates;
   }
   return out;
 }
