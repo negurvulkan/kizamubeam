@@ -1,10 +1,11 @@
 // Editor: Projekt-Parameter anlegen, ändern, umbenennen und löschen. Nach jeder Änderung werden Texte und
 // QR-Codes mit Platzhaltern und Bauteile mit Formeln (GenShape.bind) auf allen Seiten neu berechnet.
-import { allObjs, GenShape, leaves, Obj } from '../model';
+import { about, allObjs, GenShape, leaves, mul, Obj, OBJ_BIND_KEYS, ObjBindKey, ObjBinds, rotate, scale, translate } from '../model';
+import { boundsOf } from '../geom';
 import { buildGen, getGenerator, resolveBinds } from '../generators';
 import type { Issue } from '../generators';
 import {
-  coerce, defaultValue, hasPlaceholders, nameError, ParamType, ProjectParam, renameInExpr, renameInTemplate, scopeOf, usesName,
+  coerce, defaultValue, evaluate, hasPlaceholders, nameError, ParamType, ProjectParam, renameInExpr, renameInTemplate, Scope, scopeOf, usesName,
 } from '../params';
 import { t } from '../i18n';
 import type { Editor } from '../editor';
@@ -75,6 +76,12 @@ export class EditorParams {
     this.snapshot(t('Parameter „{name}“ löschen', { name: p.name }));
     this.doc.params = this.paramList().filter((x) => x !== p);
     if (!this.doc.params.length) delete this.doc.params;
+    for (const o of allObjs(this.doc)) {
+      if (o.showIf && usesName(o.showIf, p.name, false)) delete o.showIf;
+      if (!o.bind) continue;
+      for (const k of OBJ_BIND_KEYS) if (o.bind[k] && usesName(o.bind[k]!, p.name, false)) delete o.bind[k];
+      if (!OBJ_BIND_KEYS.some((k) => o.bind![k])) delete o.bind;
+    }
     for (const [o] of leaves(allObjs(this.doc))) {
       const s = o.shape;
       if (s.kind !== 'gen' || !s.bind) continue;
@@ -93,6 +100,10 @@ export class EditorParams {
     this.emit('doc');
   }
   renameParamRefs(this: Editor, from: string, to: string) {
+    for (const o of allObjs(this.doc)) {
+      if (o.showIf) o.showIf = renameInExpr(o.showIf, from, to);
+      if (o.bind) for (const k of OBJ_BIND_KEYS) if (o.bind[k]) o.bind[k] = renameInExpr(o.bind[k]!, from, to);
+    }
     for (const [o] of leaves(allObjs(this.doc))) {
       const s = o.shape;
       if (s.kind === 'text') s.text = renameInTemplate(s.text, from, to);
@@ -103,7 +114,11 @@ export class EditorParams {
   /** Wo wird der Parameter benutzt? (Objekte auf allen Seiten) */
   paramUsers(this: Editor, p: ProjectParam): Obj[] {
     const out: Obj[] = [];
+    const usedTop = (o: Obj) =>
+      (!!o.showIf && usesName(o.showIf, p.name, false)) || (!!o.bind && OBJ_BIND_KEYS.some((k) => !!o.bind![k] && usesName(o.bind![k]!, p.name, false)));
+    for (const o of allObjs(this.doc)) if (usedTop(o)) out.push(o);
     for (const [o] of leaves(allObjs(this.doc))) {
+      if (out.includes(o)) continue;
       const s = o.shape;
       const used =
         s.kind === 'text' ? usesName(s.text, p.name, true)
@@ -143,6 +158,12 @@ export class EditorParams {
       }
       if (issues.length) problems.push({ obj: o, issues });
     }
+    // Danach Lage und Größe: Texte und Bauteile haben jetzt ihre neuen Maße
+    for (const o of allObjs(this.doc)) {
+      if (!o.bind) continue;
+      const issues = this.applyObjBinds(o, scope);
+      if (issues.length) problems.push({ obj: o, issues });
+    }
     this.paramProblems = problems;
     this.emit('doc');
     this.emit('sel');
@@ -164,4 +185,120 @@ export class EditorParams {
       else delete ms.bind;
     }
   }
+  /**
+   * Formeln eines Objekts anwenden (oberste Ebene): erst Formmaße (Eckenradius, Ecken, Schriftgröße,
+   * Höchstmaße), dann Drehung, dann Größe des Rahmens, zuletzt die Lage am Bezugspunkt. Ohne Undo-Schritt.
+   */
+  applyObjBinds(this: Editor, o: Obj, scope: Scope = scopeOf(this.paramList())): Issue[] {
+    const b = o.bind;
+    if (!b) return [];
+    const issues: Issue[] = [];
+    const val = (k: ObjBindKey): number | undefined => {
+      const src = b[k];
+      if (!src) return undefined;
+      try {
+        const v = evaluate(src, scope);
+        const n = typeof v === 'number' ? v : Number(v);
+        if (!isFinite(n)) throw new Error(t('Die Formel ergibt keine Zahl.'));
+        return n;
+      } catch (e) {
+        issues.push({ key: k, level: 'error', msg: `${BIND_LABEL()[k]}: ${e instanceof Error ? e.message : String(e)}` });
+        return undefined;
+      }
+    };
+    const s = o.shape;
+    let touched = false;
+    const setShape = (key: string, v: number | undefined) => {
+      if (v === undefined || (s as unknown as Record<string, unknown>)[key] === v) return;
+      (s as unknown as Record<string, unknown>)[key] = v;
+      touched = true;
+    };
+    if (s.kind === 'rect') setShape('r', ((v) => (v === undefined ? v : Math.max(0, v)))(val('r')));
+    if (s.kind === 'polygon') setShape('sides', ((v) => (v === undefined ? v : Math.max(3, Math.min(64, Math.round(v)))))(val('sides')));
+    if (s.kind === 'text') {
+      setShape('size', ((v) => (v === undefined ? v : Math.max(0.1, v)))(val('size')));
+      setShape('maxW', ((v) => (v === undefined ? v : Math.max(0, v)))(val('maxW')));
+      setShape('maxH', ((v) => (v === undefined ? v : Math.max(0, v)))(val('maxH')));
+    }
+    if (touched) this.touch(s);
+    const [ax, ay] = b.anchor ?? [0.5, 0.5];
+    const rot = val('rot');
+    if (rot !== undefined) {
+      const cur = (-Math.atan2(o.m[1], o.m[0]) * 180) / Math.PI;
+      const bx = boundsOf([o]);
+      if (bx && Math.abs(rot - cur) > 1e-9) o.m = mul(about(rotate((-(rot - cur) * Math.PI) / 180), bx.x + ax * bx.w, bx.y + ay * bx.h), o.m);
+    }
+    const w = val('w'),
+      h = val('h');
+    if (w !== undefined || h !== undefined) {
+      const bx = boundsOf([o]);
+      if (s.kind === 'gen') issues.push({ level: 'error', msg: t('Die Größe parametrischer Bauteile kommt aus ihren Parametern; dort eine Formel eintragen.') });
+      else if (bx) {
+        let sx = w !== undefined && bx.w > 1e-9 ? w / bx.w : 1,
+          sy = h !== undefined && bx.h > 1e-9 ? h / bx.h : 1;
+        if (b.lock && (w === undefined) !== (h === undefined)) {
+          if (w !== undefined) sy = sx;
+          else sx = sy;
+        }
+        if (sx > 0 && sy > 0 && isFinite(sx) && isFinite(sy) && (Math.abs(sx - 1) > 1e-9 || Math.abs(sy - 1) > 1e-9))
+          o.m = mul(about(scale(sx, sy), bx.x + ax * bx.w, bx.y + ay * bx.h), o.m);
+        else if (!(sx > 0 && sy > 0)) issues.push({ level: 'error', msg: t('Breite und Höhe müssen größer als 0 sein.') });
+      }
+    }
+    const x = val('x'),
+      y = val('y');
+    if (x !== undefined || y !== undefined) {
+      const bx = boundsOf([o]);
+      if (bx) {
+        const tx = x !== undefined ? x - (bx.x + ax * bx.w) : 0;
+        const ty = y !== undefined ? this.doc.bed.h - y - (bx.y + ay * bx.h) : 0;
+        if (Math.abs(tx) > 1e-9 || Math.abs(ty) > 1e-9) o.m = mul(translate(tx, ty), o.m);
+      }
+    }
+    return issues;
+  }
+  /**
+   * Formel für ein Feld der Zahlenleiste setzen (leer = Formel entfernen) und gleich anwenden. anchor und lock
+   * merken sich Bezugspunkt und Seitenverhältnis-Sperre zum Zeitpunkt der Eingabe. Ein Undo-Schritt.
+   */
+  setObjBind(this: Editor, o: Obj, key: ObjBindKey, src: string, opts: { anchor?: [number, number]; lock?: boolean } = {}): Issue[] {
+    this.snapshot(src.trim() ? t('Formel setzen') : t('Formel entfernen'));
+    const b: ObjBinds = { ...o.bind };
+    if (src.trim()) b[key] = src.trim();
+    else delete b[key];
+    if (opts.anchor && (key === 'x' || key === 'y' || key === 'w' || key === 'h' || key === 'rot')) b.anchor = opts.anchor;
+    if (opts.lock !== undefined && (key === 'w' || key === 'h')) b.lock = opts.lock;
+    if (OBJ_BIND_KEYS.some((k) => b[k])) o.bind = b;
+    else delete o.bind;
+    const issues = this.applyObjBinds(o);
+    this.emit('doc');
+    this.emit('sel');
+    return issues;
+  }
+  /** Formel eines Feldes lösen, ohne eigenen Undo-Schritt (die folgende Änderung legt ihn an) */
+  dropObjBind(this: Editor, objs: Obj[], keys: ObjBindKey[]) {
+    for (const o of objs) {
+      if (!o.bind) continue;
+      for (const k of keys) delete o.bind[k];
+      if (!OBJ_BIND_KEYS.some((k) => o.bind![k])) delete o.bind;
+    }
+  }
+  /** Bedingung „Nur zeigen, wenn …“ setzen (leer = immer zeigen) */
+  setShowIf(this: Editor, objs: Obj[], src: string) {
+    if (!objs.length) return;
+    this.snapshot(src.trim() ? t('Sichtbarkeit an Bedingung knüpfen') : t('Bedingung der Sichtbarkeit entfernen'));
+    for (const o of objs) {
+      if (src.trim()) o.showIf = src.trim();
+      else delete o.showIf;
+    }
+    this.emit('doc');
+    this.emit('sel');
+    this.dropUnselectable();
+  }
 }
+
+/** Namen der Felder für Meldungen */
+export const BIND_LABEL = (): Record<ObjBindKey, string> => ({
+  x: 'X', y: 'Y', w: t('Breite'), h: t('Höhe'), rot: t('Drehung'), r: t('Eckenradius'), sides: t('Ecken'), size: t('Schriftgröße'),
+  maxW: t('Max. Breite'), maxH: t('Max. Höhe'),
+});

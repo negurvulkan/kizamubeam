@@ -1,5 +1,5 @@
 // Editor: Pfad-Werkzeuge: Schließen, Verbinden, Zerlegen, Startpunkt, Trimmen.
-import { apply, IDENT, leaves, Mat, newId, Obj, Pt, SubPath, visibleLeaves } from '../model';
+import { apply, IDENT, isOff, leaves, Mat, newId, Obj, Pt, SubPath, visibleLeaves } from '../model';
 import { transformSubs } from '../importers';
 import { loadFont, textToSubs } from '../fonts';
 import { MAX_COPIES } from '../arrays';
@@ -190,7 +190,7 @@ export class EditorPaths {
 
   /** Objekte, deren Knoten das Startpunkt- und Trimm-Werkzeug anbieten (sichtbar, nicht gesperrt, oberste Ebene) */
   toolTargets(this: Editor): Obj[] {
-    return this.doc.objs.filter((o) => !o.hidden && this.selectable(o) && VECTOR.includes(o.shape.kind) && this.layer(o.layer).show);
+    return this.doc.objs.filter((o) => !isOff(o) && this.selectable(o) && VECTOR.includes(o.shape.kind) && this.layer(o.layer).show);
   }
 
   updateStartHover(this: Editor, sx: number, sy: number) {

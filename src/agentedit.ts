@@ -3,7 +3,7 @@
 // Undo-Schritt (siehe Editor.batch in agent.ts). Koordinaten: Maschine, Ursprung unten links, y nach oben, mm.
 import type { Editor } from './editor';
 import { boundsOf, Box, segments, shapeSubs } from './geom';
-import { about, apply, BarcodeShape, IDENT, leaves, Mat, mul, newId, Obj, QrLevel, rotate, scale, Shape, SubPath, TextShape, translate } from './model';
+import { about, apply, BarcodeShape, IDENT, ObjBindKey, leaves, Mat, mul, newId, Obj, QrLevel, rotate, scale, Shape, SubPath, TextShape, translate } from './model';
 import { qrMatrix } from './barcode';
 import { advanceVarText } from './vartext';
 import { BoolOp, OffsetOptions } from './ops';
@@ -476,10 +476,50 @@ export const EDIT_TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'bind_object',
+    title: 'Formeln und Sichtbarkeit eines Objekts',
+    description:
+      'Verknüpft Lage, Größe, Drehung und Formmaße eines Objekts der obersten Ebene mit Projekt-Parametern (siehe project_parameters), wie Formeln in den Feldern der Zahlenleiste. formulas: x, y (Maschinenkoordinaten in mm am Bezugspunkt anchor), width, height (Rahmen in mm; keepRatio: Seitenverhältnis halten, wenn nur eines gesetzt ist), rotation (Grad gegen den Uhrzeigersinn), cornerRadius (Rechteck), sides (Vieleck), size, maxWidth, maxHeight (Text, mm im Objekt). Leere Formel = wieder fester Wert. Ändert sich ein Parameter, werden die Formeln neu angewendet (Formmaße, Drehung, Größe, Lage). showIf: Objekt nur zeigen und lasern, wenn die Bedingung gilt (z. B. "Deckel" oder "Breite > 100"; leer = immer). Bei parametrischen Bauteilen kommt die Größe aus edit_generator.',
+    tier: Tier.Edit,
+    inputSchema: obj({
+      id: { type: 'integer' },
+      formulas: obj({
+        x: { type: 'string' }, y: { type: 'string' }, width: { type: 'string' }, height: { type: 'string' }, rotation: { type: 'string' },
+        cornerRadius: { type: 'string' }, sides: { type: 'string' }, size: { type: 'string' }, maxWidth: { type: 'string' }, maxHeight: { type: 'string' },
+      }),
+      anchor: { type: 'string', enum: ['center', 'bottom-left', 'bottom', 'bottom-right', 'left', 'right', 'top-left', 'top', 'top-right'], description: 'Bezugspunkt für x/y, Größe und Drehung (Standard center)' },
+      keepRatio: { type: 'boolean' },
+      showIf: { type: 'string' },
+    }, ['id']),
+    run: (ed, a) => {
+      const o = ed.doc.objs.find((x) => x.id === num(a, 'id', { int: true }));
+      if (!o) throw new ToolError(`Kein Objekt mit id ${a.id} auf der obersten Ebene dieser Seite`);
+      const f = (a.formulas ?? {}) as Record<string, unknown>;
+      const KEYS: Record<string, ObjBindKey> = {
+        x: 'x', y: 'y', width: 'w', height: 'h', rotation: 'rot', cornerRadius: 'r', sides: 'sides', size: 'size', maxWidth: 'maxW', maxHeight: 'maxH',
+      };
+      const AN: Record<string, [number, number]> = {
+        center: [0.5, 0.5], 'bottom-left': [0, 1], bottom: [0.5, 1], 'bottom-right': [1, 1], left: [0, 0.5], right: [1, 0.5], 'top-left': [0, 0], top: [0.5, 0], 'top-right': [1, 0],
+      };
+      const anchor = a.anchor === undefined ? undefined : AN[String(a.anchor)];
+      if (a.anchor !== undefined && !anchor) throw new ToolError('Unbekannter Bezugspunkt');
+      const issues: string[] = [];
+      for (const [k, v] of Object.entries(f)) {
+        const key = KEYS[k];
+        if (!key) throw new ToolError(`Unbekanntes Feld „${k}“`);
+        if (typeof v !== 'string') throw new ToolError(`formulas.${k} muss eine Formel (Text) sein`);
+        if ((key === 'w' || key === 'h') && o.shape.kind === 'gen') throw new ToolError(ed.genChangeError([o]));
+        issues.push(...ed.setObjBind(o, key, v, { anchor: anchor ?? o.bind?.anchor ?? [0.5, 0.5], lock: a.keepRatio === undefined ? o.bind?.lock ?? true : a.keepRatio === true }).map((i) => i.msg));
+      }
+      if (typeof a.showIf === 'string') ed.setShowIf([o], a.showIf);
+      return { object: describe(ed, o, IDENT, false), problems: [...new Set(issues)] };
+    },
+  },
+  {
     name: 'edit_object',
     title: 'Objekt ändern',
     description:
-      'Ändert Eigenschaften eines Objekts (auch in Gruppen). Alle Typen: name (leer = Standardname), hidden (ausgeblendet: nicht gezeichnet und nicht gelasert), locked (auf der Arbeitsfläche nicht auswählbar; nur oberste Ebene). Text: text, font, size (mm auf dem Bett), bold, italic, upper, align, letterSpacing, lineSpacing, weld (Buchstaben schweißen); bei Text auf Pfad (apply_path_to_text) pathOffset (Verschiebung entlang der Kurve, mm), pathDistance (Abstand der Grundlinie, mm, positiv nach oben), pathFlip (andere Seite), removePath (wieder gerade), variable (variabler Text mit Platzhaltern, siehe variable_text), variableOffset, maxWidth (mm, breitere Zeilen werden gestaucht, 0 = aus). QR-Code: data, errorCorrection, qrSize (Kantenlänge mm), invert, quietZone, variable, variableOffset. Rechteck: cornerRadius. Vieleck: sides, star, innerRatio. Lage und Größe ändert transform.',
+      'Ändert Eigenschaften eines Objekts (auch in Gruppen). Alle Typen: name (leer = Standardname), hidden (ausgeblendet: nicht gezeichnet und nicht gelasert), locked (auf der Arbeitsfläche nicht auswählbar; nur oberste Ebene). Text: text, font, size (mm auf dem Bett), bold, italic, upper, align, letterSpacing, lineSpacing, weld (Buchstaben schweißen); bei Text auf Pfad (apply_path_to_text) pathOffset (Verschiebung entlang der Kurve, mm), pathDistance (Abstand der Grundlinie, mm, positiv nach oben), pathFlip (andere Seite), removePath (wieder gerade), variable (variabler Text mit Platzhaltern, siehe variable_text), variableOffset, maxWidth (mm, breitere Zeilen werden gestaucht, 0 = aus), maxHeight (mm, ein höherer Block wird verkleinert, 0 = aus), fitShrink (zu breiten Text verkleinern statt stauchen). QR-Code: data, errorCorrection, qrSize (Kantenlänge mm), invert, quietZone, variable, variableOffset. Rechteck: cornerRadius. Vieleck: sides, star, innerRatio. Lage und Größe ändert transform.',
     tier: Tier.Edit,
     inputSchema: obj({
       id: { type: 'integer' }, name: { type: 'string' }, hidden: { type: 'boolean' }, locked: { type: 'boolean' }, text: { type: 'string' }, font: { type: 'string' }, size: { type: 'number' }, bold: { type: 'boolean' },
@@ -487,7 +527,7 @@ export const EDIT_TOOLS: ToolDef[] = [
       letterSpacing: { type: 'number' }, lineSpacing: { type: 'number' }, weld: { type: 'boolean' }, pathOffset: { type: 'number' },
       pathDistance: { type: 'number' }, pathFlip: { type: 'boolean' }, removePath: { type: 'boolean' }, cornerRadius: { type: 'number' },
       sides: { type: 'integer', minimum: 3, maximum: 200 }, star: { type: 'boolean' }, innerRatio: { type: 'number' },
-      variable: { type: 'boolean' }, variableOffset: { type: 'integer' }, maxWidth: { type: 'number' }, data: { type: 'string' },
+      variable: { type: 'boolean' }, variableOffset: { type: 'integer' }, maxWidth: { type: 'number' }, maxHeight: { type: 'number' }, fitShrink: { type: 'boolean' }, data: { type: 'string' },
       errorCorrection: { type: 'string', enum: ['L', 'M', 'Q', 'H'] }, qrSize: { type: 'number' }, invert: { type: 'boolean' }, quietZone: { type: 'integer' },
     }, ['id']),
     run: (ed, a) => {
@@ -505,7 +545,7 @@ export const EDIT_TOOLS: ToolDef[] = [
       }
       const SHAPE_KEYS = [
         'text', 'font', 'size', 'bold', 'italic', 'upper', 'align', 'letterSpacing', 'lineSpacing', 'weld', 'pathOffset', 'pathDistance', 'pathFlip', 'removePath',
-        'cornerRadius', 'sides', 'star', 'innerRatio', 'variable', 'variableOffset', 'maxWidth', 'data', 'errorCorrection', 'qrSize', 'invert', 'quietZone',
+        'cornerRadius', 'sides', 'star', 'innerRatio', 'variable', 'variableOffset', 'maxWidth', 'maxHeight', 'fitShrink', 'data', 'errorCorrection', 'qrSize', 'invert', 'quietZone',
       ];
       const shapeChange = SHAPE_KEYS.some((k) => a[k] !== undefined);
       if (Object.keys(props).length) ed.setObjProps([o], props);
@@ -538,6 +578,12 @@ export const EDIT_TOOLS: ToolDef[] = [
         }
         const mw = optNum(a, 'maxWidth', { min: 0 });
         if (mw !== undefined) s.maxW = mw / (Math.hypot(m[0], m[1]) || 1);
+        const mh = optNum(a, 'maxHeight', { min: 0 });
+        if (mh !== undefined) s.maxH = mh / (Math.hypot(m[2], m[3]) || 1);
+        if (a.fitShrink !== undefined) {
+          if (a.fitShrink === true) s.fit = 'shrink';
+          else delete s.fit;
+        }
         setVar(s, a);
       } else if (s.kind === 'barcode') {
         if (a.data !== undefined) {

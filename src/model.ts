@@ -1,5 +1,6 @@
 import { t } from './i18n';
 import type { ProjectParam } from './params';
+import { conditionHolds } from './params';
 // Datenmodell: Dokument, Objekte, Layer, Matrizen.
 // Interne Koordinaten sind Millimeter mit y nach unten (wie SVG), Ursprung oben links am Bett.
 // Angezeigt wird in Maschinenkoordinaten (Ursprung unten links, y nach oben).
@@ -196,6 +197,10 @@ export interface TextShape {
   vt?: VarTextRef;
   /** Höchstbreite in mm: breitere Zeilen werden waagerecht gestaucht (0/fehlt = aus) */
   maxW?: number;
+  /** Höchsthöhe in mm: ein höherer Textblock wird gleichmäßig verkleinert (0/fehlt = aus) */
+  maxH?: number;
+  /** shrink: zu breiter Text wird gleichmäßig verkleinert statt gestaucht (Text in Rahmen einpassen) */
+  fit?: 'shrink';
 }
 
 /** Variabler Text an einem Objekt (Text oder Barcode) */
@@ -269,7 +274,36 @@ export interface Obj {
   locked?: boolean;
   /** Mit dem Verbindungs-Werkzeug angelegte Verbindungen zu anderen Teilen (für die 3D-Ansicht) */
   mates?: Mate[];
+  /** Formeln mit Projekt-Parametern für Lage, Größe, Drehung und Formmaße (nur oberste Ebene) */
+  bind?: ObjBinds;
+  /** Nur zeigen (und lasern), wenn diese Formel mit Projekt-Parametern wahr ist, z. B. „Deckel“ */
+  showIf?: string;
 }
+
+/**
+ * Formeln eines Objekts, in den Einheiten der Eingabefelder: x/y in Maschinenkoordinaten am Bezugspunkt anchor
+ * (Anteile 0..1 des Rahmens), w/h Rahmenmaße (lock: Seitenverhältnis halten, wenn nur eines gebunden ist),
+ * rot Drehung in Grad, r Eckenradius, sides Ecken, size Schriftgröße, maxW/maxH Höchstmaße des Texts.
+ */
+export interface ObjBinds {
+  x?: string;
+  y?: string;
+  w?: string;
+  h?: string;
+  rot?: string;
+  r?: string;
+  sides?: string;
+  size?: string;
+  maxW?: string;
+  maxH?: string;
+  anchor?: [number, number];
+  lock?: boolean;
+}
+export const OBJ_BIND_KEYS = ['x', 'y', 'w', 'h', 'rot', 'r', 'sides', 'size', 'maxW', 'maxH'] as const;
+export type ObjBindKey = (typeof OBJ_BIND_KEYS)[number];
+
+/** Ausgeblendet: von Hand oder weil seine Bedingung (showIf) gerade nicht gilt */
+export const isOff = (o: Obj) => !!o.hidden || (!!o.showIf && !conditionHolds(o.showIf));
 
 /**
  * Verbindung zwischen zwei Teilen, gespeichert beim Teil mit der ersten Kante. Alle Punkte in lokalen Koordinaten
@@ -557,7 +591,7 @@ export function* leaves(objs: Obj[], parent: Mat = IDENT): Generator<[Obj, Mat]>
 /** Wie leaves(), aber ohne ausgeblendete Objekte (samt dem Inhalt ausgeblendeter Gruppen). */
 export function* visibleLeaves(objs: Obj[], parent: Mat = IDENT): Generator<[Obj, Mat]> {
   for (const o of objs) {
-    if (o.hidden) continue;
+    if (isOff(o)) continue;
     const m = mul(parent, o.m);
     if (o.shape.kind === 'group') yield* visibleLeaves(o.shape.children, m);
     else yield [o, m];

@@ -5,7 +5,8 @@ import { h } from './dom';
 import { t, tn } from './i18n';
 import { dockWindow, isShown, onWindowShow, setBadge } from './dock';
 import { check, select } from './arrayDialogs';
-import { evalNumber, formatNumber, nameError, ParamType, PARAM_HELP, ProjectParam } from './params';
+import { evalNumber, evaluate, formatNumber, nameError, ParamType, PARAM_HELP, ProjectParam } from './params';
+import type { Obj } from './model';
 import { objLabel } from './objectsPanel';
 
 const TYPES = (): [ParamType, string][] => [
@@ -261,5 +262,67 @@ export function openParamDialog(ed: Editor, p: ProjectParam, isNew = false) {
   document.body.append(dlg);
   dlg.showModal();
   name.select();
+  check_();
+}
+
+/** Dialog „Sichtbar, wenn …“: Objekte nur zeigen und lasern, wenn eine Bedingung mit Parametern gilt */
+export function openShowIfDialog(ed: Editor, objs: Obj[]) {
+  if (!objs.length) {
+    ed.hint = t('Erst Objekte auswählen.');
+    ed.emit('tool');
+    return;
+  }
+  const cur = objs.find((o) => o.showIf)?.showIf ?? '';
+  const input = h('input', { type: 'text', id: 'showif', value: cur, placeholder: t('z. B. Deckel oder Breite > 100') }) as HTMLInputElement;
+  const state = h('div', { class: 'note' });
+  const ok = h('button', { class: 'btn primary' }, t('Übernehmen')) as HTMLButtonElement;
+  const check_ = () => {
+    const src = input.value.trim();
+    ok.disabled = false;
+    if (!src) return void (state.textContent = t('Ohne Bedingung ist das Objekt immer sichtbar.'));
+    try {
+      const v = evaluate(src);
+      state.textContent = (typeof v === 'string' ? v !== '' : !!v) ? t('Zurzeit: sichtbar') : t('Zurzeit: ausgeblendet');
+      state.classList.remove('error');
+    } catch (e) {
+      state.textContent = e instanceof Error ? e.message : String(e);
+      state.classList.add('error');
+      ok.disabled = true;
+    }
+  };
+  input.addEventListener('input', check_);
+  const bools = ed.paramList().filter((p) => p.type === 'bool');
+  const picks = bools.length
+    ? h('div', { class: 'showif-picks' },
+        ...bools.flatMap((p) => [
+          h('button', { class: 'small', onclick: () => ((input.value = p.name), check_()) }, p.name),
+          h('button', { class: 'small', onclick: () => ((input.value = `!${p.name}`), check_()) }, t('nicht {name}', { name: p.name })),
+        ]))
+    : h('div', { class: 'note' }, t('Tipp: Im Fenster „Parameter“ einen Ja/Nein-Parameter anlegen und hier seinen Namen eintragen.'));
+  ok.onclick = () => {
+    ed.setShowIf(objs, input.value);
+    dlg.close();
+  };
+  const dlg = h('dialog', { class: 'offset-dialog param-dialog' },
+    h('h3', {}, t('Sichtbar, wenn …')),
+    h('p', {}, tn('Das Objekt wird nur gezeigt und gelasert, wenn die Bedingung gilt.', 'Die {n} Objekte werden nur gezeigt und gelasert, wenn die Bedingung gilt.', objs.length)),
+    h('div', { class: 'form' }, h('label', { for: 'showif' }, t('Bedingung')), input),
+    picks,
+    state,
+    h('div', { class: 'dialog-buttons' },
+      cur ? h('button', { class: 'btn', onclick: () => (ed.setShowIf(objs, ''), dlg.close()) }, t('Bedingung entfernen')) : null,
+      h('span', { class: 'param-spacer' }),
+      h('button', { class: 'btn', onclick: () => dlg.close() }, t('Abbrechen')),
+      ok,
+    ),
+  );
+  dlg.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter' && !ok.disabled) (e.preventDefault(), ok.click());
+  });
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg);
+  dlg.showModal();
+  input.select();
   check_();
 }

@@ -89,8 +89,11 @@ export function evalExpr(src: string): number | null {
 
 export const f2 = (v: number) => (Math.round(v * 1000) / 1000).toFixed(Math.abs(v) >= 1000 ? 1 : 2);
 
-/** Eingabefeld, das bei Enter/Verlassen einen Ausdruck auswertet. */
-export function numInput(cls: string, onCommit: (v: number) => void, title?: string) {
+/**
+ * Eingabefeld, das bei Enter/Verlassen einen Ausdruck auswertet. onFormula: Eingaben, die keine einfache Zahl
+ * sind (z. B. Formeln mit Projekt-Parametern), dorthin geben; true = angenommen.
+ */
+export function numInput(cls: string, onCommit: (v: number) => void, title?: string, onFormula?: (src: string) => boolean) {
   const el = h('input', { type: 'text', class: cls, title }) as HTMLInputElement;
   let before = '';
   el.addEventListener('focus', () => {
@@ -100,7 +103,8 @@ export function numInput(cls: string, onCommit: (v: number) => void, title?: str
   const commit = () => {
     if (el.value === before) return;
     const v = evalExpr(el.value);
-    if (v === null) el.value = before;
+    if (v === null && onFormula?.(el.value.trim())) before = el.value;
+    else if (v === null) el.value = before;
     else {
       before = el.value;
       onCommit(v);
