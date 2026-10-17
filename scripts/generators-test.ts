@@ -1,4 +1,4 @@
-// Tests der Generatoren (Zahnrad, Zahnstange, Riemenscheibe, Nocken, Zahnradpaar, Box). Aufruf: npm run test:generators
+// Tests der Generatoren (Zahnrad, Zahnstange, Riemenscheibe, Nocken, Zahnradpaar, Box, Schublade, Einsatz, Steckregal). Aufruf: npm run test:generators
 import './core-fixtures-env';
 import { strict as assert } from 'node:assert';
 import type { Pt, SubPath } from '../src/model';
@@ -8,12 +8,18 @@ import type { RackParams } from '../src/generators/rack';
 import type { PulleyParams } from '../src/generators/pulley';
 import type { CamParams } from '../src/generators/cam';
 import type { GearPairParams } from '../src/generators/gearpair';
+import type { DrawerParams } from '../src/generators/drawer';
+import type { InsertParams } from '../src/generators/insert';
+import type { ShelfParams } from '../src/generators/shelf';
 const { GEAR, gearGeometry, GEAR_TOL } = await import('../src/generators/gear');
 const { BOX, boxOuter, fieldCount } = await import('../src/generators/box');
 const { RACK, rackGeometry, rackOrigin } = await import('../src/generators/rack');
 const { PULLEY, BELTS, pulleyOD } = await import('../src/generators/pulley');
 const { CAM, camMotion } = await import('../src/generators/cam');
 const { GEARPAIR, centerDistance } = await import('../src/generators/gearpair');
+const { DRAWER, drawerDims } = await import('../src/generators/drawer');
+const { INSERT, dividerCenters } = await import('../src/generators/insert');
+const { SHELF, shelfHeights, sideCenters } = await import('../src/generators/shelf');
 const { buildGen, checkInput, defaultParams, normalizeParams } = await import('../src/generators/index');
 const { bezierPt, segments } = await import('../src/curves');
 const ClipperLib = (await import('clipper-lib')).default;
@@ -480,6 +486,150 @@ test('Box: Validierung', () => {
   assert.ok(lvl({ height: 10, thickness: 3 }, 'error').length, 'zu dick nicht erkannt');
   assert.ok(lvl({ clearance: 1, finger: 3 }, 'error').length, 'Spiel zu groß nicht erkannt');
   assert.ok(lvl({ finger: 2 }, 'warn').length, 'schmale Zinken nicht gewarnt');
+});
+
+// Schublade
+
+const drawer = (o: Partial<DrawerParams> = {}): DrawerParams => ({ ...(defaultParams(DRAWER) as unknown as DrawerParams), kerf: 0, ...o });
+const size = (pts: Pt[]) => {
+  const b = bboxOf(pts);
+  return [b.x1 - b.x0, b.y1 - b.y0].sort((a, c) => a - c);
+};
+
+test('Schublade: Korpus, Schubkasten mit Luft und Blende', () => {
+  const p = drawer({ width: 160, height: 80, depth: 150, thickness: 3 });
+  const parts = partsOf(DRAWER, p);
+  const keys = [...parts.keys()].sort();
+  assert.deepEqual(keys, ['c_back', 'c_bottom', 'c_left', 'c_right', 'c_top', 'd_back', 'd_bottom', 'd_front', 'd_left', 'd_right', 'front']);
+  for (const [k, subs] of parts) assertSimple(subs[0], k);
+  const d = drawerDims(p);
+  // Öffnung 154 × 74 × 147, Schubkasten 152 × 72 × 145
+  assert.deepEqual(d.box, { W: 152, H: 72, D: 145 });
+  near(size(parts.get('c_back')![0])[1], 160, 1e-6, 'Korpus Rückwand Breite');
+  near(size(parts.get('c_back')![0])[0], 80, 1e-6, 'Korpus Rückwand Höhe');
+  near(size(parts.get('c_left')![0])[1], 150, 1e-6, 'Korpus Seite Tiefe');
+  near(size(parts.get('d_bottom')![0])[1], 152, 1e-6, 'Schubkasten Boden Breite');
+  near(size(parts.get('d_bottom')![0])[0], 145, 1e-6, 'Schubkasten Boden Tiefe');
+  near(size(parts.get('d_front')![0])[0], 72, 1e-6, 'Schubkasten Höhe');
+  near(size(parts.get('front')![0])[1], 158, 1e-6, 'Blende vorgesetzt');
+  assert.equal(parts.get('front')!.length, 2, 'Griffloch');
+  near(size(parts.get('front')![1])[1], 50, 0.01, 'Griffbreite');
+  // Ohne Korpus und mit eingelegter Blende
+  const inset = partsOf(DRAWER, drawer({ carcass: false, front: 'inset', handle: 'hole', handleWidth: 20 }));
+  assert.ok(![...inset.keys()].some((k) => k.startsWith('c_')), 'Korpus trotz „ohne Korpus“');
+  assert.equal(drawerDims(drawer({ carcass: false, front: 'inset' })).box.D, 150 - 2 - 3, 'eingelegte Blende kürzt den Schubkasten');
+  const err = (o: Partial<DrawerParams>) => DRAWER.validate(drawer(o) as never).filter((i) => i.level === 'error');
+  assert.equal(err({}).length, 0);
+  assert.ok(err({ handleWidth: 200 }).length, 'zu breiter Griff nicht erkannt');
+  assert.ok(err({ height: 20, thickness: 4 }).length, 'zu dünner Schubkasten nicht erkannt');
+});
+
+// Einsatz
+
+const insertP = (o: Partial<InsertParams> = {}): InsertParams => ({ ...(defaultParams(INSERT) as unknown as InsertParams), kerf: 0, play: 0, ...o });
+
+/** Stege in 3D: Wie viele Stege enthalten Punkte in den Kreuzungen, und füllen die Stege ihre Bahnen? */
+function insertCheck(o: Partial<InsertParams>, samples = 4000) {
+  const p = insertP(o);
+  const parts = partsOf(INSERT, p);
+  const xs = dividerCenters(p.width, p.cellsX, p.thickness),
+    ys = dividerCenters(p.depth, p.cellsY, p.thickness);
+  const e = p.endPlay / 2,
+    h = p.height,
+    th = p.thickness;
+  const inX = (i: number, X: number, Y: number, Z: number) =>
+    Math.abs(X - xs[i]) < th / 2 && inside(parts.get(`x${i + 1}`)![0], Y - e - (p.depth - p.endPlay) / 2, Z - h / 2);
+  const inY = (j: number, X: number, Y: number, Z: number) =>
+    Math.abs(Y - ys[j]) < th / 2 && inside(parts.get(`y${j + 1}`)![0], X - e - (p.width - p.endPlay) / 2, Z - h / 2);
+  let seed = 3;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  let double = 0,
+    empty = 0;
+  for (let n = 0; n < samples; n++) {
+    const i = Math.floor(rnd() * xs.length),
+      j = Math.floor(rnd() * ys.length);
+    const X = xs[i] + (rnd() - 0.5) * th,
+      Y = ys[j] + (rnd() - 0.5) * th,
+      Z = rnd() * h;
+    const c = (inX(i, X, Y, Z) ? 1 : 0) + (inY(j, X, Y, Z) ? 1 : 0);
+    if (c > 1) double++;
+    if (c === 0) empty++;
+  }
+  // Abseits der Kreuzungen sind die Stege voll
+  let gaps = 0;
+  for (let n = 0; n < samples; n++) {
+    const i = Math.floor(rnd() * xs.length);
+    const Y = e + rnd() * (p.depth - p.endPlay),
+      Z = rnd() * h;
+    if (ys.some((y) => Math.abs(Y - y) < th)) continue;
+    if (!inX(i, xs[i], Y, Z)) gaps++;
+  }
+  return { double, empty, gaps };
+}
+
+test('Einsatz: Stege greifen ohne Überschneidung und ohne Lücke ineinander', () => {
+  for (const o of [{}, { cellsX: 4, cellsY: 3, width: 203, depth: 97, height: 31, thickness: 4 }]) {
+    const r = insertCheck(o);
+    assert.deepEqual(r, { double: 0, empty: 0, gaps: 0 }, JSON.stringify(o));
+  }
+  assert.equal(insertCheck({ play: 0.4 }).double, 0, 'Spiel überschneidet');
+  assert.ok(insertCheck({ play: -0.4 }).double > 0, 'Presspassung ohne Überdeckung');
+  const p = insertP({ cellsX: 3, cellsY: 1 });
+  const keys = [...partsOf(INSERT, p).keys()];
+  assert.deepEqual(keys, ['x1', 'x2'], 'nur Längsstege');
+  near(size(partsOf(INSERT, p).get('x1')![0])[1], 100 - 0.5, 1e-6, 'Steglänge mit Endluft');
+  assert.ok(INSERT.validate(insertP({ cellsX: 1, cellsY: 1 }) as never).some((i) => i.level === 'error'), 'kein Steg nicht erkannt');
+});
+
+// Steckregal
+
+const shelfP = (o: Partial<ShelfParams> = {}): ShelfParams => ({ ...(defaultParams(SHELF) as unknown as ShelfParams), kerf: 0, play: 0, ...o });
+
+/** Regal in 3D zusammenstecken: Punkte in den Kreuzungen gehören genau einem Teil, Seiten und Böden sind sonst voll */
+function shelfCheck(o: Partial<ShelfParams>, samples = 6000) {
+  const p = shelfP(o);
+  const parts = partsOf(SHELF, p);
+  const th = p.thickness;
+  const sx = sideCenters(p);
+  const zs = shelfHeights(p);
+  const inSide = (k: number, X: number, Y: number, Z: number) => Math.abs(X - sx[k]) < th / 2 && inside(parts.get(`side${k + 1}`)![0], Y - p.depth / 2, Z - p.height / 2);
+  const inBoard = (i: number, X: number, Y: number, Z: number) => Z > zs[i] && Z < zs[i] + th && inside(parts.get(`board${i + 1}`)![0], X - p.width / 2, p.depth / 2 - Y);
+  let seed = 5;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  let double = 0,
+    empty = 0,
+    gaps = 0;
+  for (let n = 0; n < samples; n++) {
+    const k = Math.floor(rnd() * 2),
+      i = Math.floor(rnd() * zs.length);
+    const X = sx[k] + (rnd() - 0.5) * th,
+      Y = rnd() * p.depth,
+      Z = zs[i] + rnd() * th;
+    const c = (inSide(k, X, Y, Z) ? 1 : 0) + (inBoard(i, X, Y, Z) ? 1 : 0);
+    if (c > 1) double++;
+    if (c === 0) empty++;
+    // Seite abseits der Böden und Boden abseits der Seiten
+    const Z2 = rnd() * p.height;
+    if (!zs.some((z) => Z2 > z - 0.5 && Z2 < z + th + 0.5) && !inSide(k, sx[k], Y, Z2)) gaps++;
+    const X2 = rnd() * p.width;
+    if (!sx.some((x) => Math.abs(X2 - x) < th / 2 + 0.5) && !inBoard(i, X2, Y, zs[i] + th / 2)) gaps++;
+  }
+  return { double, empty, gaps };
+}
+
+test('Steckregal: Seiten und Böden greifen ohne Überschneidung und ohne Lücke ineinander', () => {
+  for (const o of [{}, { shelves: 5, width: 420, depth: 200, height: 600, thickness: 6, overhang: 0 }, { shelves: 1, topGap: 0 }]) {
+    const r = shelfCheck(o);
+    assert.deepEqual(r, { double: 0, empty: 0, gaps: 0 }, JSON.stringify(o));
+  }
+  assert.equal(shelfCheck({ play: 0.3 }).double, 0, 'Spiel überschneidet');
+  assert.ok(shelfCheck({ play: -0.3 }).double > 0, 'Presspassung ohne Überdeckung');
+  const parts = partsOf(SHELF, shelfP({ shelves: 4 }));
+  assert.deepEqual([...parts.keys()], ['side1', 'side2', 'board1', 'board2', 'board3', 'board4']);
+  for (const [k, subs] of parts) assertSimple(subs[0], k);
+  const top = shelfHeights(shelfP());
+  near(top[top.length - 1] + 4, 300 - 20, 1e-9, 'oberster Boden');
+  assert.ok(SHELF.validate(shelfP({ shelves: 30, height: 100 }) as never).some((i) => i.level === 'error'), 'zu viele Böden nicht erkannt');
 });
 
 if (failed) {

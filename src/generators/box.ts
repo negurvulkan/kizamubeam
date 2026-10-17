@@ -172,7 +172,7 @@ function panelOutline(P: PanelSpec, th: number, finger: number, clearance: numbe
 }
 
 /** Doppelte und auf einer Geraden liegende Punkte entfernen */
-function cleanup(input: Pt[]): Pt[] {
+export function cleanup(input: Pt[]): Pt[] {
   let pts = input.filter((p, i) => {
     const q = input[(i + input.length - 1) % input.length];
     return Math.hypot(p.x - q.x, p.y - q.y) > 1e-9;
@@ -234,6 +234,16 @@ export function boxPanels(p: BoxParams): PanelSpec[] {
   const out = [plate('bottom'), wall('front', W, 'A', true), wall('back', W, 'A', true), wall('left', D, 'B', false), wall('right', D, 'B', false)];
   if (p.top === 'closed') out.splice(1, 0, plate('top'));
   return out;
+}
+
+/** Umrisse aller Platten (Mitte im Ursprung, y nach unten, mit Schnittfuge) */
+export function panelPolys(p: BoxParams): { key: string; a: number; b: number; pts: Pt[] }[] {
+  return boxPanels(p).map((panel) => ({
+    key: panel.key,
+    a: panel.a,
+    b: panel.b,
+    pts: offsetOrtho(panelOutline(panel, p.thickness, p.finger, p.clearance), p.kerf / 2).map((q) => ({ x: q.x - panel.a / 2, y: q.y - panel.b / 2 })),
+  }));
 }
 
 const PART_NAMES: Record<string, () => string> = {

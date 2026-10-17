@@ -3,6 +3,9 @@ import type { GenShape, Pt } from '../model';
 import { t } from '../i18n';
 import { BOX } from './box';
 import { CAM } from './cam';
+import { DRAWER } from './drawer';
+import { INSERT } from './insert';
+import { SHELF } from './shelf';
 import { GEAR } from './gear';
 import { GEARPAIR } from './gearpair';
 import { PULLEY } from './pulley';
@@ -11,7 +14,7 @@ import type { Generator, Issue, Params, ParamSpec, ParamValue } from './types';
 
 export type { GenPart, Generator, Issue, Params, ParamSpec } from './types';
 
-export const GENERATORS: Generator[] = [GEAR, RACK, PULLEY, CAM, GEARPAIR, BOX];
+export const GENERATORS: Generator[] = [GEAR, RACK, PULLEY, CAM, GEARPAIR, BOX, DRAWER, INSERT, SHELF];
 
 export const getGenerator = (id: string): Generator | undefined => GENERATORS.find((g) => g.id === id);
 
