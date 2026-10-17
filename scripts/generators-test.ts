@@ -1,11 +1,19 @@
-// Tests der Generatoren (Zahnrad, Box). Aufruf: npm run test:generators
+// Tests der Generatoren (Zahnrad, Zahnstange, Riemenscheibe, Nocken, Zahnradpaar, Box). Aufruf: npm run test:generators
 import './core-fixtures-env';
 import { strict as assert } from 'node:assert';
 import type { Pt, SubPath } from '../src/model';
 import type { GearParams } from '../src/generators/gear';
 import type { BoxParams } from '../src/generators/box';
+import type { RackParams } from '../src/generators/rack';
+import type { PulleyParams } from '../src/generators/pulley';
+import type { CamParams } from '../src/generators/cam';
+import type { GearPairParams } from '../src/generators/gearpair';
 const { GEAR, gearGeometry, GEAR_TOL } = await import('../src/generators/gear');
 const { BOX, boxOuter, fieldCount } = await import('../src/generators/box');
+const { RACK, rackGeometry, rackOrigin } = await import('../src/generators/rack');
+const { PULLEY, BELTS, pulleyOD } = await import('../src/generators/pulley');
+const { CAM, camMotion } = await import('../src/generators/cam');
+const { GEARPAIR, centerDistance } = await import('../src/generators/gearpair');
 const { buildGen, checkInput, defaultParams, normalizeParams } = await import('../src/generators/index');
 const { bezierPt, segments } = await import('../src/curves');
 const ClipperLib = (await import('clipper-lib')).default;
@@ -175,6 +183,187 @@ test('Validierung: spitze Zähne, zu große Bohrung, unbekannte Parameter', () =
   assert.equal(n.teeth, 12);
   assert.equal(n.module, 2);
   assert.equal(n.boreType, 'round');
+});
+
+// Gemeinsame Hilfen für die weiteren Bauteile
+
+type Raw = Record<string, number | string | boolean>;
+/** Teile eines Generators, Unterpfade wieder mit y nach oben abgetastet */
+function partsOf(g: typeof GEAR, p: object, n = 16): Map<string, Pt[][]> {
+  const r = buildGen(g, p as Raw);
+  assert.ok(r.parts.length, r.issues.map((i) => i.msg).join('; '));
+  return new Map(r.parts.map((x) => [x.shape.part ?? 'main', x.shape.subs.map((sp) => flatten(sp, n))]));
+}
+const S = 1e5;
+const toClip = (pts: Pt[]) => pts.map((p) => ({ X: Math.round(p.x * S), Y: Math.round(p.y * S) }));
+function overlapArea(a: Pt[], b: Pt[]): number {
+  const c = new ClipperLib.Clipper();
+  c.AddPath(toClip(a), ClipperLib.PolyType.ptSubject, true);
+  c.AddPath(toClip(b), ClipperLib.PolyType.ptClip, true);
+  const sol: { X: number; Y: number }[][] = [];
+  c.Execute(ClipperLib.ClipType.ctIntersection, sol, ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
+  return sol.reduce((s, p) => s + Math.abs(ClipperLib.Clipper.Area(p)), 0) / (S * S);
+}
+/** Einfacher Umriss: Vereinfachen ergibt genau einen Ring mit gleicher Fläche */
+function assertSimple(pts: Pt[], what: string) {
+  const ring = toClip(pts);
+  const simple = ClipperLib.Clipper.SimplifyPolygon(ring, ClipperLib.PolyFillType.pftNonZero);
+  assert.equal(simple.length, 1, `${what}: ${simple.length} Ringe nach dem Vereinfachen`);
+  near(Math.abs(ClipperLib.Clipper.Area(simple[0])), Math.abs(ClipperLib.Clipper.Area(ring)), 1e-3 * S * S, `${what} Fläche`);
+}
+const bboxOf = (pts: Pt[]) => {
+  const xs = pts.map((p) => p.x),
+    ys = pts.map((p) => p.y);
+  return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+};
+
+// Zahnstange
+
+const rack = (o: Partial<RackParams> = {}): RackParams => ({ ...(defaultParams(RACK) as unknown as RackParams), kerf: 0, backlash: 0, ...o });
+
+test('Zahnstange: Maße, Teilungslinie und Schnittfuge', () => {
+  const p = rack({ teeth: 10, module: 2, back: 5 });
+  const pts = partsOf(RACK, p).get('main')![0];
+  assertSimple(pts, 'Zahnstange');
+  const b = bboxOf(pts);
+  near(b.x1 - b.x0, 10 * Math.PI * 2, 1e-6, 'Länge');
+  near(b.y1 - b.y0, 2 + 2.5 + 5, 1e-6, 'Höhe');
+  const g = rackGeometry(p);
+  near(g.s, Math.PI, 1e-12, 'Zahndicke auf der Teilungslinie');
+  const k = partsOf(RACK, { ...p, kerf: 0.2 }).get('main')![0];
+  const bk = bboxOf(k);
+  near(bk.x1 - bk.x0, b.x1 - b.x0 + 0.2, 1e-6, 'Länge mit Fuge');
+  near(bk.y1 - bk.y0, b.y1 - b.y0 + 0.2, 1e-6, 'Höhe mit Fuge');
+  near(rackGeometry({ ...p, backlash: 0.2 }).s, Math.PI - 0.1, 1e-12, 'Spiel');
+});
+
+/** Zahnrad auf der Zahnstange abrollen: größte Schnittfläche */
+function rackOverlap(z: number, o: Partial<RackParams & GearParams>): number {
+  const m = o.module ?? 2;
+  const rp = rack({ teeth: Math.max(6, Math.ceil(z / 2) + 4), module: m, ...o });
+  const rk = partsOf(RACK, rp).get('main')![0];
+  const gp = flatten(outline({ teeth: z, module: m, backlash: o.backlash ?? 0, kerf: o.kerf ?? 0 })[0], 16);
+  const org = rackOrigin(rp);
+  const r = (m * z) / 2;
+  const pitch = Math.PI * m;
+  const K = Math.floor(rp.teeth / 2);
+  let worst = 0;
+  for (let i = -12; i <= 12; i++) {
+    const phi = ((i / 12) * Math.PI) / z;
+    const ang = Math.PI + phi;
+    const cx = org.x + K * pitch,
+      cy = org.y + r;
+    const gear = gp.map((q) => ({ x: q.x * Math.cos(ang) - q.y * Math.sin(ang) + cx, y: q.x * Math.sin(ang) + q.y * Math.cos(ang) + cy }));
+    const moved = rk.map((q) => ({ x: q.x + r * phi, y: q.y }));
+    worst = Math.max(worst, overlapArea(gear, moved));
+  }
+  return worst;
+}
+
+test('Zahnstange kämmt mit dem Zahnrad ohne Überschneidung', () => {
+  for (const z of [8, 12, 24, 40]) {
+    const ov = rackOverlap(z, { module: 2, backlash: 0.04 });
+    assert.ok(ov < 1e-4, `z=${z}: Überschneidung ${ov} mm²`);
+  }
+  assert.ok(rackOverlap(20, { module: 2, kerf: 0.3 }) > 1e-3, 'zu dicke Zahnstange überschneidet sich nicht');
+});
+
+// Riemenscheibe
+
+const pulley = (o: Partial<PulleyParams> = {}): PulleyParams => ({ ...(defaultParams(PULLEY) as unknown as PulleyParams), boreType: 'none', kerf: 0, ...o });
+
+test('Riemenscheibe: Außendurchmesser, Lückentiefe und Zahl der Lücken für alle Profile', () => {
+  for (const profile of Object.keys(BELTS) as PulleyParams['profile'][]) {
+    for (const teeth of [10, 12, 16, 20, 60]) {
+      const p = pulley({ profile, teeth });
+      if (PULLEY.validate(p as never).some((i) => i.level === 'error')) continue;
+      const pts = partsOf(PULLEY, p, 24).get('main')![0];
+      assertSimple(pts, `${profile} z=${teeth}`);
+      const R = pts.map((q) => Math.hypot(q.x, q.y));
+      near(Math.max(...R), pulleyOD(p) / 2, 1e-3, `${profile} z=${teeth} Außenradius`);
+      near(Math.min(...R), pulleyOD(p) / 2 - BELTS[profile].depth, 2e-3, `${profile} z=${teeth} Lückengrund`);
+      // Lücken zählen: Übergänge unter die halbe Tiefe
+      const half = pulleyOD(p) / 2 - BELTS[profile].depth / 2;
+      let gaps = 0;
+      for (let i = 0; i < R.length; i++) if (R[i] < half && R[(i + R.length - 1) % R.length] >= half) gaps++;
+      assert.equal(gaps, teeth, `${profile} z=${teeth} Lücken`);
+    }
+  }
+  near(pulleyOD(pulley({ profile: 'gt2_2', teeth: 20 })), 40 / Math.PI - 0.508, 1e-12, 'GT2 20 Zähne');
+});
+
+test('Riemenscheibe: Spiel und Fuge', () => {
+  const a = partsOf(PULLEY, pulley({ teeth: 20, play: 0 }), 24).get('main')![0];
+  const k = partsOf(PULLEY, pulley({ teeth: 20, play: 0, kerf: 0.2 }), 24).get('main')![0];
+  near(Math.max(...k.map((q) => Math.hypot(q.x, q.y))) - Math.max(...a.map((q) => Math.hypot(q.x, q.y))), 0.1, 1e-3, 'Außenradius mit Fuge');
+});
+
+// Nocken
+
+const cam = (o: Partial<CamParams> = {}): CamParams => ({ ...(defaultParams(CAM) as unknown as CamParams), boreType: 'none', kerf: 0, ...o } as CamParams);
+
+test('Nocken mit Spitze: Radius folgt dem Hubverlauf', () => {
+  for (const law of ['cycloid', 'harmonic', 'poly5'] as const) {
+    const p = cam({ follower: 'knife', law });
+    const pts = partsOf(CAM, p, 24).get('main')![0];
+    assertSimple(pts, law);
+    const m = camMotion(p);
+    for (const q of pts) {
+      let th = Math.atan2(q.x, q.y);
+      if (th < 0) th += 2 * Math.PI;
+      near(Math.hypot(q.x, q.y), p.baseRadius + m.s(th), 0.01, `${law} θ=${th.toFixed(3)}`);
+    }
+  }
+});
+
+test('Nocken mit Rolle: Kontur hält überall den Rollenradius zur Bahn', () => {
+  const p = cam({ follower: 'roller', rollerDia: 12, lift: 10 });
+  const pts = partsOf(CAM, p, 24).get('main')![0];
+  assertSimple(pts, 'Rolle');
+  const m = camMotion(p);
+  for (let i = 0; i < 180; i++) {
+    const c = m.pitch((i / 180) * 2 * Math.PI);
+    let dmin = Infinity;
+    for (let j = 0; j < pts.length; j++) {
+      const a = pts[j],
+        b = pts[(j + 1) % pts.length];
+      const vx = b.x - a.x,
+        vy = b.y - a.y;
+      const u = Math.max(0, Math.min(1, ((c.x - a.x) * vx + (c.y - a.y) * vy) / (vx * vx + vy * vy || 1)));
+      dmin = Math.min(dmin, Math.hypot(a.x + u * vx - c.x, a.y + u * vy - c.y));
+    }
+    near(dmin, 6, 0.01, `Abstand bei ${i}`);
+  }
+  // Mit Fuge wächst die Kontur nach außen
+  const k = partsOf(CAM, { ...p, kerf: 0.2 }, 24).get('main')![0];
+  near(Math.min(...k.map((q) => Math.hypot(q.x, q.y))), p.baseRadius + 0.1, 0.01, 'Grundkreis mit Fuge');
+});
+
+test('Nocken: Prüfung', () => {
+  const err = (o: Partial<CamParams>, l = 'error') => CAM.validate(cam(o) as never).filter((i) => i.level === l);
+  assert.equal(err({}).length, 0);
+  assert.ok(err({ rise: 200, fall: 200 }).length, 'über 360° nicht erkannt');
+  assert.ok(err({ baseRadius: 5, lift: 20, rise: 40, rollerDia: 30 }).length, 'zu große Rolle nicht erkannt');
+  assert.ok(err({ baseRadius: 5, lift: 20, rise: 60 }, 'warn').length, 'Druckwinkel nicht gewarnt');
+});
+
+// Zahnradpaar
+
+test('Zahnradpaar: Räder wie beim Zahnradgenerator, Platte mit Achsabstand', () => {
+  const p = { ...(defaultParams(GEARPAIR) as unknown as GearPairParams), kerf: 0, plate: true, axleDia: 6, teeth1: 12, teeth2: 31 };
+  const parts = partsOf(GEARPAIR, p);
+  assert.deepEqual([...parts.keys()], ['gear1', 'gear2', 'plate']);
+  const single = flatten(outline({ teeth: 12, module: 2, backlash: 0.1 })[0], 16);
+  const g1 = parts.get('gear1')![0];
+  near(Math.max(...g1.map((q) => Math.hypot(q.x, q.y))), Math.max(...single.map((q) => Math.hypot(q.x, q.y))), 1e-9, 'Rad 1');
+  const plate = parts.get('plate')!;
+  assert.equal(plate.length, 3, 'Platte mit zwei Löchern');
+  const cx = plate.slice(1).map((h) => h.reduce((s, q) => s + q.x, 0) / h.length);
+  near(Math.abs(cx[1] - cx[0]), centerDistance(p), 1e-3, 'Achsabstand');
+  const hr = plate[1].map((q) => Math.hypot(q.x - cx[0], q.y - plate[1].reduce((s, v) => s + v.y, 0) / plate[1].length));
+  near(Math.max(...hr), 3, 1e-3, 'Achsloch');
+  const e = GEARPAIR.validate({ ...p, teeth1: 6 } as never).filter((i) => i.level === 'error' || i.level === 'warn');
+  assert.ok(e.some((i) => i.key === 'teeth1'), 'Unterschnitt am kleinen Rad nicht gemeldet');
 });
 
 // Box
