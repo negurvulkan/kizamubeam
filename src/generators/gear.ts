@@ -11,6 +11,7 @@
 import type { Pt, SubPath } from '../model';
 import { t } from '../i18n';
 import { flipY, PathBuilder } from './build';
+import { boreIssues, boreOutline, boreSchema } from './bore';
 import type { Generator, Issue, Params } from './types';
 
 /** Zulässige Abweichung der Bézierkurven von der exakten Geometrie (mm) */
@@ -188,31 +189,6 @@ function gearOutline(g: GearGeometry): SubPath {
   return b.close();
 }
 
-/** Bohrung (y nach oben); die halbe Fuge macht sie kleiner */
-function boreOutline(p: GearParams): SubPath | null {
-  const k2 = p.kerf / 2;
-  const r = p.boreDia / 2 - k2;
-  if (p.boreType === 'none' || r <= 0) return null;
-  const b = new PathBuilder();
-  if (p.boreType === 'dflat') {
-    const yf = p.boreFlat - p.boreDia / 2 - k2;
-    const a = Math.atan2(yf, Math.sqrt(Math.max(0, r * r - yf * yf)));
-    b.arc(0, 0, r, a, -Math.PI - a);
-    return b.close();
-  }
-  if (p.boreType === 'key') {
-    const hw = (p.keyWidth - p.kerf) / 2;
-    const top = p.boreDia / 2 + p.keyDepth - k2;
-    const a = Math.atan2(Math.sqrt(Math.max(0, r * r - hw * hw)), hw);
-    b.arc(0, 0, r, a, a - 2 * Math.PI + (Math.PI - 2 * a));
-    b.line({ x: -hw, y: top });
-    b.line({ x: hw, y: top });
-    return b.close();
-  }
-  b.arc(0, 0, r, 0, 2 * Math.PI);
-  return b.close();
-}
-
 const P = (p: Params) => p as unknown as GearParams;
 const fmt = (v: number, d = 2) => (Math.round(v * 10 ** d) / 10 ** d).toLocaleString(undefined, { maximumFractionDigits: d });
 
@@ -228,14 +204,7 @@ export const GEAR: Generator = {
     { key: 'pressureAngle', type: 'angle', label: t('Eingriffswinkel'), min: 10, max: 35, def: 20, title: t('Üblich sind 20°; ineinandergreifende Räder brauchen denselben Winkel') },
     { key: 'backlash', type: 'length', label: t('Flankenspiel'), min: 0, max: 3, def: 0.1, title: t('Spiel der Zahnradpaarung auf dem Teilkreis; jedes Rad wird um die Hälfte dünner') },
     { key: 'kerf', type: 'length', label: t('Schnittfuge (Kerf)'), min: 0, max: 2, def: 0.15, title: t('Breite des Laserschnitts: Die Kontur wird um die Hälfte nach außen versetzt, damit das Rad die Sollmaße hat. Der Kerf des Layers wirkt beim Lasern zusätzlich.') },
-    {
-      key: 'boreType', type: 'enum', label: t('Bohrung'), def: 'round',
-      options: [['none', t('Keine')], ['round', t('Rund')], ['dflat', t('D-Profil (abgeflacht)')], ['key', t('Mit Passfedernut')]],
-    },
-    { key: 'boreDia', type: 'length', label: t('Bohrungsdurchmesser'), min: 0.5, max: 2000, def: 6, showIf: (p) => p.boreType !== 'none' },
-    { key: 'boreFlat', type: 'length', label: t('Maß über Abflachung'), min: 0.1, max: 2000, def: 5.5, showIf: (p) => p.boreType === 'dflat', title: t('Abstand von der Abflachung zur gegenüberliegenden Seite der Bohrung') },
-    { key: 'keyWidth', type: 'length', label: t('Nutbreite'), min: 0.1, max: 200, def: 2, showIf: (p) => p.boreType === 'key' },
-    { key: 'keyDepth', type: 'length', label: t('Nuttiefe'), min: 0.1, max: 200, def: 1, showIf: (p) => p.boreType === 'key', title: t('Tiefe der Nut über den Bohrungsrand hinaus') },
+    ...boreSchema(),
     { key: 'profileShift', type: 'number', label: t('Profilverschiebung x'), min: -0.8, max: 1, def: 0, advanced: true, title: t('Positiv macht die Zähne am Fuß kräftiger und vermeidet Unterschnitt; der Achsabstand ändert sich dann um x·Modul') },
     { key: 'rootFillet', type: 'number', label: t('Fußrundung (× Modul)'), min: 0, max: 0.45, def: 0.38, advanced: true, title: t('Radius der Werkzeugkopfrundung, Norm: 0,38') },
     { key: 'clearance', type: 'number', label: t('Kopfspiel (× Modul)'), min: 0.1, max: 0.5, def: 0.25, advanced: true, title: t('Abstand zwischen Zahnkopf und Fußkreis des Gegenrads, Norm: 0,25') },
@@ -257,23 +226,14 @@ export const GEAR: Generator = {
       const xMin = 1 - (p.teeth * Math.sin(g.alpha) ** 2) / 2;
       out.push({ key: 'teeth', level: 'warn', msg: t('Unterschnitt: Der Zahnfuß wird freigeschnitten und schwächer. Ab Profilverschiebung {x} entfällt er.', { x: fmt(xMin) }) });
     }
-    if (p.boreType !== 'none') {
-      const reach = p.boreType === 'key' ? p.boreDia / 2 + p.keyDepth : p.boreDia / 2;
-      const wall = g.rf - reach;
-      if (wall <= 0) out.push({ key: 'boreDia', level: 'error', msg: t('Die Bohrung ist größer als der Fußkreis.') });
-      else if (wall < Math.max(1, m)) out.push({ key: 'boreDia', level: 'warn', msg: t('Nur {w} mm Material zwischen Bohrung und Zahnfuß.', { w: fmt(wall) }) });
-      if (p.boreType === 'dflat' && (p.boreFlat <= p.boreDia / 2 || p.boreFlat >= p.boreDia))
-        out.push({ key: 'boreFlat', level: 'error', msg: t('Das Maß über der Abflachung muss zwischen Radius und Durchmesser der Bohrung liegen.') });
-      if (p.boreType === 'key' && p.keyWidth >= p.boreDia) out.push({ key: 'keyWidth', level: 'error', msg: t('Die Nut ist breiter als die Bohrung.') });
-      if (p.boreDia / 2 - p.kerf / 2 <= 0) out.push({ key: 'boreDia', level: 'error', msg: t('Bohrung kleiner als die Schnittfuge.') });
-    }
+    out.push(...boreIssues(raw, p.kerf, g.rf, Math.max(1, m)));
     return out;
   },
   generate(raw) {
     const p = P(raw);
     const g = gearGeometry(p);
     const subs = [gearOutline(g)];
-    const hole = boreOutline(p);
+    const hole = boreOutline(raw, p.kerf);
     if (hole) subs.push(hole);
     const m = p.module;
     const info: [string, string][] = [

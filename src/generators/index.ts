@@ -2,12 +2,16 @@
 import type { GenShape, Pt } from '../model';
 import { t } from '../i18n';
 import { BOX } from './box';
+import { CAM } from './cam';
 import { GEAR } from './gear';
+import { GEARPAIR } from './gearpair';
+import { PULLEY } from './pulley';
+import { RACK } from './rack';
 import type { Generator, Issue, Params, ParamSpec, ParamValue } from './types';
 
 export type { GenPart, Generator, Issue, Params, ParamSpec } from './types';
 
-export const GENERATORS: Generator[] = [GEAR, BOX];
+export const GENERATORS: Generator[] = [GEAR, RACK, PULLEY, CAM, GEARPAIR, BOX];
 
 export const getGenerator = (id: string): Generator | undefined => GENERATORS.find((g) => g.id === id);
 
