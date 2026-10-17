@@ -21,6 +21,7 @@ import { agentStatus, openAgentDialog } from './agentui';
 import { startAgentBridge } from './agent';
 import { buildObjectsPanel } from './objectsPanel';
 import { buildHistoryPanel } from './historyPanel';
+import { buildView3dPanel } from './view3d/panel';
 import { dockWindow, initDock, isHidden, resetLayout, toggleWindow, windowList } from './dock';
 import { Action, BarKey, barNames, initToolbars, isBarHidden, openToolbarDialog, refreshBars, SEP, showAllBars, toggleBar } from './toolbars';
 import { dec, LangPref, langPref, LANGUAGES, setLangPref, t, tn } from './i18n';
@@ -103,6 +104,7 @@ export function buildUI(ed: Editor) {
   buildLayers(ed);
   buildObjectsPanel(ed);
   buildHistoryPanel(ed);
+  buildView3dPanel(ed);
   buildLaser(ed);
   initDock();
   buildMenu(ed);
@@ -301,6 +303,7 @@ function buildMenu(ed: Editor) {
       [t('Verkleinern'), '-', () => ed.zoomAt(0.8)],
       'sep',
       [t('Drahtgitter / Gefüllt'), 'Alt+W', () => ((ed.filled = !ed.filled), ed.emit('view'))],
+      [t('3D-Ansicht'), '', () => toggleWindow('view3d'), () => !isHidden('view3d')],
       'sep',
       { sub: t('Design'), items: [
         [t('Wie System|Design'), '', () => applyTheme(ed, 'system'), () => themeMode === 'system'],
@@ -761,6 +764,7 @@ function buildBars(ed: Editor) {
     { id: 'zoomout', cat: V, icon: 'zoomout', label: t('Verkleinern (-)'), run: () => ed.zoomAt(0.8) },
     { id: 'zoompage', cat: V, icon: 'zoompage', label: t('Ganze Seite (Ctrl+0)'), run: () => ed.zoomPage() },
     { id: 'zoomsel', cat: V, icon: 'zoomsel', label: t('Auf Auswahl zoomen'), run: () => ed.zoomSelection(), enabled: sel1 },
+    { id: 'view3d', cat: V, icon: 'view3d', label: t('3D-Ansicht: Baugruppen zusammengesteckt ansehen'), run: () => toggleWindow('view3d') },
     { id: 'wire', cat: V, short: t('Gefüllt'), label: t('Drahtgitter / Gefüllt (Alt+W)'), run: () => ((ed.filled = !ed.filled), ed.emit('view')), on: () => ed.filled },
     {
       id: 'theme', cat: V, icon: 'moon', label: t('Dunkles Design'), run: () => applyTheme(ed, isDark() ? 'light' : 'dark'),
@@ -845,7 +849,7 @@ function buildBars(ed: Editor) {
     {
       main: [
         'new', 'open', 'save', 'import', 'export', SEP, 'undo', 'redo', SEP, 'cut', 'copy', 'paste', 'delete', SEP,
-        'grp:zoom', SEP, 'preview', 'devsettings', SEP,
+        'grp:zoom', 'view3d', SEP, 'preview', 'devsettings', SEP,
         'group', 'ungroup', 'grp:transform', 'tolines', SEP, 'grp:align', SEP, 'theme',
       ],
       tools: [

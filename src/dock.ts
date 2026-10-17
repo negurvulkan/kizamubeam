@@ -42,6 +42,8 @@ interface Win {
   body: HTMLElement;
   badge: string;
   onShow?: () => void;
+  /** Neu hinzugekommen: als freies, ausgeblendetes Fenster dieser Größe anlegen (statt als Reiter rechts) */
+  float?: { w: number; h: number };
 }
 
 const KEY = 'kizamubeam.layout';
@@ -71,13 +73,13 @@ function defaultLayout(): Layout {
  * Meldet ein Werkzeugfenster an und liefert seinen Inhaltsbereich. Muss vor initDock() aufgerufen werden.
  * onShow läuft, sobald das Fenster sichtbar wird (z. B. um verschobenes Neuzeichnen nachzuholen).
  */
-export function dockWindow(id: string, title: string, opts: { bodyId?: string; onShow?: () => void } = {}): HTMLElement {
+export function dockWindow(id: string, title: string, opts: { bodyId?: string; onShow?: () => void; float?: { w: number; h: number } } = {}): HTMLElement {
   const body = h('div', { class: `panel-body win-body win-${id}`, id: opts.bodyId });
   // Bis initDock() in einem unsichtbaren Halter, damit $('#…') den Inhalt schon findet
   let holder = document.getElementById('dock-holder');
   if (!holder) document.body.append((holder = h('div', { id: 'dock-holder', hidden: true })));
   holder.append(body);
-  wins.set(id, { id, title, body, badge: '', onShow: opts.onShow });
+  wins.set(id, { id, title, body, badge: '', onShow: opts.onShow, float: opts.float });
   return body;
 }
 
@@ -172,8 +174,14 @@ function normalize(l: Layout): Layout {
     floats: (Array.isArray(l.floats) ? l.floats : []).filter(fix),
     hidden: (Array.isArray(l.hidden) ? l.hidden : []).filter((id) => wins.has(id)),
   };
-  for (const id of wins.keys())
-    if (!seen.has(id)) {
+  for (const [id, w] of wins)
+    if (!seen.has(id) && w.float) {
+      // Große Fenster (z. B. 3D-Ansicht) erst auf Wunsch zeigen, frei über der Arbeitsfläche
+      const f: Float = { tabs: [id], active: id, size: 1, w: w.float.w, h: w.float.h, x: Math.max(0, (window.innerWidth - w.float.w) / 2), y: 90 };
+      clampFloat(f);
+      out.floats.push(f);
+      if (!out.hidden.includes(id)) out.hidden.push(id);
+    } else if (!seen.has(id)) {
       const last = out.right[out.right.length - 1];
       if (last) last.tabs.push(id);
       else out.right.push({ tabs: [id], active: id, size: 300 });

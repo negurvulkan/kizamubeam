@@ -1,0 +1,312 @@
+// Darstellung der 3D-Ansicht mit three.js: Platten als hochgezogene Konturen, Durchdringungen rot,
+// Explosionsansicht und drehende Zahnräder. Wird erst geladen, wenn das Fenster zum ersten Mal aufgeht.
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import type { Pt } from '../model';
+import type { Overlap, Solid } from './solids';
+import { solidBounds } from './solids';
+import { Pose, rotatePose } from './poses';
+
+export interface ViewSolid extends Solid {
+  /** Teile mit gleicher Gruppe (Baugruppe) werden gemeinsam auseinandergezogen */
+  group: string;
+}
+
+export interface Scene3D {
+  solids: ViewSolid[];
+  overlaps: Overlap[];
+}
+
+export type ViewPreset = 'iso' | 'top' | 'front';
+
+interface Part {
+  s: ViewSolid;
+  holder: THREE.Group;
+  mesh: THREE.Mesh;
+  /** Richtung und Weg beim Auseinanderziehen (Mitte des Teils minus Mitte der Baugruppe) */
+  away: THREE.Vector3;
+}
+
+/** Punkt in Polygon (Gerade-Ungerade) */
+function inside(poly: Pt[], p: Pt) {
+  let c = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i],
+      b = poly[j];
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) c = !c;
+  }
+  return c;
+}
+const area = (poly: Pt[]) => {
+  let s = 0;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) s += poly[j].x * poly[i].y - poly[i].x * poly[j].y;
+  return Math.abs(s / 2);
+};
+
+/** Konturen in Flächen mit Löchern ordnen: gerade Verschachtelungstiefe = Fläche, ungerade = Loch der umgebenden */
+function shapesOf(polys: Pt[][]): THREE.Shape[] {
+  const ps = polys.filter((p) => p.length > 2);
+  const depth = ps.map((p, i) => ps.filter((q, j) => j !== i && inside(q, p[0])).length);
+  const shapes = new Map<number, THREE.Shape>();
+  ps.forEach((p, i) => {
+    if (depth[i] % 2 === 0) shapes.set(i, new THREE.Shape(p.map((q) => new THREE.Vector2(q.x, q.y))));
+  });
+  ps.forEach((p, i) => {
+    if (depth[i] % 2 === 0) return;
+    // Kleinste umgebende Fläche
+    let best = -1;
+    ps.forEach((q, j) => {
+      if (depth[j] === depth[i] - 1 && inside(q, p[0]) && (best < 0 || area(q) < area(ps[best]))) best = j;
+    });
+    if (best >= 0) shapes.get(best)!.holes.push(new THREE.Path(p.map((q) => new THREE.Vector2(q.x, q.y))));
+  });
+  return [...shapes.values()];
+}
+
+const poseMatrix = (p: Pose) =>
+  new THREE.Matrix4().makeBasis(new THREE.Vector3(...p.u), new THREE.Vector3(...p.v), new THREE.Vector3(...p.n)).setPosition(...p.o);
+
+function slabGeometry(s: Solid) {
+  return new THREE.ExtrudeGeometry(shapesOf(s.polys), { depth: s.th, bevelEnabled: false, curveSegments: 1 });
+}
+
+const cssVar = (name: string, fallback: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+
+export class Viewer3D {
+  private renderer: THREE.WebGLRenderer;
+  private scene = new THREE.Scene();
+  private camera = new THREE.PerspectiveCamera(35, 1, 0.1, 10000);
+  private controls: OrbitControls;
+  private root = new THREE.Group();
+  private overlapGroup = new THREE.Group();
+  private grid: THREE.GridHelper | null = null;
+  private parts: Part[] = [];
+  private explode = 0;
+  private spin = false;
+  private showOverlaps = true;
+  private angle = 0;
+  private active = false;
+  private needsRender = true;
+  private last = 0;
+  private raycaster = new THREE.Raycaster();
+  private resize: ResizeObserver;
+  private themeObs: MutationObserver;
+  /** Name des Teils unter dem Zeiger (null = keines) */
+  onHover: (label: string | null) => void = () => {};
+  /** Ist das Fenster zu sehen? Sonst hält die Zeichenschleife an, bis setActive(true) sie wieder startet */
+  isVisible: () => boolean = () => true;
+
+  constructor(private host: HTMLElement) {
+    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    host.append(this.renderer.domElement);
+    this.camera.up.set(0, 0, 1);
+    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    this.controls.enableDamping = true;
+    this.controls.addEventListener('change', () => (this.needsRender = true));
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8070, 1.6));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+    sun.position.set(0.8, -1.2, 2);
+    this.scene.add(sun);
+    const fill = new THREE.DirectionalLight(0xffffff, 0.5);
+    fill.position.set(-1, 1.5, 0.5);
+    this.scene.add(fill);
+    this.scene.add(this.root, this.overlapGroup);
+    this.resize = new ResizeObserver(() => this.fitSize());
+    this.resize.observe(host);
+    this.themeObs = new MutationObserver(() => this.applyTheme());
+    this.themeObs.observe(document.documentElement, { attributes: true });
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => this.applyTheme());
+    this.renderer.domElement.addEventListener('pointermove', (e) => this.hover(e));
+    this.renderer.domElement.addEventListener('pointerleave', () => this.onHover(null));
+    this.applyTheme();
+    this.fitSize();
+  }
+
+  private applyTheme() {
+    this.scene.background = new THREE.Color(cssVar('--surface', '#ffffff'));
+    if (this.grid) (this.grid.material as THREE.LineBasicMaterial).color = new THREE.Color(cssVar('--line', '#c3c7ce'));
+    this.needsRender = true;
+  }
+
+  private fitSize() {
+    const w = Math.max(1, this.host.clientWidth),
+      h = Math.max(1, this.host.clientHeight);
+    this.renderer.setSize(w, h, false);
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    this.needsRender = true;
+  }
+
+  private clear() {
+    for (const g of [this.root, this.overlapGroup])
+      g.traverse((o) => {
+        if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments) {
+          o.geometry.dispose();
+          (o.material as THREE.Material).dispose();
+        }
+      });
+    this.root.clear();
+    this.overlapGroup.clear();
+    this.parts = [];
+    if (this.grid) {
+      this.scene.remove(this.grid);
+      this.grid.geometry.dispose();
+      this.grid = null;
+    }
+  }
+
+  /** Neue Teile zeigen; refit: Kamera auf die Teile ausrichten (z. B. wenn eine andere Baugruppe gewählt wurde) */
+  setScene(sc: Scene3D, refit: boolean) {
+    this.clear();
+    const edgeColor = new THREE.Color('#5c4630');
+    // Mitte jeder Baugruppe für die Explosionsansicht
+    const centers = new Map<string, THREE.Box3>();
+    const boxOf = (s: Solid) => {
+      const b = solidBounds(s);
+      return new THREE.Box3(new THREE.Vector3(...b.min), new THREE.Vector3(...b.max));
+    };
+    for (const s of sc.solids) centers.set(s.group, (centers.get(s.group) ?? new THREE.Box3()).union(boxOf(s)));
+    sc.solids.forEach((s, i) => {
+      const geo = slabGeometry(s);
+      // Holztöne, benachbarte Teile leicht unterschiedlich
+      const color = new THREE.Color().setHSL(0.085, 0.5, 0.74 + ((i * 3) % 5) * 0.025 - 0.05);
+      const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color }));
+      mesh.matrixAutoUpdate = false;
+      mesh.matrix.copy(poseMatrix(s.pose));
+      mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 25), new THREE.LineBasicMaterial({ color: edgeColor })));
+      mesh.userData.label = s.label;
+      const holder = new THREE.Group();
+      holder.add(mesh);
+      this.root.add(holder);
+      const c = boxOf(s).getCenter(new THREE.Vector3()).sub(centers.get(s.group)!.getCenter(new THREE.Vector3()));
+      this.parts.push({ s, holder, mesh, away: c });
+    });
+    const red = new THREE.MeshBasicMaterial({ color: 0xe53935, transparent: true, opacity: 0.85, depthTest: false });
+    for (const o of sc.overlaps)
+      for (const p of o.pieces) {
+        const m = new THREE.Mesh(slabGeometry(p), red.clone());
+        m.matrixAutoUpdate = false;
+        m.matrix.copy(poseMatrix(p.pose));
+        m.renderOrder = 10;
+        this.overlapGroup.add(m);
+      }
+    red.dispose();
+    const all = this.bounds();
+    if (!all.isEmpty()) {
+      const size = all.getSize(new THREE.Vector3());
+      const span = Math.max(size.x, size.y, 10) * 1.6;
+      const step = Math.pow(10, Math.floor(Math.log10(span / 8)));
+      const div = Math.max(2, Math.round(span / step));
+      this.grid = new THREE.GridHelper(div * step, div, cssVar('--line', '#c3c7ce'), cssVar('--line', '#c3c7ce'));
+      this.grid.rotation.x = Math.PI / 2;
+      const c = all.getCenter(new THREE.Vector3());
+      this.grid.position.set(c.x, c.y, all.min.z - 0.05);
+      (this.grid.material as THREE.Material).transparent = true;
+      (this.grid.material as THREE.Material).opacity = 0.6;
+      this.scene.add(this.grid);
+    }
+    this.applyTheme();
+    this.layout();
+    if (refit) this.view('iso');
+  }
+
+  private bounds() {
+    const b = new THREE.Box3();
+    for (const p of this.parts) b.union(new THREE.Box3().setFromObject(p.holder));
+    return b;
+  }
+
+  /** Teile auseinanderziehen (0 = zusammengesteckt, 1 = um die eigene Ausdehnung der Baugruppe) */
+  setExplode(k: number) {
+    this.explode = k;
+    this.layout();
+  }
+
+  setSpin(on: boolean) {
+    this.spin = on;
+    this.last = performance.now();
+    this.layout();
+  }
+
+  setShowOverlaps(on: boolean) {
+    this.showOverlaps = on;
+    this.layout();
+  }
+
+  private layout() {
+    for (const p of this.parts) {
+      p.holder.position.copy(p.away).multiplyScalar(this.explode);
+      if (p.s.spin) p.mesh.matrix.copy(poseMatrix(this.angle ? rotatePose(p.s.pose, this.angle * p.s.spin) : p.s.pose));
+    }
+    // Die roten Bereiche gehören zur zusammengesteckten, ruhenden Lage
+    this.overlapGroup.visible = this.showOverlaps && this.explode === 0 && this.angle === 0;
+    this.needsRender = true;
+  }
+
+  view(preset: ViewPreset) {
+    const b = this.bounds();
+    if (b.isEmpty()) return;
+    const sphere = b.getBoundingSphere(new THREE.Sphere());
+    const r = Math.max(sphere.radius, 1);
+    const dir = preset === 'top' ? new THREE.Vector3(0, -0.0001, 1) : preset === 'front' ? new THREE.Vector3(0, -1, 0.0001) : new THREE.Vector3(0.9, -1.5, 1.1);
+    const dist = r / Math.sin(THREE.MathUtils.degToRad(this.camera.fov / 2)) * (this.camera.aspect < 1 ? 1.15 / this.camera.aspect : 1.15);
+    this.camera.position.copy(sphere.center).addScaledVector(dir.normalize(), dist);
+    this.camera.near = Math.max(0.01, dist / 1000);
+    this.camera.far = dist * 20;
+    this.camera.updateProjectionMatrix();
+    this.controls.target.copy(sphere.center);
+    this.controls.update();
+    this.needsRender = true;
+  }
+
+  /** Zeichnen nur, solange das Fenster zu sehen ist */
+  setActive(on: boolean) {
+    if (on === this.active) return;
+    this.active = on;
+    if (!on) return;
+    this.needsRender = true;
+    this.last = performance.now();
+    const loop = (now: number) => {
+      if (!this.active) return;
+      if (!this.isVisible()) {
+        this.active = false;
+        return;
+      }
+      const dt = Math.min(0.1, (now - this.last) / 1000);
+      this.last = now;
+      if (this.spin) {
+        this.angle += dt * 0.6;
+        this.layout();
+      } else if (this.angle) {
+        this.angle = 0;
+        this.layout();
+      }
+      this.controls.update();
+      if (this.needsRender) {
+        this.needsRender = false;
+        this.renderer.render(this.scene, this.camera);
+      }
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  }
+
+  private hover(e: PointerEvent) {
+    const r = this.renderer.domElement.getBoundingClientRect();
+    const p = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    this.raycaster.setFromCamera(p, this.camera);
+    const hit = this.raycaster.intersectObjects(this.parts.map((x) => x.mesh), false)[0];
+    this.onHover(hit ? String(hit.object.userData.label) : null);
+  }
+
+  dispose() {
+    this.active = false;
+    this.clear();
+    this.resize.disconnect();
+    this.themeObs.disconnect();
+    this.controls.dispose();
+    this.renderer.dispose();
+    this.renderer.domElement.remove();
+  }
+}
