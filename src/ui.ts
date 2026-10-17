@@ -12,7 +12,7 @@ import { openJointDialog } from './jointDialog';
 import { openHingeDialog } from './hingeDialog';
 import { openQrDialog, openVarTextDialog } from './qrDialog';
 import { askGenConvert, openGenDialog } from './generators/dialog';
-import { genLabel } from './generators';
+import { genLabel, getGenerator } from './generators';
 import { buildLaser, frameJob, openDeviceDialog, openDevicesDialog, openPreview, openRotaryDialog, saveGCode, startJob } from './laser';
 import { openLayerDialog } from './layerdialog';
 import { openMaterialTestDialog } from './materialtest';
@@ -189,6 +189,7 @@ function buildMenu(ed: Editor) {
       [t('QR-Code …'), '', () => openQrDialog(ed)],
       { sub: t('Generatoren'), items: [
         [t('Zahnrad …'), '', () => openGenDialog(ed, 'gear')],
+        [t('Box mit Fingerzinken …'), '', () => openGenDialog(ed, 'box')],
       ] },
       'sep',
       { sub: t('Boolesche Operationen'), items: [
@@ -617,8 +618,9 @@ function buildNumbar(ed: Editor) {
 
   // Parametrische Bauteile
   const genInfo = h('span', { class: 'muted' });
+  const genIcon = h('span', { html: ICONS.gear, class: 'muted icon-inline' });
   const genProps = h('div', { class: 'field' },
-    h('span', { html: ICONS.gear, class: 'muted icon-inline' }), genInfo,
+    genIcon, genInfo,
     h('button', { class: 'toggle', title: t('Parameter ändern, die Kontur wird neu berechnet (Doppelklick)'), onclick: () => ed.selGens()[0] && openGenDialog(ed, '', ed.selGens()[0]) }, t('Parameter …')),
     h('button', { class: 'toggle', title: t('In gewöhnliche Pfade umwandeln; die Parameter gehen verloren (Ctrl+Shift+C)'), onclick: () => ed.convertSelToPath() }, t('In Pfade umwandeln')),
   );
@@ -660,7 +662,11 @@ function buildNumbar(ed: Editor) {
     }
     const gens = ed.selGens();
     genProps.hidden = sepGen.hidden = !gens.length;
-    if (gens.length) genInfo.textContent = gens.length > 1 ? t('{n} Bauteile', { n: gens.length }) : genLabel(gens[0].shape as GenShape);
+    if (gens.length) {
+      const gs = gens[0].shape as GenShape;
+      genInfo.textContent = gens.length > 1 ? t('{n} Bauteile', { n: gens.length }) : genLabel(gs);
+      genIcon.innerHTML = ICONS[getGenerator(gs.gen)?.icon ?? 'gear'] ?? ICONS.gear;
+    }
     const nn = ed.nodeSelCount;
     nodeInfo.textContent = nn ? t('{n} Knoten', { n: nn }) : t('Knoten');
     nodeProps.classList.toggle('group-disabled', ed.tool === 'node' && !ed.sel.length);
@@ -782,6 +788,7 @@ function buildBars(ed: Editor) {
     },
     { id: 'qr', cat: W, icon: 'qr', label: t('QR-Code erstellen'), run: () => openQrDialog(ed) },
     { id: 'gear', cat: W, icon: 'gear', label: t('Zahnrad erstellen (Evolventenverzahnung, Parameter bleiben erhalten)'), run: () => openGenDialog(ed, 'gear') },
+    { id: 'box', cat: W, icon: 'box', label: t('Box mit Fingerzinken erstellen (Baugruppe, Parameter bleiben erhalten)'), run: () => openGenDialog(ed, 'box') },
     { id: 'vartext', cat: W, short: t('Var. Text'), label: t('Variabler Text …'), run: () => openVarTextDialog(ed) },
     { id: 'textpath', cat: W, short: t('Auf Pfad'), label: t('Text auf Pfad'), run: () => ed.applyPathToText(), enabled: sel2 },
     { id: 'union', cat: M, icon: 'union', label: t('Vereinen: alle gewählten Formen verschmelzen'), run: () => ed.booleanSel('union'), enabled: sel2 },
@@ -814,6 +821,7 @@ function buildBars(ed: Editor) {
     { id: 'grp:align', cat: A, label: t('Ausrichten und verteilen (Gruppe)'), items: ['alignl', 'alignhc', 'alignr', 'alignt', 'alignvc', 'alignb', 'disth', 'distv'], run: () => {} },
     { id: 'grp:zoom', cat: V, label: t('Zoom (Gruppe)'), items: ['zoompage', 'zoomsel', 'zoomin', 'zoomout'], run: () => {} },
     { id: 'grp:bool', cat: M, label: t('Boolesche Operationen (Gruppe)'), items: ['union', 'subtract', 'intersect', 'boolopts'], run: () => {} },
+    { id: 'grp:gen', cat: W, label: t('Generatoren (Gruppe)'), items: ['gear', 'box'], run: () => {} },
     { id: 'grp:array', cat: M, label: t('Arrays (Gruppe)'), items: ['gridarray', 'circarray'], run: () => {} },
     { id: 'grp:path', cat: M, label: t('Pfad-Werkzeuge (Gruppe)'), items: ['tool:trim', 'tool:start', 'closepath', 'join', 'breakapart', 'reverse'], run: () => {} },
   ];
@@ -826,7 +834,7 @@ function buildBars(ed: Editor) {
         'group', 'ungroup', 'grp:transform', 'tolines', SEP, 'grp:align', SEP, 'theme',
       ],
       tools: [
-        'tool:select', 'tool:node', SEP, 'tool:line', 'tool:rect', 'tool:ellipse', 'tool:polygon', 'tool:text', 'qr', 'gear', SEP,
+        'tool:select', 'tool:node', SEP, 'tool:line', 'tool:rect', 'tool:ellipse', 'tool:polygon', 'tool:text', 'qr', 'grp:gen', SEP,
         'grp:bool', 'offset', 'grp:path', 'grp:array', 'tool:joint', 'lidhinge', 'hinge',
       ],
     },

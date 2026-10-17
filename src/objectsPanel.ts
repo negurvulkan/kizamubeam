@@ -5,7 +5,7 @@
 // Aufbau: Ganz oben stehen die Seiten des Projekts. Unter der aktuellen Seite liefert sections() je Layer einen
 // Abschnitt mit dessen Objekten; die anderen Seiten zeigen nur ihre Objektzahl (Klick wechselt dorthin).
 import type { Editor } from './editor';
-import { genLabel } from './generators';
+import { genLabel, getGenerator } from './generators';
 import { ICONS } from './icons';
 import { homeLayer, layerLabel, Obj, PALETTE } from './model';
 import { $, h } from './dom';
@@ -153,7 +153,7 @@ export function buildObjectsPanel(ed: Editor) {
         title: t('Klick: auswählen (Shift/Ctrl: hinzufügen) · Doppelklick auf den Namen: umbenennen · Ziehen: Reihenfolge oder Layer ändern'),
       },
       chevron,
-      h('span', { class: 'ot-icon', html: ICONS[KIND_ICON[o.shape.kind]] }),
+      h('span', { class: 'ot-icon', html: ICONS[o.shape.kind === 'gen' ? (getGenerator(o.shape.gen)?.icon ?? 'gear') : KIND_ICON[o.shape.kind]] ?? ICONS.gear }),
       swatch,
       label,
       toggleBtn('ot-eye', !o.hidden, o.hidden ? 'eyeoff' : 'eye', o.hidden ? t('Einblenden') : t('Ausblenden (wird dann auch nicht gelasert)'), () =>

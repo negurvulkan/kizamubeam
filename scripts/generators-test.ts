@@ -1,9 +1,11 @@
-// Tests der Generatoren (Zahnrad). Aufruf: npm run test:generators
+// Tests der Generatoren (Zahnrad, Box). Aufruf: npm run test:generators
 import './core-fixtures-env';
 import { strict as assert } from 'node:assert';
 import type { Pt, SubPath } from '../src/model';
 import type { GearParams } from '../src/generators/gear';
+import type { BoxParams } from '../src/generators/box';
 const { GEAR, gearGeometry, GEAR_TOL } = await import('../src/generators/gear');
+const { BOX, boxOuter, fieldCount } = await import('../src/generators/box');
 const { buildGen, checkInput, defaultParams, normalizeParams } = await import('../src/generators/index');
 const { bezierPt, segments } = await import('../src/curves');
 const ClipperLib = (await import('clipper-lib')).default;
@@ -23,8 +25,9 @@ const near = (a: number, b: number, eps: number, what = '') => assert.ok(Math.ab
 const gear = (o: Partial<GearParams> = {}): GearParams => ({ ...(defaultParams(GEAR) as unknown as GearParams), boreType: 'none', kerf: 0, backlash: 0, ...o });
 function outline(o: Partial<GearParams>): SubPath[] {
   const r = buildGen(GEAR, gear(o) as unknown as Record<string, number | string | boolean>);
-  assert.ok(r.shape, r.issues.map((i) => i.msg).join('; '));
-  return r.shape!.subs;
+  assert.equal(r.parts.length, 1, r.issues.map((i) => i.msg).join('; '));
+  assert.equal(r.parts[0].shape.part, undefined);
+  return r.parts[0].shape.subs;
 }
 /** Unterpfad fein abgetastet; y wieder nach oben (wie in gearGeometry) */
 function flatten(sp: SubPath, n = 24): Pt[] {
@@ -172,6 +175,122 @@ test('Validierung: spitze Zähne, zu große Bohrung, unbekannte Parameter', () =
   assert.equal(n.teeth, 12);
   assert.equal(n.module, 2);
   assert.equal(n.boreType, 'round');
+});
+
+// Box
+
+const box = (o: Partial<BoxParams> = {}): BoxParams => ({ ...(defaultParams(BOX) as unknown as BoxParams), kerf: 0, ...o });
+function boxParts(o: Partial<BoxParams>) {
+  const r = buildGen(BOX, box(o) as unknown as Record<string, number | string | boolean>);
+  assert.ok(r.parts.length, r.issues.map((i) => i.msg).join('; '));
+  for (const p of r.parts) for (const sp of p.shape.subs) assert.ok(sp.nodes.every((n) => !n.cin && !n.cout), 'Box-Kanten müssen gerade sein');
+  return new Map(r.parts.map((p) => [p.shape.part!, p.shape.subs[0].nodes as Pt[]]));
+}
+const bbox = (pts: Pt[]) => ({
+  w: Math.max(...pts.map((p) => p.x)) - Math.min(...pts.map((p) => p.x)),
+  h: Math.max(...pts.map((p) => p.y)) - Math.min(...pts.map((p) => p.y)),
+});
+function inside(pts: Pt[], x: number, y: number) {
+  let c = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[i],
+      b = pts[j];
+    if (a.y > y !== b.y > y && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) c = !c;
+  }
+  return c;
+}
+/**
+ * Teile in 3D zusammenstecken und mit Zufallspunkten prüfen: Wie viele Platten enthalten jeden Punkt?
+ * Liefert Zahl der Punkte in zwei Platten und Zahl der Punkte der Wandschale ohne Platte.
+ */
+function assemble(o: Partial<BoxParams>, samples = 60000) {
+  const p = box(o);
+  const parts = boxParts(o);
+  const { W, D, H } = boxOuter(p);
+  const th = p.thickness;
+  // Lokale Koordinaten der Teile: Mitte im Ursprung, y nach unten (oben = Oberkante der Wände)
+  const inPart = (k: string, x: number, y: number, a: number, b: number) => parts.has(k) && inside(parts.get(k)!, x - a / 2, y - b / 2);
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  let overlap = 0,
+    holes = 0;
+  for (let n = 0; n < samples; n++) {
+    // Punkte nur in der Schale (Abstand < Dicke zur Außenfläche)
+    const X = rnd() * W,
+      Y = rnd() * D,
+      Z = rnd() * H;
+    if (X > th && X < W - th && Y > th && Y < D - th && Z > th && Z < H - th) continue;
+    let cnt = 0;
+    if (Z < th && inPart('bottom', X, Y, W, D)) cnt++;
+    if (Z > H - th && inPart('top', X, Y, W, D)) cnt++;
+    if (Y < th && inPart('front', X, H - Z, W, H)) cnt++;
+    if (Y > D - th && inPart('back', X, H - Z, W, H)) cnt++;
+    if (X < th && inPart('left', Y, H - Z, D, H)) cnt++;
+    if (X > W - th && inPart('right', Y, H - Z, D, H)) cnt++;
+    if (cnt > 1) overlap++;
+    const openTop = p.top === 'open' && Z > H - th && X > th && X < W - th && Y > th && Y < D - th;
+    if (cnt === 0 && !openTop) holes++;
+  }
+  return { overlap, holes };
+}
+
+test('Box: Teile, Außenmaße und gerade Kanten', () => {
+  const open = boxParts({ width: 120, depth: 80, height: 60, thickness: 4 });
+  assert.deepEqual([...open.keys()].sort(), ['back', 'bottom', 'front', 'left', 'right']);
+  near(bbox(open.get('bottom')!).w, 120, 1e-9, 'Boden Breite');
+  near(bbox(open.get('bottom')!).h, 80, 1e-9, 'Boden Tiefe');
+  near(bbox(open.get('front')!).h, 60, 1e-9, 'Wand Höhe');
+  near(bbox(open.get('left')!).w, 80, 1e-9, 'Seitenwand Breite');
+  const closed = boxParts({ top: 'closed' });
+  assert.equal(closed.size, 6);
+  // Innenmaß: Wände kommen dazu
+  const p = box({ sizeMode: 'inner', width: 100, depth: 50, height: 40, thickness: 3, top: 'closed' });
+  assert.deepEqual(boxOuter(p), { W: 106, D: 56, H: 46 });
+  assert.equal(fieldCount(94, 10), 9);
+  assert.equal(fieldCount(30, 10), 3);
+  assert.equal(fieldCount(5, 10), 1);
+});
+
+test('Box: Teile passen lückenlos und ohne Überschneidung zusammen', () => {
+  for (const o of [
+    { width: 100, depth: 80, height: 50, thickness: 3 },
+    { width: 100, depth: 80, height: 50, thickness: 3, top: 'closed' as const },
+    { width: 37, depth: 151, height: 23.5, thickness: 4.2, finger: 6, top: 'closed' as const },
+    { width: 60, depth: 60, height: 60, thickness: 5, finger: 50 },
+  ]) {
+    const r = assemble(o);
+    assert.equal(r.overlap, 0, `Überschneidung bei ${JSON.stringify(o)}: ${r.overlap}`);
+    assert.equal(r.holes, 0, `Lücke bei ${JSON.stringify(o)}: ${r.holes}`);
+  }
+});
+
+test('Box: Steckspiel lässt Luft, Presspassung überschneidet', () => {
+  const play = assemble({ top: 'closed', clearance: 0.3 });
+  assert.equal(play.overlap, 0, `Überschneidung mit Spiel: ${play.overlap}`);
+  assert.ok(play.holes > 0, 'Spiel ohne Luft');
+  const press = assemble({ top: 'closed', clearance: -0.3 });
+  assert.ok(press.overlap > 0, 'Presspassung ohne Überdeckung');
+  assert.equal(press.holes, 0, `Lücke bei Presspassung: ${press.holes}`);
+});
+
+test('Box: Schnittfuge versetzt jede Kontur um die halbe Fuge', () => {
+  const a = boxParts({ top: 'closed' }),
+    k = boxParts({ top: 'closed', kerf: 0.2 });
+  for (const [key, pts] of a) {
+    const b0 = bbox(pts),
+      b1 = bbox(k.get(key)!);
+    near(b1.w, b0.w + 0.2, 1e-9, `${key} Breite`);
+    near(b1.h, b0.h + 0.2, 1e-9, `${key} Höhe`);
+    assert.equal(k.get(key)!.length, pts.length, `${key}: Eckenzahl`);
+  }
+});
+
+test('Box: Validierung', () => {
+  const lvl = (o: Partial<BoxParams>, l: string) => BOX.validate(box(o) as never).filter((i) => i.level === l);
+  assert.equal(lvl({}, 'error').length, 0);
+  assert.ok(lvl({ height: 10, thickness: 3 }, 'error').length, 'zu dick nicht erkannt');
+  assert.ok(lvl({ clearance: 1, finger: 3 }, 'error').length, 'Spiel zu groß nicht erkannt');
+  assert.ok(lvl({ finger: 2 }, 'warn').length, 'schmale Zinken nicht gewarnt');
 });
 
 if (failed) {

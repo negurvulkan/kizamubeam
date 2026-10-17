@@ -4,6 +4,7 @@ import type { Editor } from '../editor';
 import { check, numField, select } from '../arrayDialogs';
 import { h } from '../dom';
 import type { GenShape, Obj } from '../model';
+import type { BuildResult } from './index';
 import { subsToPath2D } from '../geom';
 import { dec, t, tn } from '../i18n';
 import { buildGen, defaultParams, fieldActive, genLabel, getGenerator, normalizeParams } from './index';
@@ -56,56 +57,59 @@ export function openGenDialog(ed: Editor, genId: string, o?: Obj) {
   const issuesEl = h('div', { class: 'gen-issues' });
   const infoEl = h('div', { class: 'gen-info' });
   const kerfNote = h('div', { class: 'note' });
-  let shape: GenShape | null = null;
+  let built: BuildResult | null = null;
 
   const update = () => {
     // Werte für die Prüfung auf den gültigen Bereich bringen; die Eingabefelder behalten, was getippt wurde
     const np = normalizeParams(g, p);
     for (const s of g.schema) rows.get(s.key)!.forEach((el) => (el.hidden = !fieldActive(s, np)));
     const r = buildGen(g, np);
-    shape = r.shape;
+    built = r.parts.length ? r : null;
     issuesEl.replaceChildren(...r.issues.map((i) => h('div', { class: i.level === 'error' ? 'error' : 'warn' }, i.msg)));
     for (const s of g.schema) {
       const bad = r.issues.some((i) => i.key === s.key && i.level === 'error');
       rows.get(s.key)!.forEach((el) => el.classList.toggle('invalid', bad));
     }
     infoEl.replaceChildren(...r.info.map(([k, v]) => h('div', {}, h('span', { class: 'muted' }, k), ' ', v)));
-    okBtn.disabled = !shape;
+    okBtn.disabled = !built;
     const ctx = canvas.getContext('2d')!;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (!shape) return;
-    const pts = shape.subs.flatMap((sp) => sp.nodes);
+    if (!built) return;
+    // Alle Teile an ihrer vorgeschlagenen Lage, gemeinsam eingepasst
+    const pts = built.parts.flatMap((pt) => pt.shape.subs.flatMap((sp) => sp.nodes.map((q) => ({ x: q.x + pt.at.x, y: q.y + pt.at.y }))));
     const ext = Math.max(1e-6, ...pts.map((q) => Math.max(Math.abs(q.x), Math.abs(q.y))));
     const k = (canvas.width / 2 - 6) / ext;
-    ctx.setTransform(k, 0, 0, k, canvas.width / 2, canvas.height / 2);
     const css = getComputedStyle(canvas);
     ctx.fillStyle = css.getPropertyValue('--accent-soft').trim() || 'rgba(80,140,220,0.18)';
     ctx.strokeStyle = css.color || '#333';
     ctx.lineWidth = 1 / k;
-    const path = subsToPath2D(shape.subs);
-    ctx.fill(path, 'evenodd');
-    ctx.stroke(path);
+    for (const pt of built.parts) {
+      ctx.setTransform(k, 0, 0, k, canvas.width / 2 + pt.at.x * k, canvas.height / 2 + pt.at.y * k);
+      const path = subsToPath2D(pt.shape.subs);
+      ctx.fill(path, 'evenodd');
+      ctx.stroke(path);
+    }
     const kerf = Number(np.kerf ?? 0);
     kerfNote.textContent =
       layerKerf
         ? t('Der Layer hat zusätzlich einen Kerf-Versatz von {k} mm, der beim Lasern noch dazukommt.', { k: dec(String(layerKerf)) })
         : kerf
           ? t('Die Schnittfuge ist schon in der Kontur enthalten; der Layer hat keinen zusätzlichen Kerf-Versatz.')
-          : t('Ohne Schnittfuge: Das Rad wird um die Fugenbreite zu klein. Fuge hier oder als Kerf-Versatz am Layer eintragen.');
+          : t('Ohne Schnittfuge werden die Teile um die Fugenbreite zu klein. Fuge hier oder als Kerf-Versatz am Layer eintragen.');
   };
 
   const okBtn = h('button', {
     class: 'btn primary',
     onclick: () => {
-      if (!shape) return;
+      if (!built) return;
       try {
-        localStorage.setItem(LAST_KEY(g.id), JSON.stringify(shape.params));
+        localStorage.setItem(LAST_KEY(g.id), JSON.stringify(built.parts[0].shape.params));
       } catch {
         /* Speicher nicht verfügbar */
       }
-      if (o && old) ed.updateGen(o, shape);
-      else ed.addGen(shape);
+      if (o && old) ed.updateGen(o, built);
+      else ed.addGen(built);
       dlg.close();
     },
   }, old ? t('Übernehmen') : t('Erstellen')) as HTMLButtonElement;

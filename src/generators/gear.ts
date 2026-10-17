@@ -284,7 +284,7 @@ export const GEAR: Generator = {
       [t('Zahndicke am Kopf'), `${fmt(2 * g.tipAngle * g.ra)} mm`],
       [t('Achsabstand'), `${fmt(m, 3)} × (z₁ + z₂) / 2${p.profileShift ? ` + (x₁ + x₂) × ${fmt(m, 3)}` : ''}`],
     ];
-    return { subs: subs.map(flipY), info };
+    return { parts: [{ key: 'main', subs: subs.map(flipY), at: { x: 0, y: 0 } }], info };
   },
   label(raw) {
     const p = P(raw);

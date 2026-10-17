@@ -88,6 +88,9 @@ export interface GenShape {
   params: Record<string, number | string | boolean>;
   /** Lokale Koordinaten in mm */
   subs: SubPath[];
+  /** Baugruppen: Schlüssel des Teils (z. B. 'front') und Kennung der Baugruppe, zu der es gehört */
+  part?: string;
+  asm?: string;
 }
 
 /** Bildanpassungen je Bild (wie „Adjust Image“ in LightBurn) */
@@ -466,6 +469,9 @@ export function clone<T>(v: T): T {
   return structuredClone(v);
 }
 
+/** Kennung einer neuen Baugruppe (Teile eines Generators, die gemeinsam neu berechnet werden) */
+export const newAsmId = () => Math.random().toString(36).slice(2, 10);
+
 /** Tiefe Kopie mit neuen IDs. */
 export function cloneObj(o: Obj): Obj {
   return cloneObjs([o])[0];
@@ -477,12 +483,18 @@ export function cloneObj(o: Obj): Obj {
  */
 export function cloneObjs(objs: Obj[]): Obj[] {
   const ids = new Map<number, number>();
+  const asms = new Map<string, string>();
   const texts: TextShape[] = [];
   const re = (x: Obj) => {
     const id = newId();
     ids.set(x.id, id);
     x.id = id;
     if (x.shape.kind === 'group') x.shape.children.forEach(re);
+    // Kopierte Teile einer Baugruppe bilden eine eigene Baugruppe
+    if (x.shape.kind === 'gen' && x.shape.asm) {
+      if (!asms.has(x.shape.asm)) asms.set(x.shape.asm, newAsmId());
+      x.shape.asm = asms.get(x.shape.asm);
+    }
     if (x.shape.kind === 'text' && x.shape.path?.link !== undefined) texts.push(x.shape);
   };
   const out = objs.map((o) => {
