@@ -107,3 +107,56 @@ export function flipY(sp: SubPath): SubPath {
     nodes: sp.nodes.map((n) => ({ ...f(n), ...(n.cin ? { cin: f(n.cin) } : {}), ...(n.cout ? { cout: f(n.cout) } : {}) })),
   };
 }
+
+/** Ausdehnung von Unterpfaden (Knoten und Anfasser; bei Kreisbögen bis 90° liegen die Anfasser innerhalb) */
+export function subsBounds(subs: SubPath[]) {
+  let x0 = Infinity,
+    y0 = Infinity,
+    x1 = -Infinity,
+    y1 = -Infinity;
+  for (const sp of subs)
+    for (const n of sp.nodes) {
+      x0 = Math.min(x0, n.x);
+      y0 = Math.min(y0, n.y);
+      x1 = Math.max(x1, n.x);
+      y1 = Math.max(y1, n.y);
+    }
+  return { x0, y0, x1, y1, w: x1 - x0, h: y1 - y0 };
+}
+
+/** Rechteckigen Umriss (Punkte, y nach unten) als geschlossenen Unterpfad aus Geraden */
+export const polySub = (pts: Pt[]): SubPath => ({ closed: true, nodes: pts.map((q) => ({ x: q.x, y: q.y })) });
+
+/**
+ * Teile zum Ausschneiden in Reihen nebeneinanderlegen (größte zuerst), ungefähr quadratisch.
+ * Die Konturen liegen um ihre Mitte; das Ergebnis ist die Lage jeder Teilmitte, die ganze Anordnung um den Ursprung.
+ */
+export function packParts(items: { key: string; subs: SubPath[] }[], gap: number): { key: string; subs: SubPath[]; at: Pt }[] {
+  const boxes = items.map((it) => ({ ...it, b: subsBounds(it.subs) }));
+  const area = boxes.reduce((s, x) => s + (x.b.w + gap) * (x.b.h + gap), 0);
+  const limit = Math.max(Math.sqrt(area) * 1.3, ...boxes.map((x) => x.b.w));
+  const order = [...boxes].sort((a, b) => b.b.h - a.b.h || b.b.w - a.b.w);
+  const placed: { key: string; subs: SubPath[]; at: Pt }[] = [];
+  let x = 0,
+    y = 0,
+    rowH = 0,
+    maxW = 0;
+  for (const it of order) {
+    if (x > 0 && x + it.b.w > limit) {
+      y += rowH + gap;
+      x = 0;
+      rowH = 0;
+    }
+    placed.push({ key: it.key, subs: it.subs, at: { x: x - it.b.x0, y: y - it.b.y0 } });
+    x += it.b.w + gap;
+    rowH = Math.max(rowH, it.b.h);
+    maxW = Math.max(maxW, x - gap);
+  }
+  const H = y + rowH;
+  // Reihenfolge wie übergeben, Mitte der Anordnung im Ursprung
+  const byKey = new Map(placed.map((p) => [p.key, p]));
+  return items.map((it) => {
+    const p = byKey.get(it.key)!;
+    return { ...p, at: { x: p.at.x - maxW / 2, y: p.at.y - H / 2 } };
+  });
+}

@@ -195,6 +195,9 @@ function buildMenu(ed: Editor) {
         'sep',
         [t('Zahnradpaar …'), '', () => openGenDialog(ed, 'gearpair')],
         [t('Box mit Fingerzinken …'), '', () => openGenDialog(ed, 'box')],
+        [t('Schublade …'), '', () => openGenDialog(ed, 'drawer')],
+        [t('Einsatz mit Fächern …'), '', () => openGenDialog(ed, 'insert')],
+        [t('Steckregal …'), '', () => openGenDialog(ed, 'shelf')],
       ] },
       'sep',
       { sub: t('Boolesche Operationen'), items: [
@@ -797,6 +800,9 @@ function buildBars(ed: Editor) {
     { id: 'pulley', cat: W, icon: 'pulley', label: t('Riemenscheibe erstellen (GT2, HTD; Parameter bleiben erhalten)'), run: () => openGenDialog(ed, 'pulley') },
     { id: 'cam', cat: W, icon: 'cam', label: t('Nocken erstellen (Hub, Rast, Rückhub; Parameter bleiben erhalten)'), run: () => openGenDialog(ed, 'cam') },
     { id: 'gearpair', cat: W, icon: 'gearpair', label: t('Zahnradpaar erstellen (Baugruppe mit Achsabstand und Grundplatte)'), run: () => openGenDialog(ed, 'gearpair') },
+    { id: 'drawer', cat: W, icon: 'drawer', label: t('Schublade erstellen (Korpus, Schubkasten und Blende als Baugruppe)'), run: () => openGenDialog(ed, 'drawer') },
+    { id: 'insert', cat: W, icon: 'insert', label: t('Einsatz mit Fächern erstellen (gesteckte Stege für Box oder Schublade)'), run: () => openGenDialog(ed, 'insert') },
+    { id: 'shelf', cat: W, icon: 'shelf', label: t('Steckregal erstellen (Seiten und Böden gesteckt)'), run: () => openGenDialog(ed, 'shelf') },
     { id: 'box', cat: W, icon: 'box', label: t('Box mit Fingerzinken erstellen (Baugruppe, Parameter bleiben erhalten)'), run: () => openGenDialog(ed, 'box') },
     { id: 'vartext', cat: W, short: t('Var. Text'), label: t('Variabler Text …'), run: () => openVarTextDialog(ed) },
     { id: 'textpath', cat: W, short: t('Auf Pfad'), label: t('Text auf Pfad'), run: () => ed.applyPathToText(), enabled: sel2 },
@@ -830,7 +836,7 @@ function buildBars(ed: Editor) {
     { id: 'grp:align', cat: A, label: t('Ausrichten und verteilen (Gruppe)'), items: ['alignl', 'alignhc', 'alignr', 'alignt', 'alignvc', 'alignb', 'disth', 'distv'], run: () => {} },
     { id: 'grp:zoom', cat: V, label: t('Zoom (Gruppe)'), items: ['zoompage', 'zoomsel', 'zoomin', 'zoomout'], run: () => {} },
     { id: 'grp:bool', cat: M, label: t('Boolesche Operationen (Gruppe)'), items: ['union', 'subtract', 'intersect', 'boolopts'], run: () => {} },
-    { id: 'grp:gen', cat: W, label: t('Generatoren (Gruppe)'), items: ['gear', 'rack', 'pulley', 'cam', 'gearpair', 'box'], run: () => {} },
+    { id: 'grp:gen', cat: W, label: t('Generatoren (Gruppe)'), items: ['gear', 'rack', 'pulley', 'cam', 'gearpair', 'box', 'drawer', 'insert', 'shelf'], run: () => {} },
     { id: 'grp:array', cat: M, label: t('Arrays (Gruppe)'), items: ['gridarray', 'circarray'], run: () => {} },
     { id: 'grp:path', cat: M, label: t('Pfad-Werkzeuge (Gruppe)'), items: ['tool:trim', 'tool:start', 'closepath', 'join', 'breakapart', 'reverse'], run: () => {} },
   ];
