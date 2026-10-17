@@ -114,8 +114,15 @@ const inRegion = (paths: Paths, pt: { X: number; Y: number }) => paths.filter((p
  * einer solchen Platte liegen (Löcher, Schlitze auf einer Hilfslinie), werden zu Löchern der Platte.
  */
 function collectMates(ed: Editor, shown: [Obj, Mat][], th: number): { groups: ViewSolid[][]; used: Set<number> } {
+  // Verbundene Teile auf allen Seiten (z. B. nach dem Verschachteln auf mehrere Platten verteilt)
   const page = new Map<number, [Obj, Mat]>();
-  for (const [o, m] of leaves(ed.doc.objs)) page.set(o.id, [o, m]);
+  const pageNo = new Map<number, number>();
+  ed.doc.pages.forEach((pg, i) => {
+    for (const [o, m] of leaves(pg.objs)) {
+      page.set(o.id, [o, m]);
+      pageNo.set(o.id, i);
+    }
+  });
   const graph = new Map<number, number[]>();
   const link = (x: number, y: number) => (graph.get(x) ?? graph.set(x, []).get(x)!).push(y);
   for (const [o] of page.values())
@@ -151,7 +158,9 @@ function collectMates(ed: Editor, shown: [Obj, Mat][], th: number): { groups: Vi
     const paths = region({ ...o, m });
     if (!paths.length) continue;
     const box = pathBox(paths);
-    for (const own of regions.values()) {
+    for (const [id, own] of regions) {
+      // Löcher nur aus derselben Seite: Seiten liegen übereinander auf demselben Bett
+      if (pageNo.get(id) !== pageNo.get(o.id)) continue;
       const pb = pathBox(own);
       if (box[0] < pb[0] || box[1] < pb[1] || box[2] > pb[2] || box[3] > pb[3]) continue;
       if (!paths.every((p) => inRegion(own, p[0]))) continue;
