@@ -1,0 +1,168 @@
+// Dialoge für Generatoren: Parameter-Dialog (aus dem Schema gebaut, mit Vorschau) und die Rückfrage,
+// bevor eine Aktion ein parametrisches Bauteil in Pfade umwandelt.
+import type { Editor } from '../editor';
+import { check, numField, select } from '../arrayDialogs';
+import { h } from '../dom';
+import type { GenShape, Obj } from '../model';
+import { subsToPath2D } from '../geom';
+import { dec, t, tn } from '../i18n';
+import { buildGen, defaultParams, fieldActive, genLabel, getGenerator, normalizeParams } from './index';
+import type { Generator, Params, ParamSpec } from './types';
+
+const LAST_KEY = (id: string) => `kizamubeam.gen.${id}`;
+
+function lastParams(g: Generator): Params {
+  try {
+    return normalizeParams(g, JSON.parse(localStorage.getItem(LAST_KEY(g.id)) ?? '{}'));
+  } catch {
+    return defaultParams(g);
+  }
+}
+
+const UNIT: Record<string, string> = { length: 'mm', angle: '°' };
+
+/** Generator-Dialog: neues Bauteil erzeugen (ohne o) oder die Parameter eines vorhandenen ändern */
+export function openGenDialog(ed: Editor, genId: string, o?: Obj) {
+  const old = o?.shape.kind === 'gen' ? o.shape : null;
+  const g = getGenerator(old?.gen ?? genId);
+  if (!g) {
+    ed.hint = t('Generator „{id}“ ist in dieser Programmversion nicht vorhanden. Die gespeicherte Kontur bleibt erhalten.', { id: old?.gen ?? genId });
+    ed.emit('tool');
+    return;
+  }
+  const p: Params = old ? normalizeParams(g, old.params) : lastParams(g);
+  const layerKerf = ed.layer(o?.layer ?? ed.currentLayer).kerf;
+
+  const rows = new Map<string, HTMLElement[]>();
+  const field = (s: ParamSpec): HTMLElement[] => {
+    const id = `gen-${s.key}`;
+    const unit = s.type === 'length' || s.type === 'angle' ? ` (${UNIT[s.type]})` : '';
+    let input: HTMLElement;
+    if (s.type === 'enum') input = select(id, String(p[s.key]), s.options, (v) => ((p[s.key] = v), update()));
+    else if (s.type === 'bool') return [h('span'), check(!!p[s.key], (v) => ((p[s.key] = v), update()), s.label)];
+    else input = numField(id, Number(p[s.key]), (v) => ((p[s.key] = v), update()), s.title);
+    if (s.title) input.title = s.title;
+    return [h('label', { for: id, title: s.title ?? '' }, s.label + unit), input];
+  };
+  const main: HTMLElement[] = [],
+    adv: HTMLElement[] = [];
+  for (const s of g.schema) {
+    const els = field(s);
+    rows.set(s.key, els);
+    (s.advanced ? adv : main).push(...els);
+  }
+
+  const canvas = h('canvas', { class: 'gen-preview', width: 240, height: 240 }) as HTMLCanvasElement;
+  const issuesEl = h('div', { class: 'gen-issues' });
+  const infoEl = h('div', { class: 'gen-info' });
+  const kerfNote = h('div', { class: 'note' });
+  let shape: GenShape | null = null;
+
+  const update = () => {
+    // Werte für die Prüfung auf den gültigen Bereich bringen; die Eingabefelder behalten, was getippt wurde
+    const np = normalizeParams(g, p);
+    for (const s of g.schema) rows.get(s.key)!.forEach((el) => (el.hidden = !fieldActive(s, np)));
+    const r = buildGen(g, np);
+    shape = r.shape;
+    issuesEl.replaceChildren(...r.issues.map((i) => h('div', { class: i.level === 'error' ? 'error' : 'warn' }, i.msg)));
+    for (const s of g.schema) {
+      const bad = r.issues.some((i) => i.key === s.key && i.level === 'error');
+      rows.get(s.key)!.forEach((el) => el.classList.toggle('invalid', bad));
+    }
+    infoEl.replaceChildren(...r.info.map(([k, v]) => h('div', {}, h('span', { class: 'muted' }, k), ' ', v)));
+    okBtn.disabled = !shape;
+    const ctx = canvas.getContext('2d')!;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!shape) return;
+    const pts = shape.subs.flatMap((sp) => sp.nodes);
+    const ext = Math.max(1e-6, ...pts.map((q) => Math.max(Math.abs(q.x), Math.abs(q.y))));
+    const k = (canvas.width / 2 - 6) / ext;
+    ctx.setTransform(k, 0, 0, k, canvas.width / 2, canvas.height / 2);
+    const css = getComputedStyle(canvas);
+    ctx.fillStyle = css.getPropertyValue('--accent-soft').trim() || 'rgba(80,140,220,0.18)';
+    ctx.strokeStyle = css.color || '#333';
+    ctx.lineWidth = 1 / k;
+    const path = subsToPath2D(shape.subs);
+    ctx.fill(path, 'evenodd');
+    ctx.stroke(path);
+    const kerf = Number(np.kerf ?? 0);
+    kerfNote.textContent =
+      layerKerf
+        ? t('Der Layer hat zusätzlich einen Kerf-Versatz von {k} mm, der beim Lasern noch dazukommt.', { k: dec(String(layerKerf)) })
+        : kerf
+          ? t('Die Schnittfuge ist schon in der Kontur enthalten; der Layer hat keinen zusätzlichen Kerf-Versatz.')
+          : t('Ohne Schnittfuge: Das Rad wird um die Fugenbreite zu klein. Fuge hier oder als Kerf-Versatz am Layer eintragen.');
+  };
+
+  const okBtn = h('button', {
+    class: 'btn primary',
+    onclick: () => {
+      if (!shape) return;
+      try {
+        localStorage.setItem(LAST_KEY(g.id), JSON.stringify(shape.params));
+      } catch {
+        /* Speicher nicht verfügbar */
+      }
+      if (o && old) ed.updateGen(o, shape);
+      else ed.addGen(shape);
+      dlg.close();
+    },
+  }, old ? t('Übernehmen') : t('Erstellen')) as HTMLButtonElement;
+
+  const dlg = h(
+    'dialog',
+    { class: 'offset-dialog gen-dialog' },
+    h('h3', {}, old ? t('{name} bearbeiten', { name: g.name }) : t('{name} erstellen', { name: g.name })),
+    h('div', { class: 'qr-layout' },
+      h('div', {},
+        h('div', { class: 'form' }, ...main),
+        adv.length ? h('details', {}, h('summary', {}, t('Erweitert')), h('div', { class: 'form' }, ...adv)) : null,
+      ),
+      h('div', {}, canvas, infoEl),
+    ),
+    issuesEl,
+    kerfNote,
+    h('div', { class: 'dialog-buttons' },
+      h('button', { class: 'btn', onclick: () => dlg.close() }, t('Abbrechen')),
+      okBtn,
+    ),
+  );
+  dlg.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter' && (e.target as HTMLElement).tagName === 'INPUT') {
+      e.preventDefault();
+      okBtn.click();
+    }
+  });
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg);
+  dlg.showModal();
+  update();
+}
+
+/** Kleine Rückfrage, bevor eine Aktion parametrische Bauteile in gewöhnliche Pfade umwandelt */
+export function askGenConvert(objs: Obj[], action: string): Promise<'convert' | 'edit' | 'cancel'> {
+  return new Promise((resolve) => {
+    let answer: 'convert' | 'edit' | 'cancel' = 'cancel';
+    const first = objs[0].shape as GenShape;
+    const name = objs.length > 1 ? tn('{n} parametrisches Bauteil', '{n} parametrische Bauteile', objs.length) : genLabel(first);
+    const done = (a: typeof answer) => ((answer = a), dlg.close());
+    const dlg = h(
+      'dialog',
+      { class: 'offset-dialog gen-guard' },
+      h('h3', {}, t('Parametrisches Bauteil ändern?')),
+      h('p', {}, t('„{action}“ wandelt {name} in gewöhnliche Pfade um. Die Parameter gehen dabei verloren, Rückgängig stellt sie wieder her.', { action, name })),
+      h('div', { class: 'dialog-buttons' },
+        h('button', { class: 'btn', onclick: () => done('cancel') }, t('Abbrechen')),
+        getGenerator(first.gen) ? h('button', { class: 'btn', onclick: () => done('edit') }, t('Parameter bearbeiten …')) : null,
+        h('button', { class: 'btn primary', onclick: () => done('convert') }, t('In Pfade umwandeln')),
+      ),
+    );
+    dlg.addEventListener('keydown', (e) => e.stopPropagation());
+    dlg.addEventListener('close', () => (dlg.remove(), resolve(answer)));
+    document.body.append(dlg);
+    // Erst nach dem auslösenden Tastendruck öffnen: Ein Enter im Größenfeld würde sonst gleich den ersten Knopf drücken
+    setTimeout(() => dlg.showModal(), 0);
+  });
+}

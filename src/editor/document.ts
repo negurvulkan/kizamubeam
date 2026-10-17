@@ -6,10 +6,16 @@ import {
 import { assetUrl, registerAsset, restoreAssets } from '../images';
 import { invalidate, invalidateText } from '../geom';
 import { t } from '../i18n';
+import { loadGen } from '../generators';
 import type { Editor } from '../editor';
 import { bumpShapeVersion } from './shared';
 
 const STORAGE_KEY = 'kizamubeam.autosave';
+
+/** Parameter parametrischer Bauteile aus älteren Generator-Versionen anpassen (Geometrie bleibt) */
+const migrateGens = (objs: Obj[]) => {
+  for (const [leaf] of leaves(objs)) if (leaf.shape.kind === 'gen') loadGen(leaf.shape);
+};
 
 export class EditorDocument {
   layer(this: Editor, i: number): Layer {
@@ -121,6 +127,7 @@ export class EditorDocument {
       if (s) {
         this.doc = loadDoc(JSON.parse(s));
         bumpIds(allObjs(this.doc));
+        migrateGens(allObjs(this.doc));
         restoreAssets(this.assetIds());
       }
     } catch {
@@ -151,6 +158,7 @@ export class EditorDocument {
     this.clearPageState();
     this.doc = d;
     bumpIds(allObjs(d));
+    migrateGens(allObjs(d));
     this.zoomPage();
     this.emit('doc');
     this.emit('sel');

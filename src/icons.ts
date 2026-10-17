@@ -11,6 +11,7 @@ export const ICONS: Record<string, string> = {
   polygon: svg('<path d="M12 3.5l8 5.8-3 9.2H7l-3-9.2z"/>'),
   text: svg('<path d="M5 6V4h14v2M12 4v16M9 20h6"/>'),
   qr: svg('<rect x="3.5" y="3.5" width="6" height="6"/><rect x="14.5" y="3.5" width="6" height="6"/><rect x="3.5" y="14.5" width="6" height="6"/><path d="M14 14h3v3h-3zM18 18h2.5v2.5H18zM14 19.5h2M19.5 14v2" fill="currentColor"/>'),
+  gear: svg('<path d="M9.9 5.3 L10.4 2.5 L13.6 2.5 L14.1 5.3 L15.3 5.8 L17.5 4.2 L19.8 6.5 L18.2 8.7 L18.7 9.9 L21.5 10.4 L21.5 13.6 L18.7 14.1 L18.2 15.3 L19.8 17.5 L17.5 19.8 L15.3 18.2 L14.1 18.7 L13.6 21.5 L10.4 21.5 L9.9 18.7 L8.7 18.2 L6.5 19.8 L4.2 17.5 L5.8 15.3 L5.3 14.1 L2.5 13.6 L2.5 10.4 L5.3 9.9 L5.8 8.7 L4.2 6.5 L6.5 4.2 L8.7 5.8Z"/><circle cx="12" cy="12" r="2.6"/>'),
   new: svg('<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>'),
   open: svg('<path d="M3 7h6l2 2h10v10H3z"/>'),
   save: svg('<path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/>'),

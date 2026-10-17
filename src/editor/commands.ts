@@ -2,6 +2,7 @@
 import { about, clone, cloneObjs, Mat, mul, Pt, rotate, scale, translate, visibleLeaves } from '../model';
 import type { Editor } from '../editor';
 import { t } from '../i18n';
+import { genLeaves } from './generators';
 
 export class EditorCommands {
   deleteSel(this: Editor) {
@@ -111,6 +112,12 @@ export class EditorCommands {
       else if (next.h !== undefined) sx = sy;
     }
     if (!isFinite(sx) || !isFinite(sy) || sx <= 0 || sy <= 0) return;
+    if ((Math.abs(sx - 1) > 1e-9 || Math.abs(sy - 1) > 1e-9) && genLeaves(this.sel).length) {
+      // Größe parametrischer Bauteile kommt aus ihren Parametern: erst fragen, dann umgewandelt skalieren
+      if (this.agentCall) throw new Error(this.genChangeError(this.sel));
+      void this.guardGen(this.sel, t('Größe ändern')).then((ok) => ok && this.setSelBox(next, ax, ay, lock));
+      return;
+    }
     const A = { x: b.x + ax * b.w, y: b.y + ay * b.h };
     let D = about(scale(sx, sy), A.x, A.y);
     const tx = next.x !== undefined ? next.x - A.x : 0;

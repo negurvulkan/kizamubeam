@@ -15,7 +15,7 @@ export class EditorJoints {
     this.jointHover = null;
     for (const [leaf, m] of visibleLeaves(this.doc.objs)) {
       const k = leaf.shape.kind;
-      if (k === 'text' || k === 'image' || k === 'barcode' || !this.layer(leaf.layer).show) continue;
+      if (k === 'text' || k === 'image' || k === 'barcode' || k === 'gen' || !this.layer(leaf.layer).show) continue;
       shapeSubs(leaf.shape).forEach((sp, si) =>
         segments(sp).forEach((sg, gi) => {
           if (sg.curve) return;

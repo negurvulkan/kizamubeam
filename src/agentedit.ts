@@ -15,6 +15,8 @@ import { buildSvg, importBytesOrThrow } from './files';
 import { t } from './i18n';
 import { library, layerPatch } from './materials';
 import { isTauri } from './machine';
+import { buildGen, checkInput, GENERATORS, getGenerator, normalizeParams } from './generators';
+import { genLeaves } from './editor/generators';
 import { Args, describe, findObj, flip, machineBox, pageList, r3, Tier, ToolDef, ToolError } from './agentutil';
 
 // ---------- Eingaben prüfen ----------
@@ -129,6 +131,24 @@ const JOINT_NUM_KEYS = [
   'kerf', 'clearance',
 ] as const;
 
+/** Parameter eines Generator-Aufrufs (Objekt params) */
+function paramArg(a: Args): Record<string, unknown> {
+  const p = a.params ?? {};
+  if (typeof p !== 'object' || Array.isArray(p) || p === null) throw new ToolError('„params“ muss ein Objekt sein');
+  return p as Record<string, unknown>;
+}
+
+/** Beschreibung aller Generatoren und ihrer Parameter für KI-Agenten */
+function genDocs(): string {
+  return GENERATORS.map((g) => {
+    const ps = g.schema.map((s) => {
+      const range = s.type === 'enum' ? s.options.map(([k]) => k).join('|') : s.type === 'bool' ? 'true|false' : `${s.type === 'int' ? 'ganzzahlig ' : ''}${s.min}–${s.max}`;
+      return `  ${s.key} (${s.label}; ${range}; Standard ${s.def})${s.title ? `: ${s.title}` : ''}`;
+    });
+    return `${g.id}: ${g.name}\n${ps.join('\n')}`;
+  }).join('\n');
+}
+
 // ---------- Werkzeuge ----------
 
 export const EDIT_TOOLS: ToolDef[] = [
@@ -242,6 +262,52 @@ export const EDIT_TOOLS: ToolDef[] = [
       const p = W(ed, num(a, 'x'), num(a, 'y'));
       const o = addObj(ed, shape, translate(p.x - size / 2, p.y - size / 2), layerOf(ed, a), num(a, 'rotation', { def: 0 }));
       return { id: o.id, object: describe(ed, o, IDENT, false) };
+    },
+  },
+  {
+    name: 'generate_part',
+    title: 'Parametrisches Bauteil erzeugen',
+    description:
+      `Erzeugt ein parametrisches Bauteil aus einem Generator. Die Parameter bleiben im Dokument erhalten: edit_generator ändert sie später, die Kontur wird neu berechnet (der Nutzer öffnet sie per Doppelklick). Skalieren, Knoten bearbeiten oder Boolesche Operationen ohne keep_originals gehen erst nach convert_to_path. x/y = Mitte. Fehlende Parameter bekommen Standardwerte. Generatoren und Parameter (Längen in mm, Winkel in Grad):\n${genDocs()}`,
+    tier: Tier.Edit,
+    inputSchema: obj({
+      generator: { type: 'string', enum: GENERATORS.map((g) => g.id) }, params: { type: 'object', description: 'Parameter nach Schlüssel, siehe Beschreibung' },
+      x: { type: 'number' }, y: { type: 'number' }, layer: LAYER, rotation: ROT,
+    }, ['generator', 'x', 'y']),
+    run: (ed, a) => {
+      const g = getGenerator(String(a.generator));
+      if (!g) throw new ToolError(`Unbekannter Generator „${a.generator}“ (${GENERATORS.map((x) => x.id).join(', ')})`);
+      const raw = paramArg(a);
+      const bad = checkInput(g, raw);
+      if (bad.length) throw new ToolError(bad.map((i) => i.msg).join('; '));
+      const r = buildGen(g, normalizeParams(g, raw));
+      if (!r.shape) throw new ToolError(r.issues.map((i) => i.msg).join('; '));
+      const p = W(ed, num(a, 'x'), num(a, 'y'));
+      const o = addObj(ed, r.shape, translate(p.x, p.y), layerOf(ed, a), num(a, 'rotation', { def: 0 }));
+      return { id: o.id, object: describe(ed, o, IDENT, false), info: Object.fromEntries(r.info), warnings: r.issues.map((i) => i.msg) };
+    },
+  },
+  {
+    name: 'edit_generator',
+    title: 'Parameter eines Bauteils ändern',
+    description:
+      'Ändert Parameter eines parametrischen Bauteils (aus generate_part). Nur die angegebenen Parameter ändern sich, die übrigen bleiben. Lage und Drehung bleiben erhalten, die Kontur wird neu berechnet.',
+    tier: Tier.Edit,
+    inputSchema: obj({ id: { type: 'integer' }, params: { type: 'object' } }, ['id', 'params']),
+    run: (ed, a) => {
+      const hit = findObj(ed.doc.objs, num(a, 'id', { int: true }));
+      if (!hit) throw new ToolError(`Kein Objekt mit id ${a.id}`);
+      const [o, parent] = hit;
+      if (o.shape.kind !== 'gen') throw new ToolError(`Objekt ${o.id} ist kein parametrisches Bauteil`);
+      const g = getGenerator(o.shape.gen);
+      if (!g) throw new ToolError(`Generator „${o.shape.gen}“ ist in dieser Programmversion nicht vorhanden`);
+      const raw = paramArg(a);
+      const bad = checkInput(g, raw);
+      if (bad.length) throw new ToolError(bad.map((i) => i.msg).join('; '));
+      const r = buildGen(g, normalizeParams(g, raw, normalizeParams(g, o.shape.params)));
+      if (!r.shape) throw new ToolError(r.issues.map((i) => i.msg).join('; '));
+      ed.updateGen(o, r.shape);
+      return { object: describe(ed, o, parent, false), info: Object.fromEntries(r.info), warnings: r.issues.map((i) => i.msg) };
     },
   },
   {
@@ -384,6 +450,7 @@ export const EDIT_TOOLS: ToolDef[] = [
       if (w !== undefined || h !== undefined) ed.setSelBox({ w, h }, 0, 1, w === undefined || h === undefined);
       const f = optNum(a, 'scale', { min: 0.0001 });
       if (f !== undefined && f !== 1) {
+        if (genLeaves(objs).length) throw new ToolError(ed.genChangeError(objs));
         const b = ed.selBounds()!;
         ed.transformSel(about(scale(f, f), b.x + b.w / 2, b.y + b.h / 2));
       }

@@ -2096,3 +2096,48 @@ body.dock-resizing #canvas {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
+
+/* Generatoren (Zahnrad …) */
+.gen-dialog .form {
+  grid-template-columns: 170px 150px;
+}
+.gen-dialog details {
+  margin-top: 8px;
+}
+.gen-dialog summary {
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+.gen-dialog .invalid {
+  color: var(--danger, #c0392b);
+}
+.gen-dialog input.invalid {
+  outline: 1px solid var(--danger, #c0392b);
+}
+.gen-preview {
+  width: 240px;
+  height: 240px;
+  border: 1px solid var(--border, #888);
+  color: var(--text);
+  flex: none;
+}
+.gen-info {
+  font-size: 12px;
+  margin-top: 6px;
+  max-width: 240px;
+  line-height: 1.5;
+}
+.gen-issues {
+  max-width: 560px;
+  margin-top: 8px;
+}
+.gen-issues .error {
+  color: var(--danger, #c0392b);
+}
+.gen-dialog .note,
+.gen-guard p {
+  max-width: 560px;
+}
+.gen-issues .warn {
+  color: #b7791f;
+}

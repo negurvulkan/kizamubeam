@@ -20,6 +20,7 @@ const K = 0.5522847498; // Bézier-Näherung für Viertelkreise
 export function shapeSubs(s: Shape): SubPath[] {
   switch (s.kind) {
     case 'path':
+    case 'gen':
       return s.subs;
     case 'barcode':
       return barcodeOutline(s).subs;
