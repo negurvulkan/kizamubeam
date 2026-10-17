@@ -111,7 +111,7 @@ export function describe(ed: Editor, o: Obj, parent: Mat, detail: boolean): Reco
       if (s.vt) out.variable = { offset: s.vt.offset, shown: barcodeData(s) };
       break;
     case 'gen':
-      Object.assign(out, { generator: s.gen, label: genLabel(s), params: s.params });
+      Object.assign(out, { generator: s.gen, label: genLabel(s), params: s.params }, s.part ? { part: s.part } : {});
       break;
     case 'image':
       Object.assign(out, { file: s.name ?? null, pixels: `${s.pxW}×${s.pxH}` });

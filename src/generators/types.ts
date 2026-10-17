@@ -1,7 +1,7 @@
 // Gemeinsame Schnittstelle aller Generatoren (Zahnrad, später Box, Zahnstange …).
 // Ein Generator ist eine reine Funktion von Parametern auf Geometrie: kein Zugriff auf Editor, DOM oder Maschine.
 // Damit lässt er sich testen, über MCP aufrufen und später auch als Community-Generator laden.
-import type { SubPath } from '../model';
+import type { Pt, SubPath } from '../model';
 
 export type ParamValue = number | string | boolean;
 export type Params = Record<string, ParamValue>;
@@ -36,9 +36,18 @@ export interface Issue {
   msg: string;
 }
 
-export interface GenResult {
-  /** Konturen in lokalen Koordinaten (mm, y nach unten), als Bézierkurven */
+/** Ein erzeugtes Teil. Bauteil-Generatoren liefern genau eines, Baugruppen mehrere. */
+export interface GenPart {
+  /** Stabiler Schlüssel innerhalb der Baugruppe (z. B. 'front'); bleibt gleich, wenn sich Parameter ändern */
+  key: string;
+  /** Konturen in lokalen Koordinaten (mm, y nach unten, Mitte des Teils im Ursprung), als Bézierkurven */
   subs: SubPath[];
+  /** Vorschlag für die Lage der Teilmitte beim ersten Anlegen (Koordinaten der Baugruppe, mm) */
+  at: Pt;
+}
+
+export interface GenResult {
+  parts: GenPart[];
   /** Kennwerte für den Dialog (z. B. Teilkreis- und Kopfkreisdurchmesser) */
   info: [string, string][];
 }
@@ -56,7 +65,7 @@ export interface Generator {
   validate(p: Params): Issue[];
   /** Erzeugt die Geometrie; wird nur aufgerufen, wenn validate() keinen Fehler meldet */
   generate(p: Params): GenResult;
-  /** Kurzer Name für das Objekte-Fenster, z. B. „Zahnrad z=24 m=2“ */
-  label(p: Params): string;
+  /** Kurzer Name für das Objekte-Fenster, z. B. „Zahnrad z=24 m=2“; bei Baugruppen mit dem Schlüssel des Teils */
+  label(p: Params, part?: string): string;
   migrate?(p: Params, from: number): Params;
 }

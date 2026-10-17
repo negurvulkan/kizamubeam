@@ -3,7 +3,7 @@
 // Undo-Schritt (siehe Editor.batch in agent.ts). Koordinaten: Maschine, Ursprung unten links, y nach oben, mm.
 import type { Editor } from './editor';
 import { boundsOf, Box, segments, shapeSubs } from './geom';
-import { about, apply, BarcodeShape, IDENT, Mat, mul, newId, Obj, QrLevel, rotate, scale, Shape, SubPath, TextShape, translate } from './model';
+import { about, apply, BarcodeShape, IDENT, leaves, Mat, mul, newId, Obj, QrLevel, rotate, scale, Shape, SubPath, TextShape, translate } from './model';
 import { qrMatrix } from './barcode';
 import { advanceVarText } from './vartext';
 import { BoolOp, OffsetOptions } from './ops';
@@ -145,7 +145,8 @@ function genDocs(): string {
       const range = s.type === 'enum' ? s.options.map(([k]) => k).join('|') : s.type === 'bool' ? 'true|false' : `${s.type === 'int' ? 'ganzzahlig ' : ''}${s.min}–${s.max}`;
       return `  ${s.key} (${s.label}; ${range}; Standard ${s.def})${s.title ? `: ${s.title}` : ''}`;
     });
-    return `${g.id}: ${g.name}\n${ps.join('\n')}`;
+    const kind = g.kind === 'assembly' ? ' (Baugruppe: legt mehrere Teile an, nebeneinander zum Ausschneiden)' : '';
+    return `${g.id}: ${g.name}${kind}\n${ps.join('\n')}`;
   }).join('\n');
 }
 
@@ -268,7 +269,7 @@ export const EDIT_TOOLS: ToolDef[] = [
     name: 'generate_part',
     title: 'Parametrisches Bauteil erzeugen',
     description:
-      `Erzeugt ein parametrisches Bauteil aus einem Generator. Die Parameter bleiben im Dokument erhalten: edit_generator ändert sie später, die Kontur wird neu berechnet (der Nutzer öffnet sie per Doppelklick). Skalieren, Knoten bearbeiten oder Boolesche Operationen ohne keep_originals gehen erst nach convert_to_path. x/y = Mitte. Fehlende Parameter bekommen Standardwerte. Generatoren und Parameter (Längen in mm, Winkel in Grad):\n${genDocs()}`,
+      `Erzeugt ein parametrisches Bauteil aus einem Generator. Die Parameter bleiben im Dokument erhalten: edit_generator ändert sie später, die Kontur wird neu berechnet (der Nutzer öffnet sie per Doppelklick). Baugruppen (z. B. box) ergeben mehrere Objekte; edit_generator an einem Teil berechnet alle Teile der Baugruppe neu. Skalieren, Knoten bearbeiten oder Boolesche Operationen ohne keep_originals gehen erst nach convert_to_path. x/y = Mitte (bei Baugruppen Mitte der ganzen Anordnung). Fehlende Parameter bekommen Standardwerte. Generatoren und Parameter (Längen in mm, Winkel in Grad):\n${genDocs()}`,
     tier: Tier.Edit,
     inputSchema: obj({
       generator: { type: 'string', enum: GENERATORS.map((g) => g.id) }, params: { type: 'object', description: 'Parameter nach Schlüssel, siehe Beschreibung' },
@@ -281,17 +282,23 @@ export const EDIT_TOOLS: ToolDef[] = [
       const bad = checkInput(g, raw);
       if (bad.length) throw new ToolError(bad.map((i) => i.msg).join('; '));
       const r = buildGen(g, normalizeParams(g, raw));
-      if (!r.shape) throw new ToolError(r.issues.map((i) => i.msg).join('; '));
+      if (!r.parts.length) throw new ToolError(r.issues.map((i) => i.msg).join('; '));
       const p = W(ed, num(a, 'x'), num(a, 'y'));
-      const o = addObj(ed, r.shape, translate(p.x, p.y), layerOf(ed, a), num(a, 'rotation', { def: 0 }));
-      return { id: o.id, object: describe(ed, o, IDENT, false), info: Object.fromEntries(r.info), warnings: r.issues.map((i) => i.msg) };
+      const layer = layerOf(ed, a);
+      const objs = ed.addGen(r, layer, p);
+      const rot = num(a, 'rotation', { def: 0 });
+      if (rot) for (const o of objs) o.m = mul(about(rotate((-rot * Math.PI) / 180), p.x, p.y), o.m);
+      const info = Object.fromEntries(r.info),
+        warnings = r.issues.map((i) => i.msg);
+      if (objs.length === 1) return { id: objs[0].id, object: describe(ed, objs[0], IDENT, false), info, warnings };
+      return { ids: objs.map((o) => o.id), objects: objs.map((o) => describe(ed, o, IDENT, false)), info, warnings };
     },
   },
   {
     name: 'edit_generator',
     title: 'Parameter eines Bauteils ändern',
     description:
-      'Ändert Parameter eines parametrischen Bauteils (aus generate_part). Nur die angegebenen Parameter ändern sich, die übrigen bleiben. Lage und Drehung bleiben erhalten, die Kontur wird neu berechnet.',
+      'Ändert Parameter eines parametrischen Bauteils (aus generate_part). Nur die angegebenen Parameter ändern sich, die übrigen bleiben. Lage und Drehung bleiben erhalten, die Kontur wird neu berechnet. Bei einem Teil einer Baugruppe gilt die Änderung für alle Teile; entfallende Teile werden entfernt, neue neben das Teil gelegt.',
     tier: Tier.Edit,
     inputSchema: obj({ id: { type: 'integer' }, params: { type: 'object' } }, ['id', 'params']),
     run: (ed, a) => {
@@ -305,9 +312,15 @@ export const EDIT_TOOLS: ToolDef[] = [
       const bad = checkInput(g, raw);
       if (bad.length) throw new ToolError(bad.map((i) => i.msg).join('; '));
       const r = buildGen(g, normalizeParams(g, raw, normalizeParams(g, o.shape.params)));
-      if (!r.shape) throw new ToolError(r.issues.map((i) => i.msg).join('; '));
-      ed.updateGen(o, r.shape);
-      return { object: describe(ed, o, parent, false), info: Object.fromEntries(r.info), warnings: r.issues.map((i) => i.msg) };
+      if (!r.parts.length) throw new ToolError(r.issues.map((i) => i.msg).join('; '));
+      const asm = o.shape.asm;
+      ed.updateGen(o, r);
+      const info = Object.fromEntries(r.info),
+        warnings = r.issues.map((i) => i.msg);
+      if (!asm) return { object: describe(ed, o, parent, false), info, warnings };
+      // Baugruppe: alle Teile auf dieser Seite melden
+      const parts = ed.asmMembers(asm).filter((m) => [...leaves(ed.doc.objs)].some(([l]) => l === m.o));
+      return { objects: parts.map((m) => describe(ed, m.o, IDENT, false)), info, warnings };
     },
   },
   {

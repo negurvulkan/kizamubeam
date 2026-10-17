@@ -1,12 +1,13 @@
 // Verzeichnis der Generatoren und gemeinsame Abläufe: Parameter prüfen, normalisieren und Geometrie erzeugen.
-import type { GenShape } from '../model';
+import type { GenShape, Pt } from '../model';
 import { t } from '../i18n';
+import { BOX } from './box';
 import { GEAR } from './gear';
 import type { Generator, Issue, Params, ParamSpec, ParamValue } from './types';
 
-export type { Generator, Issue, Params, ParamSpec } from './types';
+export type { GenPart, Generator, Issue, Params, ParamSpec } from './types';
 
-export const GENERATORS: Generator[] = [GEAR];
+export const GENERATORS: Generator[] = [GEAR, BOX];
 
 export const getGenerator = (id: string): Generator | undefined => GENERATORS.find((g) => g.id === id);
 
@@ -59,21 +60,33 @@ export function checkInput(g: Generator, raw: Record<string, unknown>): Issue[] 
   return out;
 }
 
+export interface BuiltPart {
+  shape: GenShape;
+  /** Vorgeschlagene Lage der Teilmitte in der Baugruppe */
+  at: Pt;
+}
+
 export interface BuildResult {
-  shape: GenShape | null;
+  /** Leer, wenn die Parameter einen Fehler enthalten */
+  parts: BuiltPart[];
   issues: Issue[];
   info: [string, string][];
 }
 
-/** Parameter prüfen und, wenn kein Fehler vorliegt, die Form erzeugen */
+/** Parameter prüfen und, wenn kein Fehler vorliegt, die Teile erzeugen (Baugruppen: part = Schlüssel des Teils) */
 export function buildGen(g: Generator, params: Params): BuildResult {
   const issues = g.validate(params);
-  if (issues.some((i) => i.level === 'error')) return { shape: null, issues, info: [] };
+  if (issues.some((i) => i.level === 'error')) return { parts: [], issues, info: [] };
   try {
     const r = g.generate(params);
-    return { shape: { kind: 'gen', gen: g.id, v: g.version, params: { ...params }, subs: r.subs }, issues, info: r.info };
+    const parts = r.parts.map((p) => {
+      const shape: GenShape = { kind: 'gen', gen: g.id, v: g.version, params: { ...params }, subs: p.subs };
+      if (g.kind === 'assembly') shape.part = p.key;
+      return { shape, at: p.at };
+    });
+    return { parts, issues, info: r.info };
   } catch (e) {
-    return { shape: null, issues: [...issues, { level: 'error', msg: String(e instanceof Error ? e.message : e) }], info: [] };
+    return { parts: [], issues: [...issues, { level: 'error', msg: String(e instanceof Error ? e.message : e) }], info: [] };
   }
 }
 
@@ -82,7 +95,7 @@ export function genLabel(s: GenShape): string {
   const g = getGenerator(s.gen);
   if (!g) return t('Generator „{id}“ (unbekannt)', { id: s.gen });
   try {
-    return g.label(normalizeParams(g, s.params));
+    return g.label(normalizeParams(g, s.params), s.part);
   } catch {
     return g.name;
   }
