@@ -1,6 +1,6 @@
 // Geometrie: Formen in Pfade umwandeln, Begrenzungsrahmen, Text-Layout, Treffertest.
 import { apply, IDENT, inv, mul, Mat, Node, Obj, Pt, Shape, SubPath, TextShape } from './model';
-import { loadedFont, onFontLoaded, textLines, textToSubs } from './fonts';
+import { fitText, loadedFont, onFontLoaded, textLines, textToSubs } from './fonts';
 import { bezierPt, segments } from './curves';
 import { shownText } from './vartext';
 import { barcodeExtent, barcodeOutline } from './barcode';
@@ -179,10 +179,13 @@ export function textOutline(t: TextShape): { subs: SubPath[]; path: Path2D } | n
   outlineCache.set(t, o);
   return o;
 }
-export function textLayout(t: TextShape): TextLayout {
-  const shown = shownText(t);
-  const cached = layoutCache.get(t);
+export function textLayout(src: TextShape): TextLayout {
+  const shown = shownText(src);
+  const cached = layoutCache.get(src);
   if (cached && cached.shown === shown) return cached;
+  // Eingepasster Text (Höchsthöhe, Verkleinern): Rahmen mit der tatsächlichen Schriftgröße
+  const lf = loadedFont(src.font, src.bold, src.italic);
+  const t = lf ? fitText(src, lf.font) : src;
   const ctx = measureCtx();
   const k = t.size / BASE;
   const font = fontString(t);
@@ -214,7 +217,7 @@ export function textLayout(t: TextShape): TextLayout {
   // Text auf Pfad: Rahmen aus den gesetzten Konturen, solange die Schrift lädt aus der Kurve
   if (t.path) box = subsBox(textOutline(t)?.subs ?? [t.path.sub]) ?? box;
   const lay = { k, font, spacing, lines, box, shown };
-  layoutCache.set(t, lay);
+  layoutCache.set(src, lay);
   return lay;
 }
 function subsBox(subs: SubPath[]): Box | null {

@@ -151,6 +151,31 @@ test('Generator-Formeln: Fehler und Begrenzung', () => {
   assert.equal(en.issues[0].level, 'error');
 });
 
+test('Bedingungen für „Sichtbar, wenn …“', () => {
+  const { conditionHolds } = P;
+  assert.equal(conditionHolds('Mit_Datum', scope), false);
+  assert.equal(conditionHolds('!Mit_Datum && Breite > 50', scope), true);
+  assert.equal(conditionHolds('Name', scope), true, 'nicht leerer Text gilt');
+  assert.equal(conditionHolds('Fehlt', scope), true, 'nicht auswertbar: lieber zeigen');
+  assert.ok(renameInExpr('!Mit_Datum', 'Mit_Datum', 'Datum') === '!Datum');
+});
+
+await (async () => {
+  const { isOff } = await import('../src/model');
+  test('Ausgeblendet durch Bedingung oder von Hand', () => {
+    setParamSource(() => params);
+    const o = { id: 1, m: [1, 0, 0, 1, 0, 0], layer: 0, shape: { kind: 'rect', w: 1, h: 1, r: 0 } } as import('../src/model').Obj;
+    assert.equal(isOff(o), false);
+    o.showIf = 'Mit_Datum';
+    assert.equal(isOff(o), true);
+    o.showIf = 'Breite == 80';
+    assert.equal(isOff(o), false);
+    o.hidden = true;
+    assert.equal(isOff(o), true);
+    setParamSource(() => undefined);
+  });
+})();
+
 if (failed) {
   console.log(`\n${failed} Test(s) fehlgeschlagen`);
   process.exit(1);

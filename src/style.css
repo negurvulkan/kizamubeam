@@ -2310,3 +2310,24 @@ body.dock-resizing #canvas {
   background: var(--accent-soft);
   color: var(--accent);
 }
+#numbar input.bound,
+input.bound {
+  color: var(--accent);
+  font-style: italic;
+}
+.ot-cond {
+  color: var(--accent);
+  font-style: italic;
+  font-weight: 600;
+  padding: 0 4px;
+  cursor: pointer;
+}
+.showif-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.param-dialog .note.error {
+  color: #c03030;
+}

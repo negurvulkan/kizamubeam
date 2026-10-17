@@ -123,6 +123,7 @@ export async function systemFonts(): Promise<string[] | null> {
  * Gleiche Anordnung wie die Anzeige: Grundlinie der ersten Zeile bei y = 0, Zeilenhöhe 1,2 × Größe + Zeilenabstand.
  */
 export function textToSubs(t: TextShape, font: opentype.Font): SubPath[] {
+  t = fitText(t, font);
   const scale = t.size / font.unitsPerEm;
   const glyphs: PlacedGlyph[] = [];
   for (const ln of textLines(t, font))
@@ -148,6 +149,29 @@ function squeezeNode(n: Node, x0: number, sx: number) {
  * sx < 1: Die Zeile ist breiter als die Höchstbreite und wird um diesen Faktor gestaucht.
  */
 export function textLines(t: TextShape, font: opentype.Font) {
+  return linesOf(fitText(t, font), font);
+}
+
+/**
+ * Text in Rahmen einpassen: Ist der Block höher als maxH oder (bei fit = shrink) breiter als maxW, wird er mit
+ * Schriftgröße und Abständen gleichmäßig verkleinert (nie vergrößert). Sonst bleibt der Text, wie er ist.
+ */
+export function fitText(t: TextShape, font: opentype.Font): TextShape {
+  const byW = t.fit === 'shrink' && !!t.maxW && t.maxW > 0;
+  const byH = !!t.maxH && t.maxH > 0;
+  if (!byW && !byH) return t;
+  const lines = linesOf({ ...t, maxW: undefined }, font);
+  const w = Math.max(0, ...lines.map((l) => l.w));
+  const h = (lines.length - 1) * (t.size * 1.2 + t.vSpace) + t.size;
+  const f = Math.min(1, byW && w > 0 ? t.maxW! / w : 1, byH && h > 0 ? t.maxH! / h : 1);
+  if (f >= 1 && !byW) return t;
+  const out: TextShape = { ...t, size: t.size * f, hSpace: t.hSpace * f, vSpace: t.vSpace * f };
+  // Verkleinert passt die Breite schon; ein Rest durch Rundung wird nicht mehr gestaucht
+  if (byW) delete out.maxW;
+  return out;
+}
+
+function linesOf(t: TextShape, font: opentype.Font) {
   const size = t.size;
   const scale = size / font.unitsPerEm;
   const lh = size * 1.2 + t.vSpace;

@@ -7,7 +7,8 @@
 import type { Editor } from './editor';
 import { genLabel, getGenerator } from './generators';
 import { ICONS } from './icons';
-import { homeLayer, layerLabel, Obj, PALETTE } from './model';
+import { homeLayer, isOff, layerLabel, Obj, PALETTE } from './model';
+import { openShowIfDialog } from './paramsPanel';
 import { $, h } from './dom';
 import { t, tn } from './i18n';
 import { isShown, onWindowShow, setBadge } from './dock';
@@ -129,7 +130,7 @@ export function buildObjectsPanel(ed: Editor) {
     const isGroup = o.shape.kind === 'group';
     const expanded = isGroup && openGroups.has(o.id);
     const isTop = o === top;
-    const off = dimmed || !!o.hidden;
+    const off = dimmed || isOff(o);
     const label = h('span', { class: 'ot-label' }, objLabel(o));
     const chevron = isGroup
       ? h('span', {
@@ -156,6 +157,13 @@ export function buildObjectsPanel(ed: Editor) {
       h('span', { class: 'ot-icon', html: ICONS[o.shape.kind === 'gen' ? (getGenerator(o.shape.gen)?.icon ?? 'gear') : KIND_ICON[o.shape.kind]] ?? ICONS.gear }),
       swatch,
       label,
+      o.showIf
+        ? h('span', {
+            class: 'ot-cond',
+            title: t('Sichtbar, wenn: {src} (Klick: ändern)', { src: o.showIf }),
+            onclick: (e: Event) => (e.stopPropagation(), openShowIfDialog(ed, [o])),
+          }, 'ƒ')
+        : null,
       toggleBtn('ot-eye', !o.hidden, o.hidden ? 'eyeoff' : 'eye', o.hidden ? t('Einblenden') : t('Ausblenden (wird dann auch nicht gelasert)'), () =>
         ed.setObjProps([o], { hidden: !o.hidden }),
       ),

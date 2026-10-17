@@ -5,7 +5,7 @@ import { hasPlaceholders } from './params';
 import { barcodeData } from './barcode';
 import type { Editor } from './editor';
 import { boundsOf, Box, shapeSubs, subsToD, textOutline } from './geom';
-import { IDENT, layerLabel, Mat, mul, Obj } from './model';
+import { IDENT, isOff, layerLabel, Mat, mul, Obj } from './model';
 import { library } from './materials';
 import { genLabel } from './generators';
 
@@ -79,6 +79,8 @@ export function describe(ed: Editor, o: Obj, parent: Mat, detail: boolean): Reco
   };
   if (o.name) out.name = o.name;
   if (o.hidden) out.hidden = true;
+  if (o.showIf) out.showIf = { condition: o.showIf, shown: !isOff(o) };
+  if (o.bind) out.formulas = o.bind;
   if (o.locked) out.locked = true;
   const rot = rotationOf(m);
   if (rot) out.rotation = rot;
@@ -107,6 +109,8 @@ export function describe(ed: Editor, o: Obj, parent: Mat, detail: boolean): Reco
       if (s.vt) out.variable = { offset: s.vt.offset, shown: shownText(s) };
       else if (hasPlaceholders(s.text)) out.shown = shownText(s);
       if (s.maxW) out.maxWidth = r3(s.maxW * sx);
+      if (s.maxH) out.maxHeight = r3(s.maxH * sy);
+      if (s.fit) out.fitShrink = true;
       break;
     case 'barcode':
       Object.assign(out, { type: s.type, data: s.data, errorCorrection: s.ec, size: r3(s.size * sx), invert: s.invert, quietZone: s.quiet });

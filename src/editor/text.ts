@@ -130,7 +130,7 @@ export class EditorText {
     return this.sel.filter((o) => o.shape.kind === 'text');
   }
   updateTexts(this: Editor, patch: Partial<TextShape>) {
-    Object.assign(this.textDefaults, Object.fromEntries(Object.entries(patch).filter(([k]) => k !== 'text' && k !== 'path' && k !== 'vt' && k !== 'maxW')));
+    Object.assign(this.textDefaults, Object.fromEntries(Object.entries(patch).filter(([k]) => k !== 'text' && k !== 'path' && k !== 'vt' && k !== 'maxW' && k !== 'maxH' && k !== 'fit')));
     const ts = this.selTexts();
     if (!ts.length) return;
     this.snapshot(t('Text-Eigenschaften'));

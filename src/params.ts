@@ -284,6 +284,15 @@ export function evaluate(src: string, scope: Scope = scopeOf()): Value {
   return v;
 }
 
+/** Gilt die Bedingung? Nicht auswertbare Formeln gelten als wahr, damit nichts unbemerkt verschwindet. */
+export function conditionHolds(src: string, scope: Scope = scopeOf()): boolean {
+  try {
+    return truthy(evaluate(src, scope));
+  } catch {
+    return true;
+  }
+}
+
 /** Formel als Zahl; null, wenn sie nicht auswertbar ist */
 export function evalNumber(src: string, scope?: Scope): number | null {
   try {

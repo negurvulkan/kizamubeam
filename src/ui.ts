@@ -1,7 +1,8 @@
 // Oberfläche: Menü, Leisten, Panels, Palette, Statusleiste.
 import { Editor, Tool } from './editor';
 import { ICONS } from './icons';
-import { DITHER_MODES, DitherMode, ImageAdjust, ImageLayer, ImageShape, isCellMode, Layer, layerLabel, Obj, pageName, PALETTE, SubPath, TextShape, BarcodeShape, GenShape } from './model';
+import { DITHER_MODES, DitherMode, ImageAdjust, ImageLayer, ImageShape, isCellMode, Layer, layerLabel, Obj, ObjBindKey, pageName, PALETTE, SubPath, TextShape, BarcodeShape, GenShape } from './model';
+import { evaluate, formatNumber, namesIn } from './params';
 import { deletePreset, loadPresets, presetOutput, savePreset } from './imagePresets';
 import { exportSvg, importFile, installDropAndPaste, openProject, saveProcessedBitmap, saveProject } from './files';
 import { assetImage, displayCanvas, onImageReady, outputGrid } from './images';
@@ -22,7 +23,7 @@ import { agentStatus, openAgentDialog } from './agentui';
 import { startAgentBridge } from './agent';
 import { buildObjectsPanel } from './objectsPanel';
 import { buildHistoryPanel } from './historyPanel';
-import { buildParamsPanel } from './paramsPanel';
+import { buildParamsPanel, openShowIfDialog } from './paramsPanel';
 import { buildView3dPanel } from './view3d/panel';
 import { dockWindow, initDock, isHidden, resetLayout, toggleWindow, windowList } from './dock';
 import { Action, BarKey, barNames, initToolbars, isBarHidden, openToolbarDialog, refreshBars, SEP, showAllBars, toggleBar } from './toolbars';
@@ -181,6 +182,8 @@ function buildMenu(ed: Editor) {
       'sep',
       [t('Alles auswählen'), 'Ctrl+A', () => ed.selectAll()],
       [t('In Pfad umwandeln'), 'Ctrl+Shift+C', () => ed.convertSelToPath()],
+      'sep',
+      [t('Sichtbar, wenn …'), '', () => openShowIfDialog(ed, ed.sel)],
     ]],
     [t('Werkzeuge'), [
       [t('Auswählen'), 'Esc', () => ed.setTool('select')],
@@ -470,10 +473,53 @@ function buildNumbar(ed: Editor) {
     ay = 0.5,
     lock = true;
   const bed = () => ed.doc.bed;
-  const fx = numInput('num', (v) => ed.setSelBox({ x: v }, ax, ay, lock), t('X-Position (mm)'));
-  const fy = numInput('num', (v) => ed.setSelBox({ y: bed().h - v }, ax, ay, lock), t('Y-Position (mm, Ursprung unten links)'));
-  const fw = numInput('num', (v) => ed.setSelBox({ w: v }, ax, ay, lock), t('Breite (mm)'));
-  const fh = numInput('num', (v) => ed.setSelBox({ h: v }, ax, ay, lock), t('Höhe (mm)'));
+  // Formeln mit Projekt-Parametern: statt einer Zahl z. B. „Breite + 10“ eintragen (nur bei einem Objekt)
+  const single = () => (ed.sel.length === 1 ? ed.sel[0] : null);
+  const say = (msg: string) => ((ed.hint = msg), ed.emit('tool'));
+  const formula = (key: ObjBindKey) => (src: string): boolean => {
+    const o = single();
+    if (!src) {
+      if (!o?.bind?.[key]) return false;
+      ed.setObjBind(o, key, '');
+      return true;
+    }
+    if (!namesIn(src).length) return false;
+    if (!o) return say(t('Formeln gehen nur bei einem einzelnen Objekt. Mehrere Objekte vorher gruppieren.')), false;
+    if ((key === 'w' || key === 'h') && o.shape.kind === 'gen') return say(t('Die Größe parametrischer Bauteile kommt aus ihren Parametern; dort eine Formel eintragen.')), false;
+    const issues = ed.setObjBind(o, key, src, { anchor: [ax, ay], lock });
+    say(issues.length ? issues.map((i) => i.msg).join('; ') : t('Formel gesetzt: ändert sich ein Parameter, wird der Wert neu berechnet. Eine Zahl eintragen löst die Formel.'));
+    return true;
+  };
+  /** Feld mit Formel: Eine eingetippte Zahl löst die Formel (nach dem Undo-Schritt der Änderung) */
+  const plain = (keys: ObjBindKey[], f: (v: number) => void) => (v: number) => {
+    f(v);
+    ed.dropObjBind(ed.sel, keys);
+    refresh();
+  };
+  const bindField = (el: HTMLInputElement, key: ObjBindKey, fallback: string, objOk: (o: Obj) => boolean = () => true) => {
+    const o = single();
+    const src = o && objOk(o) ? o.bind?.[key] : undefined;
+    el.classList.toggle('bound', !!src);
+    if (!el.dataset.title) el.dataset.title = el.title;
+    if (src) {
+      setVal(el, src);
+      let v = '';
+      try {
+        const r = evaluate(src);
+        v = typeof r === 'number' ? formatNumber(r) : String(r);
+      } catch (e) {
+        v = e instanceof Error ? e.message : String(e);
+      }
+      el.title = `${el.dataset.title}\n${t('Formel: {src} = {v}', { src, v })}`;
+    } else {
+      setVal(el, fallback);
+      el.title = el.dataset.title;
+    }
+  };
+  const fx = numInput('num', plain(['x'], (v) => ed.setSelBox({ x: v }, ax, ay, lock)), t('X-Position (mm)'), formula('x'));
+  const fy = numInput('num', plain(['y'], (v) => ed.setSelBox({ y: bed().h - v }, ax, ay, lock)), t('Y-Position (mm, Ursprung unten links)'), formula('y'));
+  const fw = numInput('num', plain(['w', 'h'], (v) => ed.setSelBox({ w: v }, ax, ay, lock)), t('Breite (mm)'), formula('w'));
+  const fh = numInput('num', plain(['w', 'h'], (v) => ed.setSelBox({ h: v }, ax, ay, lock)), t('Höhe (mm)'), formula('h'));
   const fwp = numInput('small', (v) => {
     const b = ed.selBounds();
     if (b) ed.setSelBox({ w: (b.w * v) / 100 }, ax, ay, lock);
@@ -487,11 +533,11 @@ function buildNumbar(ed: Editor) {
     const m = ed.sel[0].m;
     return (-Math.atan2(m[1], m[0]) * 180) / Math.PI;
   };
-  const fr = numInput('small', (v) => {
+  const fr = numInput('small', plain(['rot'], (v) => {
     const b = ed.selBounds();
     if (!b) return;
     ed.rotateBy(v - currentRot(), { x: b.x + ax * b.w, y: b.y + ay * b.h });
-  }, t('Drehung in Grad (gegen den Uhrzeigersinn)'));
+  }), t('Drehung in Grad (gegen den Uhrzeigersinn)'), formula('rot'));
   const lockBtn = h('button', { class: 'ib on', title: t('Seitenverhältnis sperren'), html: ICONS.lock });
   lockBtn.addEventListener('click', () => {
     lock = !lock;
@@ -525,8 +571,8 @@ function buildNumbar(ed: Editor) {
   );
 
   // Formeigenschaften
-  const fRad = numInput('small', (v) => ed.updateShapes('rect', { r: Math.max(0, v) }), t('Eckenradius (mm)'));
-  const fSides = numInput('small', (v) => ed.updateShapes('polygon', { sides: Math.max(3, Math.min(64, Math.round(v))) }), t('Anzahl Ecken'));
+  const fRad = numInput('small', plain(['r'], (v) => ed.updateShapes('rect', { r: Math.max(0, v) })), t('Eckenradius (mm)'), formula('r'));
+  const fSides = numInput('small', plain(['sides'], (v) => ed.updateShapes('polygon', { sides: Math.max(3, Math.min(64, Math.round(v))) })), t('Anzahl Ecken'), formula('sides'));
   const starBtn = h('button', { class: 'toggle', title: t('Stern') }, t('Stern'));
   starBtn.addEventListener('click', () => ed.updateShapes('polygon', { star: !starBtn.classList.contains('on') }));
   const rectProps = h('label', {}, t('Radius'), fRad);
@@ -542,7 +588,7 @@ function buildNumbar(ed: Editor) {
     fontSel.replaceChildren(...list.map((f) => h('option', { value: f }, f)));
     fontSel.value = list.includes(cur) ? cur : list[0];
   });
-  const fSize = numInput('small', (v) => v > 0 && ed.updateTexts({ size: v }), t('Schriftgröße (mm)'));
+  const fSize = numInput('small', plain(['size'], (v) => v > 0 && ed.updateTexts({ size: v })), t('Schriftgröße (mm)'), formula('size'));
   const fHs = numInput('small', (v) => ed.updateTexts({ hSpace: v }), t('Zeichenabstand (mm)'));
   const fVs = numInput('small', (v) => ed.updateTexts({ vSpace: v }), t('Zeilenabstand (mm)'));
   const tog = (label: string, key: 'bold' | 'italic' | 'upper', title: string) => {
@@ -583,13 +629,16 @@ function buildNumbar(ed: Editor) {
   const fVtOff = numInput('small', (v) => ed.updateTexts({ vt: { offset: Math.round(v) } }), t('Versatz: wird zur aktuellen Nummer addiert'));
   const bVtDlg = h('button', { class: 'toggle', title: t('Nummer, CSV-Datei und Platzhalter'), onclick: () => openVarTextDialog(ed) }, '…');
   const vtProps = h('span', { class: 'field' }, h('label', {}, t('Versatz|Variabler Text'), fVtOff), bVtDlg);
-  const fMaxW = numInput('small', (v) => ed.updateTexts({ maxW: Math.max(0, v) }), t('Höchstbreite (mm): breitere Zeilen werden gestaucht, 0 = aus'));
+  const fMaxW = numInput('small', plain(['maxW'], (v) => ed.updateTexts({ maxW: Math.max(0, v) })), t('Höchstbreite (mm): breitere Zeilen werden gestaucht (oder mit „Verkleinern“ verkleinert), 0 = aus'), formula('maxW'));
+  const fMaxH = numInput('small', plain(['maxH'], (v) => ed.updateTexts({ maxH: Math.max(0, v) })), t('Höchsthöhe (mm): ein höherer Textblock wird gleichmäßig verkleinert, 0 = aus'), formula('maxH'));
+  const bShrink = h('button', { class: 'toggle', title: t('Text in Rahmen einpassen: zu breiten Text gleichmäßig verkleinern statt stauchen') }, t('Verkleinern|Text einpassen'));
+  bShrink.addEventListener('click', () => ed.updateTexts({ fit: bShrink.classList.contains('on') ? undefined : 'shrink' }));
   const pathProps = h('span', { class: 'field' }, h('label', {}, t('Versatz'), fPOff), h('label', {}, t('Abstand|Text auf Pfad'), fPDist), bPFlip, bPOff);
   const textProps = h(
     'div',
     { class: 'field' },
     h('label', {}, t('Schrift'), fontSel), h('label', {}, t('Höhe'), fSize),
-    h('label', {}, t('Abst. H'), fHs), h('label', {}, 'V', fVs), h('label', {}, t('Max. Breite'), fMaxW), ...alignBtns, bBold, bItal, bUp, bWeld, bOnPath, pathProps, bVar, vtProps,
+    h('label', {}, t('Abst. H'), fHs), h('label', {}, 'V', fVs), h('label', {}, t('Max. Breite'), fMaxW), h('label', {}, t('Max. Höhe'), fMaxH), bShrink, ...alignBtns, bBold, bItal, bUp, bWeld, bOnPath, pathProps, bVar, vtProps,
   );
 
   // Knotenbearbeitung
@@ -649,13 +698,13 @@ function buildNumbar(ed: Editor) {
     const b = ed.selBounds();
     geo.classList.toggle('group-disabled', !b);
     if (b) {
-      setVal(fx, f2(b.x + ax * b.w));
-      setVal(fy, f2(bed().h - (b.y + ay * b.h)));
-      setVal(fw, f2(b.w));
-      setVal(fh, f2(b.h));
+      bindField(fx, 'x', f2(b.x + ax * b.w));
+      bindField(fy, 'y', f2(bed().h - (b.y + ay * b.h)));
+      bindField(fw, 'w', f2(b.w));
+      bindField(fh, 'h', f2(b.h));
       setVal(fwp, '100');
       setVal(fhp, '100');
-      setVal(fr, f2(currentRot()));
+      bindField(fr, 'rot', f2(currentRot()));
     } else [fx, fy, fw, fh, fwp, fhp, fr].forEach((f) => setVal(f, ''));
 
     nodeProps.hidden = sepNode.hidden = ed.tool !== 'node';
@@ -692,9 +741,9 @@ function buildNumbar(ed: Editor) {
     rectProps.hidden = !(rect || ed.tool === 'rect');
     polyProps.hidden = !(poly || ed.tool === 'polygon');
     sepShape.hidden = rectProps.hidden && polyProps.hidden;
-    setVal(fRad, f2(rect && rect.shape.kind === 'rect' ? rect.shape.r : ed.rectRadius));
+    bindField(fRad, 'r', f2(rect && rect.shape.kind === 'rect' ? rect.shape.r : ed.rectRadius), (o) => o.shape.kind === 'rect');
     const pv = poly && poly.shape.kind === 'polygon' ? poly.shape : { sides: ed.polySides, star: ed.polyStar };
-    setVal(fSides, String(pv.sides));
+    bindField(fSides, 'sides', String(pv.sides), (o) => o.shape.kind === 'polygon');
     starBtn.classList.toggle('on', pv.star);
 
     const ts = ed.selTexts();
@@ -702,7 +751,7 @@ function buildNumbar(ed: Editor) {
     textProps.classList.toggle('group-disabled', !ts.length && ed.tool !== 'text');
     if (![...fontSel.options].some((o) => o.value === tx.font)) fontSel.append(h('option', { value: tx.font }, tx.font));
     if (document.activeElement !== fontSel) fontSel.value = tx.font;
-    setVal(fSize, f2(tx.size));
+    bindField(fSize, 'size', f2(tx.size), (o) => o.shape.kind === 'text');
     setVal(fHs, f2(tx.hSpace));
     setVal(fVs, f2(tx.vSpace));
     bBold.classList.toggle('on', tx.bold);
@@ -715,7 +764,9 @@ function buildNumbar(ed: Editor) {
     bVar.hidden = vtProps.hidden = !ts.length;
     vtProps.hidden = !tvt;
     if (tvt) setVal(fVtOff, String(tvt.offset));
-    setVal(fMaxW, f2(ts.length ? (ts[0].shape as TextShape).maxW ?? 0 : 0));
+    bindField(fMaxW, 'maxW', f2(ts.length ? (ts[0].shape as TextShape).maxW ?? 0 : 0), (o) => o.shape.kind === 'text');
+    bindField(fMaxH, 'maxH', f2(ts.length ? (ts[0].shape as TextShape).maxH ?? 0 : 0), (o) => o.shape.kind === 'text');
+    bShrink.classList.toggle('on', ts.length > 0 && (ts[0].shape as TextShape).fit === 'shrink');
     bOnPath.hidden = !ed.canApplyPathToText();
     const tp = ts.length ? (ts[0].shape as TextShape).path : undefined;
     pathProps.hidden = !tp;
