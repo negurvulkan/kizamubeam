@@ -243,8 +243,22 @@ export class EditorParams {
           if (w !== undefined) sy = sx;
           else sx = sy;
         }
-        if (sx > 0 && sy > 0 && isFinite(sx) && isFinite(sy) && (Math.abs(sx - 1) > 1e-9 || Math.abs(sy - 1) > 1e-9))
-          o.m = mul(about(scale(sx, sy), bx.x + ax * bx.w, bx.y + ay * bx.h), o.m);
+        const axisAligned = Math.abs(o.m[1]) < 1e-12 && Math.abs(o.m[2]) < 1e-12;
+        if (sx > 0 && sy > 0 && isFinite(sx) && isFinite(sy) && (Math.abs(sx - 1) > 1e-9 || Math.abs(sy - 1) > 1e-9)) {
+          if (axisAligned && (s.kind === 'rect' || s.kind === 'ellipse')) {
+            // Rechteck und Ellipse ohne Drehung: Maße der Form ändern, damit Eckenradius und Kreis rund bleiben
+            if (s.kind === 'rect') {
+              s.w *= sx;
+              s.h *= sy;
+            } else {
+              s.rx *= sx;
+              s.ry *= sy;
+            }
+            this.touch(s);
+            const nb = boundsOf([o])!;
+            o.m = mul(translate(bx.x + ax * bx.w - (nb.x + ax * nb.w), bx.y + ay * bx.h - (nb.y + ay * nb.h)), o.m);
+          } else o.m = mul(about(scale(sx, sy), bx.x + ax * bx.w, bx.y + ay * bx.h), o.m);
+        }
         else if (!(sx > 0 && sy > 0)) issues.push({ level: 'error', msg: t('Breite und Höhe müssen größer als 0 sein.') });
       }
     }
@@ -304,7 +318,13 @@ export class EditorParams {
     const raw = JSON.parse(json) as { params?: ProjectParam[] };
     const known = new Set((raw.params ?? []).map((p) => String(p?.name ?? '').toLowerCase()));
     for (const k of Object.keys(values)) if (!known.has(k.toLowerCase())) throw new Error(t('Unbekannter Parameter „{name}“', { name: k }));
+    const bed = { ...this.doc.bed };
     this.openDoc(json);
+    // Das Bett des aktuellen Geräts behalten; die Objekte behalten ihre Maschinenkoordinaten (Ursprung unten)
+    const dy = bed.h - this.doc.bed.h;
+    if (dy) for (const o of allObjs(this.doc)) o.m = mul(translate(0, dy), o.m);
+    this.doc.bed = bed;
+    if (dy) this.zoomPage();
     const title = this.doc.template?.title;
     this.history.relabel(title ? t('Neu aus Vorlage „{name}“', { name: title }) : t('Neu aus Vorlage'));
     if (this.doc.template) this.doc.template = normalizeTemplate(this.doc.template, this.paramList());

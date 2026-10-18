@@ -19,6 +19,7 @@ import { buildGen, checkInput, GENERATORS, getGenerator, normalizeParams, resolv
 import type { Generator, Params } from './generators';
 import { coerce, ParamType, ProjectParam } from './params';
 import { genLeaves } from './editor/generators';
+import { builtinTemplates } from './builtinTemplates';
 import { defaultTemplate, listTemplates, readTemplate, templateFields, templateFileName, templateJson, writeTemplate } from './templates';
 import { DEFAULT_NEST_SETTINGS, NestSettings } from './editor/nest';
 import { Args, describe, findObj, flip, machineBox, pageList, r3, Tier, ToolDef, ToolError } from './agentutil';
@@ -525,7 +526,14 @@ export const EDIT_TOOLS: ToolDef[] = [
           ? { title: info.title, description: info.description, fields: templateFields(ed.doc).map(([p, f]) => ({ ...f, type: p.type, value: p.value })) }
           : null,
         ...(saved ? { saved } : {}),
-        ...(bool(a, 'list', false) ? { library: (await listTemplates()).map((e) => ({ file: e.file, title: e.info.title, description: e.info.description })) } : {}),
+        ...(bool(a, 'list', false)
+          ? {
+              library: [
+                ...(await listTemplates()).map((e) => ({ file: e.file, title: e.info.title, description: e.info.description })),
+                ...builtinTemplates().map((b) => ({ file: `builtin:${b.id}`, title: b.info.title, description: b.info.description, builtin: true })),
+              ],
+            }
+          : {}),
       };
     },
   },
@@ -533,15 +541,18 @@ export const EDIT_TOOLS: ToolDef[] = [
     name: 'new_from_template',
     title: 'Neu aus Vorlage',
     description:
-      'Legt aus einer Vorlage im Vorlagen-Ordner (file, siehe template mit list) ein neues Projekt an und ersetzt das aktuelle (rückgängig machbar mit undo). values setzt Parameter nach Name, z. B. {"Name": "Anna", "Breite": 80}.',
+      'Legt aus einer Vorlage im Vorlagen-Ordner oder einer mitgelieferten (file, z. B. „builtin:keyfob“, siehe template mit list) ein neues Projekt an und ersetzt das aktuelle (rückgängig machbar mit undo). values setzt Parameter nach Name, z. B. {"Name": "Anna", "Breite": 80}.',
     tier: Tier.Edit,
     ownUndo: true,
     inputSchema: obj({ file: { type: 'string' }, values: { type: 'object' } }, ['file']),
     run: async (ed, a) => {
       if (a.values !== undefined && (typeof a.values !== 'object' || a.values === null || Array.isArray(a.values))) throw new ToolError('„values“ muss ein Objekt sein');
       let json: string;
+      const file = String(a.file ?? '');
       try {
-        json = await readTemplate(String(a.file ?? ''));
+        const b = file.startsWith('builtin:') ? builtinTemplates().find((x) => `builtin:${x.id}` === file) : undefined;
+        if (file.startsWith('builtin:') && !b) throw new Error(`Keine mitgelieferte Vorlage „${file}“`);
+        json = b ? b.json() : await readTemplate(file);
       } catch (e) {
         throw new ToolError(e instanceof Error ? e.message : String(e));
       }
@@ -556,6 +567,27 @@ export const EDIT_TOOLS: ToolDef[] = [
         problems: ed.paramProblems.map(({ obj, issues }) => ({ id: obj.id, issues: issues.map((i) => `${i.level}: ${i.msg}`) })),
         pages: pageList(ed),
       };
+    },
+  },
+  {
+    name: 'make_series',
+    title: 'Serie aus Tabelle',
+    description:
+      'Serie: Für jede Zeile in rows (Werte nach Parametername, z. B. [{"Name": "Anna"}, {"Name": "Bernd"}]) entsteht eine feste Kopie der aktuellen Seite (Platzhalter ersetzt, Formeln gelöst). layout grid (Standard): Raster ab unten links (Maschinen-Nullpunkt) mit gap mm Abstand, weitere Seiten bei Bedarf; pages: eine Seite je Zeile an derselben Stelle. Die Kopien kommen auf neue Seiten hinter der aktuellen; die Vorlage bleibt unverändert. Höchstens 500 Zeilen.',
+    tier: Tier.Edit,
+    inputSchema: obj({
+      rows: { type: 'array', items: { type: 'object' } },
+      layout: { type: 'string', enum: ['grid', 'pages'] },
+      gap: { type: 'number' },
+    }, ['rows']),
+    run: (ed, a) => {
+      if (!Array.isArray(a.rows) || a.rows.some((r) => typeof r !== 'object' || r === null || Array.isArray(r))) throw new ToolError('„rows“ muss eine Liste von Objekten sein');
+      try {
+        const n = ed.makeSeries(a.rows as Record<string, unknown>[], { layout: a.layout === 'pages' ? 'pages' : 'grid', gap: typeof a.gap === 'number' ? a.gap : undefined });
+        return { newPages: n, pages: pageList(ed) };
+      } catch (e) {
+        throw new ToolError(e instanceof Error ? e.message : String(e));
+      }
     },
   },
   {

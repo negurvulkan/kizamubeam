@@ -5,10 +5,12 @@ import { h } from './dom';
 import { t } from './i18n';
 import { buildSvg, openText, saveText } from './files';
 import { loadDoc } from './model';
+import { BuiltinTemplate, builtinTemplates } from './builtinTemplates';
+import { parseCsv } from './vartext';
 import type { ProjectParam } from './params';
 import { paramControl } from './paramsPanel';
 import {
-  canSlide, defaultTemplate, deleteTemplate, hasTemplateFolder, LibraryEntry, listTemplates, normalizeTemplate, openTemplateFolder, readTemplate,
+  canSlide, defaultTemplate, deleteTemplate, guessColumns, hasTemplateFolder, tableRows, LibraryEntry, listTemplates, normalizeTemplate, openTemplateFolder, readTemplate,
   TEMPLATE_EXT, TemplateField, TemplateInfo, templateFields, templateFileName, templateJson, writeTemplate,
 } from './templates';
 
@@ -169,12 +171,21 @@ export async function openTemplateLibrary(ed: Editor) {
         },
       }, '×'),
     );
+  const builtin = (b: BuiltinTemplate) =>
+    h('div', { class: 'tpl-card' },
+      h('button', { class: 'tpl-pick', onclick: () => (dlg.close(), startFromTemplate(ed, b.json())) },
+        b.info.preview ? h('img', { src: svgUrl(b.info.preview), alt: '' }) : h('div', { class: 'tpl-noimg' }, '?'),
+        h('b', {}, b.info.title),
+        b.info.description ? h('span', { class: 'muted' }, b.info.description) : null,
+      ),
+    );
+  const builtins = h('div', { class: 'tpl-grid' }, ...builtinTemplates().map(builtin));
   const refresh = async () => {
     try {
       const all = await listTemplates();
       grid.replaceChildren(...all.map(card));
       if (!all.length)
-        grid.append(h('p', { class: 'note' }, t('Noch keine Vorlagen. Lege ein Projekt mit Parametern an und speichere es über Datei → Als Vorlage speichern … Vorlagen-Dateien (.kzt) kannst du auch über „Aus Datei …“ hinzufügen.')));
+        grid.append(h('p', { class: 'note' }, t('Noch keine eigenen Vorlagen. Lege ein Projekt mit Parametern an und speichere es über Datei → Als Vorlage speichern … Vorlagen-Dateien (.kzt) kannst du auch über „Aus Datei …“ hinzufügen.')));
     } catch (e) {
       err.textContent = errText(e);
     }
@@ -187,7 +198,10 @@ export async function openTemplateLibrary(ed: Editor) {
   };
   const dlg = h('dialog', { class: 'tpl-dialog tpl-library' },
     h('h3', {}, t('Neu aus Vorlage')),
+    h('h4', {}, t('Eigene Vorlagen')),
     grid,
+    h('h4', {}, t('Mitgeliefert')),
+    builtins,
     err,
     h('div', { class: 'dialog-buttons' },
       hasTemplateFolder() ? h('button', { class: 'btn', onclick: () => openTemplateFolder().catch((e) => (err.textContent = errText(e))) }, t('Ordner zeigen')) : null,
@@ -329,4 +343,106 @@ export function openFillDialog(ed: Editor, fresh?: { before: string; redo: Retur
   });
   render();
   (form.querySelector('input:not([type=range])') as HTMLInputElement | null)?.focus();
+}
+
+// ---------- Serie aus Tabelle ----------
+
+/** Serie aus einer CSV-Tabelle: je Zeile eine feste Kopie der aktuellen Seite mit den Werten der Zeile */
+export function openSeriesDialog(ed: Editor) {
+  const params = ed.paramList();
+  if (!params.length) {
+    hint(ed, t('Für eine Serie braucht das Projekt Parameter. Lege sie im Fenster „Parameter“ an oder nimm eine Vorlage.'));
+    return;
+  }
+  const fields = templateFields(ed.doc).map(([, f]) => f);
+  const vtCsv = ed.doc.vt?.csv;
+  const area = h('textarea', {
+    id: 'series-csv', rows: 5, spellcheck: false,
+    placeholder: params.slice(0, 2).map((p) => p.name).join(';') + '\n…',
+  }, vtCsv?.header ? [vtCsv.header, ...vtCsv.rows].map((r) => r.join(';')).join('\n') : '') as HTMLTextAreaElement;
+  const status = h('div', { class: 'note' });
+  const mapBox = h('div', { class: 'form series-map' });
+  const err = h('div', { class: 'error' });
+  const map: Record<string, number> = {};
+  let table: string[][] = [];
+  let layout: 'pages' | 'grid' = 'grid';
+  let gap = 3;
+
+  const ok = h('button', { class: 'btn primary' }, t('Serie anlegen')) as HTMLButtonElement;
+  const update = (guess: boolean) => {
+    table = parseCsv(area.value);
+    const header = table[0] ?? [];
+    if (guess) {
+      for (const k of Object.keys(map)) delete map[k];
+      Object.assign(map, guessColumns(header, params, fields));
+    }
+    const n = Math.max(0, table.length - 1);
+    status.textContent = table.length
+      ? t('{n} Zeilen, Spalten: {cols}', { n, cols: header.join(', ') })
+      : t('Tabelle aus einer CSV-Datei laden oder hier einfügen. Die erste Zeile enthält die Spaltennamen.');
+    mapBox.replaceChildren(
+      ...params.flatMap((p) => {
+        const sel = h('select', { id: `series-${p.name}` },
+          h('option', { value: '-1' }, t('— Wert bleibt —')),
+          ...header.map((c, i) => h('option', { value: String(i), selected: map[p.name] === i }, c || t('Spalte {n}', { n: i + 1 }))),
+        ) as HTMLSelectElement;
+        sel.onchange = () => {
+          const v = Number(sel.value);
+          if (v < 0) delete map[p.name];
+          else map[p.name] = v;
+          check_();
+        };
+        return [h('label', { for: sel.id }, fields.find((f) => f.name === p.name)?.label || p.name), sel];
+      }),
+    );
+    check_();
+  };
+  const check_ = () => {
+    const n = table.length - 1;
+    ok.disabled = n < 1 || !Object.keys(map).length;
+    err.textContent = n >= 1 && !Object.keys(map).length ? t('Mindestens einem Parameter eine Spalte zuordnen.') : '';
+  };
+  area.addEventListener('input', () => update(true));
+  const fromFile = async () => {
+    const r = await openText(t('CSV-Tabelle'), ['csv', 'txt', 'tsv']);
+    if (!r) return;
+    area.value = r[1];
+    update(true);
+  };
+  const radio = (v: 'pages' | 'grid', label: string) =>
+    h('label', {}, h('input', { type: 'radio', name: 'series-layout', checked: layout === v, onchange: () => (layout = v) }), label);
+  const gapIn = h('input', { type: 'number', id: 'series-gap', value: gap, min: 0, step: 0.5, class: 'num' }) as HTMLInputElement;
+  gapIn.oninput = () => (gap = Math.max(0, Number(gapIn.value) || 0));
+
+  ok.onclick = () => {
+    try {
+      const rows = tableRows(table.slice(1), map, params);
+      ed.makeSeries(rows, { layout, gap });
+      dlg.close();
+    } catch (e) {
+      err.textContent = errText(e);
+    }
+  };
+  const dlg = h('dialog', { class: 'tpl-dialog series-dialog' },
+    h('h3', {}, t('Serie aus Tabelle')),
+    h('p', { class: 'note' }, t('Für jede Zeile entsteht eine feste Kopie der aktuellen Seite mit den Werten der Zeile, z. B. Namensschilder für eine ganze Liste. Die Vorlage selbst bleibt unverändert.')),
+    h('div', { class: 'series-src' }, h('button', { class: 'btn', onclick: fromFile }, t('CSV-Datei wählen …'))),
+    area,
+    status,
+    h('h4', {}, t('Spalten zuordnen')),
+    mapBox,
+    h('h4', {}, t('Anordnung')),
+    h('div', { class: 'radios column' },
+      radio('grid', t('Raster: so viele wie aufs Bett passen, dann weitere Seiten')),
+      radio('pages', t('Eine Seite je Zeile, an derselben Stelle')),
+    ),
+    h('div', { class: 'form series-gap' }, h('label', { for: 'series-gap' }, t('Abstand (mm)')), gapIn),
+    err,
+    h('div', { class: 'dialog-buttons' },
+      h('button', { class: 'btn', onclick: () => dlg.close() }, t('Abbrechen')),
+      ok,
+    ),
+  ) as HTMLDialogElement;
+  showDialog(dlg, () => {});
+  update(true);
 }

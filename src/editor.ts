@@ -29,6 +29,7 @@ import { EditorText } from './editor/text';
 import { EditorGenerators } from './editor/generators';
 import { EditorParams } from './editor/params';
 import { EditorNest } from './editor/nest';
+import { EditorSeries } from './editor/series';
 import { t } from './i18n';
 
 export type { Tool } from './editor/shared';
@@ -410,6 +411,7 @@ export interface Editor
     EditorGenerators,
     EditorParams,
     EditorNest,
+    EditorSeries,
     EditorImages,
     EditorRender {}
 
@@ -429,6 +431,7 @@ const PARTS = [
   EditorGenerators,
   EditorParams,
   EditorNest,
+  EditorSeries,
   EditorImages,
   EditorRender,
 ];

@@ -4,7 +4,7 @@ import { ICONS } from './icons';
 import { DITHER_MODES, DitherMode, ImageAdjust, ImageLayer, ImageShape, isCellMode, Layer, layerLabel, Obj, ObjBindKey, pageName, PALETTE, SubPath, TextShape, BarcodeShape, GenShape } from './model';
 import { evaluate, formatNumber, namesIn } from './params';
 import { deletePreset, loadPresets, presetOutput, savePreset } from './imagePresets';
-import { openFillDialog, openSaveTemplateDialog, openTemplateLibrary } from './templateDialogs';
+import { openFillDialog, openSaveTemplateDialog, openSeriesDialog, openTemplateLibrary } from './templateDialogs';
 import { exportSvg, importFile, installDropAndPaste, openProject, saveProcessedBitmap, saveProject } from './files';
 import { assetImage, displayCanvas, onImageReady, outputGrid } from './images';
 import { systemFonts } from './fonts';
@@ -168,6 +168,7 @@ function buildMenu(ed: Editor) {
       'sep',
       [t('Als Vorlage speichern …'), '', () => openSaveTemplateDialog(ed)],
       [t('Vorlage ausfüllen …'), '', () => openFillDialog(ed)],
+      [t('Serie aus Tabelle (CSV) …'), '', () => openSeriesDialog(ed)],
       'sep',
       [t('Importieren …'), 'Ctrl+I', () => importFile(ed)],
       [t('Als SVG exportieren …'), '', () => exportSvg(ed)],
