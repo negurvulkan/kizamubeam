@@ -11,6 +11,8 @@ import { buildGen, defaultParams, fieldActive, genLabel, getGenerator, normalize
 import { evalExpr, f2 } from '../dom';
 import { evaluate, formatNumber, namesIn, projectParams } from '../params';
 import type { Generator, Params, ParamSpec } from './types';
+import { library, entryLabel } from '../materials';
+import { genFitPatch } from '../fitcheck';
 
 const LAST_KEY = (id: string) => `kizamubeam.gen.${id}`;
 
@@ -39,6 +41,22 @@ export function openGenDialog(ed: Editor, genId: string, o?: Obj) {
   const binds: Record<string, string> = { ...(old?.bind ?? {}) };
   const hasParams = projectParams().length > 0;
   const layerKerf = ed.layer(o?.layer ?? ed.currentLayer).kerf;
+  // Kalibrierte Passung des Materials am Layer: bei neuen Bauteilen gleich übernehmen, sonst per Knopf
+  const matEntry = library.get(ed.layer(o?.layer ?? ed.currentLayer).material);
+  const calibPatch = (): Partial<Params> | null => {
+    const pt = matEntry?.fit ? genFitPatch(g.id, matEntry, p, layerKerf) : null;
+    if (!pt) return null;
+    for (const k of Object.keys(pt)) if (binds[k]) delete pt[k];
+    return Object.keys(pt).length ? pt : null;
+  };
+  const calibNote = h('div', { class: 'note' });
+  if (!old) {
+    const pt = calibPatch();
+    if (pt) {
+      Object.assign(p, pt);
+      calibNote.textContent = t('Materialdicke, Schnittfuge und Spiel aus der Kalibrierung für „{entry}“.', { entry: entryLabel(matEntry!) });
+    }
+  }
 
   const rows = new Map<string, HTMLElement[]>();
   const field = (s: ParamSpec): HTMLElement[] => {
@@ -171,6 +189,28 @@ export function openGenDialog(ed: Editor, genId: string, o?: Obj) {
       ctx.fill(path, 'evenodd');
       ctx.stroke(path);
     }
+    if (old && matEntry) {
+      const pt = calibPatch();
+      const differs = !!pt && Object.entries(pt).some(([k, v]) => typeof v === 'number' ? Math.abs(v - Number(p[k])) > 1e-6 : v !== p[k]);
+      calibNote.replaceChildren();
+      if (differs)
+        calibNote.append(
+          t('Die Werte weichen von der Kalibrierung für „{entry}“ ab. ', { entry: entryLabel(matEntry) }),
+          h('button', {
+            class: 'small',
+            onclick: () => {
+              const now = calibPatch();
+              if (!now) return;
+              Object.assign(p, now);
+              for (const [k, v] of Object.entries(now)) {
+                const el = dlg.querySelector<HTMLInputElement>(`#gen-${k}`);
+                if (el && typeof v === 'number') el.value = fmtNum(v);
+              }
+              update();
+            },
+          }, t('Kalibrierte Werte übernehmen')),
+        );
+    }
     const kerf = Number(np.kerf ?? 0);
     kerfNote.textContent =
       layerKerf
@@ -207,6 +247,7 @@ export function openGenDialog(ed: Editor, genId: string, o?: Obj) {
       h('div', {}, canvas, infoEl),
     ),
     issuesEl,
+    calibNote,
     kerfNote,
     h('div', { class: 'dialog-buttons' },
       h('button', { class: 'btn', onclick: () => dlg.close() }, t('Abbrechen')),

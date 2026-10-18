@@ -134,7 +134,7 @@ export class EditorJoints {
     const obj = A.obj;
     obj.mates = [
       ...(obj.mates ?? []),
-      { to: B.obj.id, kind: opt.kind, th: opt.thickness, a: local(A.m, mate.a), b: local(B.m, mate.b), ...(mate.out ? { out: true } : {}), ...(mate.lap ? { lap: mate.lap } : {}) },
+      { to: B.obj.id, kind: opt.kind, th: opt.thickness, a: local(A.m, mate.a), b: local(B.m, mate.b), ...(mate.out ? { out: true } : {}), ...(mate.lap ? { lap: mate.lap } : {}), fit: { k: opt.kerf, c: opt.clearance } },
     ];
   }
 }
