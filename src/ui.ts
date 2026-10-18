@@ -26,6 +26,7 @@ import { startAgentBridge } from './agent';
 import { buildObjectsPanel } from './objectsPanel';
 import { buildHistoryPanel } from './historyPanel';
 import { buildCheckPanel, openCheck } from './checkPanel';
+import { openCalibrateDialog } from './calibrateDialog';
 import { buildParamsPanel, openShowIfDialog } from './paramsPanel';
 import { buildView3dPanel } from './view3d/panel';
 import { dockWindow, initDock, isHidden, resetLayout, toggleWindow, windowList } from './dock';
@@ -308,6 +309,7 @@ function buildMenu(ed: Editor) {
       [t('Kontur-Rahmen'), '', () => frameJob(ed, true)],
       'sep',
       [t('Materialtest …'), '', () => openMaterialTestDialog(ed)],
+      [t('Passung kalibrieren …'), '', () => openCalibrateDialog(ed)],
       'sep',
       [t('Laser einrichten …'), '', () => openSetupWizard(ed)],
       { sub: t('Gerät'), items: [
@@ -899,7 +901,7 @@ function buildBars(ed: Editor) {
     { id: 'addpage', cat: S, short: t('+ Seite'), label: t('Neue Seite'), run: () => ed.addPage() },
     { id: 'prevpage', cat: S, icon: 'up', label: t('Vorherige Seite (Bild ↑)'), run: () => ed.setPage(ed.doc.page - 1), enabled: () => ed.doc.page > 0 },
     { id: 'nextpage', cat: S, icon: 'down', label: t('Nächste Seite (Bild ↓)'), run: () => ed.setPage(ed.doc.page + 1), enabled: () => ed.doc.page < ed.doc.pages.length - 1 },
-    { id: 'check', cat: L, icon: 'check', label: t('Konstruktion prüfen: doppelte Linien, offene Umrisse, schmale Stege, kleine Ausschnitte und Arbeitsbereich'), run: () => openCheck() },
+    { id: 'check', cat: L, icon: 'check', label: t('Konstruktion prüfen: doppelte Linien, offene Umrisse, schmale Stege, kleine Ausschnitte, Passungen und Arbeitsbereich'), run: () => openCheck() },
     { id: 'preview', cat: L, icon: 'preview', label: t('Vorschau (Alt+P)'), run: () => openPreview(ed) },
     { id: 'start', cat: L, icon: 'play', label: t('Job starten'), run: () => startJob(ed) },
     { id: 'frame', cat: L, icon: 'frame', label: t('Rahmen: Rechteck um den Job abfahren'), run: () => frameJob(ed, false) },
@@ -907,6 +909,7 @@ function buildBars(ed: Editor) {
     { id: 'gcode', cat: L, icon: 'gcode', label: t('G-Code speichern'), run: () => saveGCode(ed) },
     { id: 'setup', cat: L, short: t('Einrichten'), label: t('Laser einrichten: Schritt für Schritt von der Verbindung bis zum ersten Testauftrag'), run: () => openSetupWizard(ed) },
     { id: 'materialtest', cat: L, short: t('Test'), label: t('Materialtest …'), run: () => openMaterialTestDialog(ed) },
+    { id: 'calibrate', cat: L, short: t('Passung'), label: t('Passung kalibrieren: Schnittfuge und Steckspiel für ein Material ermitteln'), run: () => openCalibrateDialog(ed) },
     { id: 'devsettings', cat: L, icon: 'settings', label: t('Geräteeinstellungen'), run: () => openDeviceDialog(ed) },
     { id: 'devices', cat: L, short: t('Geräte'), label: t('Geräte …'), run: () => openDevicesDialog(ed) },
     { id: 'rotary', cat: L, short: t('Rotary'), label: t('Drehachse (Rotary) …'), run: () => openRotaryDialog() },

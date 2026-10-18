@@ -5,7 +5,11 @@ import type { CheckIssue } from '../src/check';
 import type { Layer, Obj, Shape, SubPath } from '../src/model';
 const { defaultLayer, IDENT, translate } = await import('../src/model');
 const { checkDesign, DEFAULT_CHECK, removeSpans } = await import('../src/check');
-const { buildGen, defaultParams, GENERATORS } = await import('../src/generators/index');
+const { buildGen, defaultParams, GENERATORS, getGenerator } = await import('../src/generators/index');
+const { library } = await import('../src/materials');
+const { t } = await import('../src/i18n');
+const { drawnFit, realGap, suggestFit, genFitPatch } = await import('../src/fitcheck');
+const { buildCalibParts, calibResult, defaultSteps, stepValues, SQUARE, TAB } = await import('../src/calibrate');
 
 let failed = 0;
 function test(name: string, fn: () => void) {
@@ -220,6 +224,152 @@ test('Laufzeit: 400 Teile mit Löchern', () => {
   console.log(`     ${ms} ms`);
   assert.deepEqual(xs, []);
   assert.ok(ms < 4000);
+});
+
+// ---------- Passung (Etappe 2) ----------
+
+const genObjs = (id: string, patch: Record<string, number | string | boolean>, layer = 1): Obj[] => {
+  const g = getGenerator(id)!;
+  const r = buildGen(g, { ...defaultParams(g), ...patch });
+  assert.ok(r.parts.length, r.issues.map((i) => i.msg).join('; '));
+  return r.parts.map((p) => obj({ ...p.shape, asm: 'a' + id }, 20 + p.at.x, 20 + p.at.y, layer));
+};
+const fitOnly = (xs: CheckIssue[]) => xs.filter((x) => x.kind === 'fit' || x.kind === 'thickness');
+
+test('Box: Standard passt, Presspassung zu eng, großes Spiel zu locker', () => {
+  assert.deepEqual(fitOnly(run(genObjs('box', {}))), []);
+  const tight = fitOnly(run(genObjs('box', { clearance: -0.3 })));
+  assert.equal(tight.length, 1);
+  assert.equal(tight[0].level, 'error');
+  assert.ok(tight[0].objs.length >= 4, 'alle Teile der Baugruppe');
+  assert.ok(tight[0].fix?.kind === 'gen' && tight[0].fix.patch.clearance === 0);
+  const loose = fitOnly(run(genObjs('box', { clearance: 0.4 })));
+  assert.equal(loose.length, 1);
+  assert.match(loose[0].msg, /locker|loose/);
+});
+
+test('Kerf doppelt (Generator und Layer) wird als zu eng erkannt', () => {
+  layers[5] = { ...defaultLayer(5), kerf: 0.08 };
+  const xs = fitOnly(run(genObjs('box', {}, 5)));
+  assert.equal(xs.length, 1);
+  assert.match(xs[0].msg, /Pressung|interference/);
+});
+
+test('Materialdicke am Layer weicht ab: Hinweis mit Korrektur', () => {
+  const e = library.add({ material: 'Pappel', thickness: 4, title: 'Schneiden', desc: '', settings: defaultLayer(6) });
+  layers[6] = { ...defaultLayer(6), material: e.id };
+  const xs = fitOnly(run(genObjs('shelf', { thickness: 3 }, 6)));
+  const th = xs.find((x) => x.kind === 'thickness');
+  assert.ok(th);
+  assert.ok(th.fix?.kind === 'gen' && th.fix.patch.thickness === 4);
+  // Schlitze 3,1 mm für 4 mm Material: viel zu eng
+  assert.ok(xs.some((x) => x.kind === 'fit' && x.level === 'error'));
+  library.remove(e.id);
+});
+
+test('Mit Kalibrierung: Abweichung gemeldet, Korrektur übernimmt die kalibrierten Werte', () => {
+  const e = library.add({ material: 'Birke', thickness: 3, title: 'Schneiden', desc: '', settings: defaultLayer(7) });
+  library.update(e.id, { fit: { kerf: 0.2, pair: -0.05, slot: 0.1, th: 3, date: '' } });
+  layers[7] = { ...defaultLayer(7), material: e.id };
+  const xs = fitOnly(run(genObjs('box', { clearance: 0 }, 7)));
+  assert.equal(xs.length, 1);
+  assert.match(xs[0].msg, /enger als die Kalibrierung|tighter than the calibration/);
+  const f = xs[0].fix;
+  assert.ok(f && f.kind === 'gen' && f.calibrated);
+  assert.equal(f.patch.kerf, 0.2);
+  // gezeichnetes Spiel = 0,15 − 0,2 = −0,05 wie kalibriert
+  assert.ok(Math.abs(drawnFit('pair', Number(f.patch.clearance), 0.2, 0) - -0.05) < 1e-9);
+  // nach dem Übernehmen kein Befund mehr
+  assert.deepEqual(fitOnly(run(genObjs('box', f.patch as Record<string, number>, 7))), []);
+  // Einsatz: Schlitz = Dicke + 0,1 gezeichnet
+  const p = genFitPatch('insert', library.get(e.id)!, { kerf: 0.15 } as never, 0)!;
+  assert.ok(Math.abs(3 + drawnFit('slot', Number(p.play), Number(p.kerf), 0) - 3.1) < 1e-9);
+  assert.deepEqual(fitOnly(run(genObjs('insert', p as Record<string, number>, 7))), []);
+  library.remove(e.id);
+});
+
+test('Verbindungs-Werkzeug: Passung der gespeicherten Verbindung', () => {
+  const a = rect(50, 30, 10, 10);
+  const b = rect(50, 30, 10, 60);
+  const mate = { to: b.id, kind: 'finger', th: 3, a: [{ x: 0, y: 30 }, { x: 50, y: 30 }, { x: 25, y: 20 }], b: [{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 25, y: 10 }] } as never as NonNullable<Obj['mates']>[number];
+  a.mates = [{ ...mate, fit: { k: 0, c: -0.3 } }];
+  const xs = fitOnly(run([a, b]));
+  assert.equal(xs.length, 1);
+  assert.equal(xs[0].objs.length, 2);
+  assert.equal(xs[0].lines.length, 2);
+  a.mates = [{ ...mate, fit: { k: 0, c: 0 } }];
+  assert.deepEqual(fitOnly(run([a, b])), []);
+  // ältere Verbindung ohne Angaben: nichts zu prüfen
+  a.mates = [mate];
+  assert.deepEqual(fitOnly(run([a, b])), []);
+});
+
+test('Spiel-Formeln', () => {
+  assert.ok(Math.abs(realGap('pair', drawnFit('pair', 0, 0.15, 0), 0.15, 3, 3)) < 1e-9);
+  assert.ok(Math.abs(realGap('slot', drawnFit('slot', 0.1, 0.15, 0), 0.15, 3, 3) - 0.05) < 1e-9);
+  assert.equal(suggestFit('pair', { id: 'x', material: 'm', thickness: 3, title: '', desc: '', settings: defaultLayer(1) }, 0.15, 0), null);
+});
+
+// ---------- Kalibrierassistent (Etappe 3) ----------
+
+test('Kalibrier-Testteile: Stufen stimmen, saubere Konstruktion', () => {
+  const opt = { th: 3, pair: { from: -0.2, step: 0.05, count: 6 }, slot: { from: -0.25, step: 0.05, count: 8 } };
+  assert.deepEqual(stepValues(opt.pair), [-0.2, -0.15, -0.1, -0.05, 0, 0.05]);
+  const { objs, w, h } = buildCalibParts(opt, 1, 0, 'sans');
+  assert.ok(w > 0 && h > 0 && w < 200 && h < 120);
+  const byName = (n: string) => objs.find((o) => o.name === t(n))!;
+  // Zapfen: Breite TAB − 2·Spiel
+  const tabs = byName('Zapfenkamm').shape as Extract<Shape, { kind: 'path' }>;
+  const top = tabs.subs[0].nodes.filter((q) => q.y === 0).map((q) => q.x);
+  const widths = [];
+  for (let i = 0; i < top.length; i += 2) widths.push(Math.round((top[i + 1] - top[i]) * 1000) / 1000);
+  assert.deepEqual(widths, stepValues(opt.pair).map((c) => TAB - 2 * c));
+  // Schlitze: Dicke + Zugabe
+  const comb = byName('Schlitzkamm').shape as Extract<Shape, { kind: 'path' }>;
+  const bottom = comb.subs[0].nodes.filter((q) => q.y === 10).map((q) => q.x);
+  const sw = [];
+  for (let i = 0; i < bottom.length; i += 2) sw.push(Math.round((bottom[i + 1] - bottom[i]) * 1000) / 1000);
+  assert.deepEqual(sw, stepValues(opt.slot).map((d) => Math.round((3 + d) * 1000) / 1000));
+  // Nummern auf dem Gravur-Layer, Schnitte ohne Befunde
+  assert.equal(objs.filter((o) => o.shape.kind === 'text').length, 1 + 8 + 6 + 6);
+  layers[0] = { ...defaultLayer(0), mode: 'fill' };
+  assert.deepEqual(run(objs.filter((o) => o.layer === 1)), []);
+});
+
+test('Kalibrierung auswerten: Schnittfuge, Spiel und Schlitz, Kerf-Versatz eingerechnet', () => {
+  const test0 = { th: 3, kl: 0, layer: 1, pair: [-0.2, -0.15, -0.1], slot: [-0.1, 0, 0.1], date: '2026-10-18' };
+  const r = calibResult(test0, 19.84, 2, 3);
+  assert.ok('fit' in r);
+  assert.deepEqual(r.fit, { kerf: 0.16, pair: -0.15, slot: 0.1, th: 3, date: '2026-10-18' });
+  assert.deepEqual(calibResult(test0, null, 1, 1), { fit: { kerf: null, pair: -0.2, slot: -0.1, th: 3, date: '2026-10-18' } });
+  assert.deepEqual(calibResult(test0, 21, 1, 1), { error: 'square' });
+  assert.deepEqual(calibResult(test0, NaN, 1, 1), { error: 'square' });
+  assert.deepEqual(calibResult(test0, null, 4, 1), { error: 'pair' });
+  // Mit Kerf-Versatz 0,08 am Layer: Quadrat außen größer, gezeichnete Passung enger
+  const r2 = calibResult({ ...test0, kl: 0.08 }, SQUARE, 1, 2);
+  assert.ok('fit' in r2);
+  assert.deepEqual([r2.fit.kerf, r2.fit.pair, r2.fit.slot], [0.16, -0.36, -0.16]);
+  // Vorschlag der Stufen liegt um die Schnittbreite herum
+  const d = defaultSteps(0.15, 0);
+  assert.ok(stepValues(d.pair).some((c) => Math.abs(c + 0.15) < 1e-9));
+  assert.ok(stepValues(d.slot).some((c) => Math.abs(c + 0.15) < 1e-9));
+});
+
+test('Kalibrierung → Generator: kein Befund, Layer-Kerf ersetzt die Fuge im Bauteil', () => {
+  const e = library.add({ material: 'Pappel', thickness: 3, title: 'Schneiden', desc: '', settings: defaultLayer(8) });
+  library.update(e.id, { fit: { kerf: 0.16, pair: -0.15, slot: 0.1, th: 3, date: '' } });
+  layers[8] = { ...defaultLayer(8), material: e.id };
+  const p = genFitPatch('box', library.get(e.id)!, defaultParams(getGenerator('box')!), 0)!;
+  assert.equal(p.kerf, 0.16);
+  assert.deepEqual(fitOnly(run(genObjs('box', p as Record<string, number>, 8))), []);
+  layers[9] = { ...defaultLayer(9), material: e.id, kerf: 0.08 };
+  const p2 = genFitPatch('box', library.get(e.id)!, defaultParams(getGenerator('box')!), 0.08)!;
+  assert.equal(p2.kerf, 0);
+  assert.deepEqual(fitOnly(run(genObjs('box', p2 as Record<string, number>, 9))), []);
+  // Verbindungs-Werkzeug: Schlitz und Zapfen für 3 mm
+  const s = suggestFit('slot', library.get(e.id)!, 0, 0)!;
+  assert.ok(Math.abs(3 + s.play - s.kerf - 3.1) < 1e-9);
+  library.remove(e.id);
 });
 
 if (failed) {

@@ -17,6 +17,8 @@ const KIND_NAMES = (): Record<CheckKind, string> => ({
   hole: t('Kleiner Ausschnitt'),
   bed: t('Arbeitsbereich'),
   import: t('Import'),
+  fit: t('Passung'),
+  thickness: t('Materialdicke'),
 });
 
 let openPanel: (() => void) | null = null;
@@ -140,7 +142,7 @@ export function buildCheckPanel(ed: Editor) {
     list.replaceChildren(...xs.map(row));
     if (!xs.length)
       list.append(h('div', { class: 'empty' },
-        t('Geprüft werden doppelte Schnittlinien, offene Umrisse, schmale Stege (unter {w} mm), zu kleine Ausschnitte, der Arbeitsbereich und Import-Hinweise der aktuellen Seite.', { w: dec(String(loadCheckSettings().minWeb)) })));
+        t('Geprüft werden doppelte Schnittlinien, offene Umrisse, schmale Stege (unter {w} mm), zu kleine Ausschnitte, Passungen von Steckverbindungen, der Arbeitsbereich und Import-Hinweise der aktuellen Seite.', { w: dec(String(loadCheckSettings().minWeb)) })));
   };
 
   let timer = 0;

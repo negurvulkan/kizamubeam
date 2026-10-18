@@ -17,6 +17,35 @@ export interface MaterialEntry {
   settings: CutSettings;
   /** Bild-Einstellungen, falls aus einem Layer mit Bildern erstellt */
   img?: ImageLayer;
+  /** Ergebnis des Kalibrierassistenten für Schnittfuge und Steckspiel */
+  fit?: MaterialFit;
+}
+
+/**
+ * Kalibrierte Passung eines Materials. Alle Werte beziehen sich auf die gezeichneten Maße samt Kerf-Versatz des
+ * Layers (ohne Schnittfuge des Lasers), so lassen sie sich direkt mit den Maßen einer Konstruktion vergleichen.
+ */
+export interface MaterialFit {
+  /** Gemessene Breite der Schnittfuge (mm); null = nicht gemessen */
+  kerf: number | null;
+  /** Bestes Spiel je Seite für zwei gelaserte Teile ineinander (Zinken, Zapfen in Loch), gezeichnet */
+  pair: number;
+  /** Beste Schlitzbreite über der Nenndicke th für eine Platte dieses Materials, gezeichnet */
+  slot: number;
+  /** Nenndicke bei der Kalibrierung (mm) */
+  th: number;
+  /** Datum (ISO) */
+  date: string;
+}
+
+function sanitizeFit(f: unknown): MaterialFit | undefined {
+  const o = f as Partial<MaterialFit> | undefined;
+  if (!o || typeof o !== 'object') return undefined;
+  const n = (v: unknown) => (typeof v === 'number' && isFinite(v) ? v : null);
+  const pair = n(o.pair), slot = n(o.slot), th = n(o.th);
+  if (pair === null || slot === null || th === null || th <= 0) return undefined;
+  const kerf = n(o.kerf);
+  return { kerf: kerf !== null && kerf >= 0 ? kerf : null, pair, slot, th, date: typeof o.date === 'string' ? o.date : '' };
 }
 
 const STORE_KEY = 'kizamubeam.materials';
@@ -38,6 +67,7 @@ function sanitize(e: Partial<MaterialEntry>): MaterialEntry | null {
     desc: String(e.desc ?? ''),
     settings,
     img: e.img ? { ...defaultImageLayer(), ...e.img } : undefined,
+    fit: sanitizeFit(e.fit),
   };
 }
 
@@ -117,6 +147,16 @@ const fmt = (v: number) => dec(String(Math.round(v * 100) / 100));
 export const thicknessLabel = (th: number | null) => (th === null ? t('ohne Dicke') : `${fmt(th)} mm`);
 export const entryLabel = (e: MaterialEntry) =>
   [e.material, e.thickness === null ? '' : `${fmt(e.thickness)} mm`, e.title].filter(Boolean).join(' ');
+/** Kurzbeschreibung einer Kalibrierung (Tooltip in der Bibliothek) */
+export const fitSummary = (f: MaterialFit) => {
+  const v = (x: number) => dec((Math.round(x * 100) / 100).toFixed(2));
+  return [
+    f.kerf !== null ? t('Schnittfuge {k} mm', { k: v(f.kerf) }) : '',
+    t('Zapfen in Loch {c} mm je Seite', { c: v(f.pair) }),
+    t('Schlitz {w} mm für {th} mm', { w: v(f.th + f.slot), th: v(f.th) }),
+    f.date,
+  ].filter(Boolean).join(' · ');
+};
 export const settingsSummary = (s: CutSettings) =>
   `${s.mode === 'fill' ? t('Füllen') : t('Linie')}, ${fmt(s.speed)} mm/min, ${fmt(s.power)} %${s.passes > 1 ? `, ${s.passes}×` : ''}`;
 

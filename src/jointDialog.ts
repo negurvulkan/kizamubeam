@@ -3,7 +3,8 @@ import { Editor } from './editor';
 import { check, numField, select } from './arrayDialogs';
 import { h } from './dom';
 import { computeJoint, DEFAULT_JOINT, JointKind, JointOptions } from './joints';
-import { library } from './materials';
+import { entryLabel, library } from './materials';
+import { jointFitKind, suggestFit } from './fitcheck';
 import { dec, t } from './i18n';
 
 const STATE_KEY = 'kizamubeam.joints';
@@ -39,6 +40,20 @@ export function openJointDialog(ed: Editor) {
   const notes: string[] = [];
   if (libThickness) notes.push(t('Materialdicke aus der Material-Bibliothek des Layers ({libThickness} mm).', { libThickness: dec(String(libThickness)) }));
   if (L.kerf) notes.push(t('Der Layer hat schon einen Kerf-Versatz: Kerf hier auf 0 lassen, sonst wird doppelt ausgeglichen.'));
+  // Kalibrierte Passung des Materials: Kerf und Spiel passend zur Verbindungsart, solange sie niemand von Hand ändert
+  const entry = library.get(L.material);
+  let calibrated: { kerf: number; clearance: number } | null = null;
+  const applyCalib = () => {
+    if (!entry?.fit || st.kind === 'lidhinge') return false;
+    if (calibrated && (Math.abs(calibrated.kerf - st.kerf) > 1e-9 || Math.abs(calibrated.clearance - st.clearance) > 1e-9)) return false;
+    const s = suggestFit(jointFitKind(st.kind), { ...entry, thickness: st.thickness }, st.kerf, L.kerf);
+    if (!s) return false;
+    st.kerf = s.kerf;
+    st.clearance = s.play;
+    calibrated = { kerf: s.kerf, clearance: s.play };
+    return true;
+  };
+  if (applyCalib()) notes.push(t('Kerf und Spiel aus der Kalibrierung für „{entry}“.', { entry: entryLabel(entry!) }));
 
   const info = h('div', { class: 'note' }, ' ');
   const rows: Record<JointKind | 'tenons', HTMLElement[]> = { finger: [], tenon: [], lap: [], snap: [], hook: [], wedge: [], tslot: [], lidhinge: [], tenons: [] };
@@ -49,6 +64,11 @@ export function openJointDialog(ed: Editor) {
 
   const preview = () => {
     if (!dlg.open) return;
+    // Andere Verbindungsart (Zinken ↔ Schlitz): kalibrierte Werte neu berechnen
+    if (calibrated && applyCalib()) {
+      (dlg.querySelector('#joint-kerf') as HTMLInputElement).value = String(st.kerf);
+      (dlg.querySelector('#joint-clear') as HTMLInputElement).value = String(st.clearance);
+    }
     for (const k of ['finger', 'tenon', 'lap', 'snap', 'hook', 'wedge', 'tslot', 'lidhinge'] as JointKind[]) rows[k].forEach((el) => (el.hidden = st.kind !== k));
     rows.tenons.forEach((el) => (el.hidden = !tenonKinds.includes(st.kind)));
     const r = computeJoint(picks, st);

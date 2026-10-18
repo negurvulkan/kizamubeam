@@ -5,9 +5,10 @@ import { h } from './dom';
 import { openText, saveText } from './files';
 import { layerLabel, PALETTE } from './model';
 import {
-  differsFrom, entryFromLayer, entryLabel, layerPatch, library, MaterialEntry, parseLibrary, settingsSummary, thicknessLabel,
+  differsFrom, entryFromLayer, entryLabel, layerPatch, fitSummary, library, MaterialEntry, parseLibrary, settingsSummary, thicknessLabel,
 } from './materials';
 import { openMaterialTestDialog } from './materialtest';
+import { openCalibrateDialog } from './calibrateDialog';
 import { dec, t } from './i18n';
 
 type EntryDraft = Omit<MaterialEntry, 'id'>;
@@ -156,7 +157,8 @@ export function materialTab(ed: Editor): HTMLElement {
             class: `mat-entry${e.id === selected ? ' sel' : ''}${e.id === L.material ? ' cur' : ''}`,
             title: `${e.desc ? e.desc + '\n' : ''}${t('Doppelklick: auf Layer {layer} übernehmen', { layer: layerLabel(i) })}`,
           },
-            h('span', {}, e.title || t('(ohne Titel)'), e.img ? h('span', { class: 'muted' }, ' + ', t('Bild')) : null),
+            h('span', {}, e.title || t('(ohne Titel)'), e.img ? h('span', { class: 'muted' }, ' + ', t('Bild')) : null,
+              e.fit ? h('span', { class: 'mat-fit', title: fitSummary(e.fit) }, t('Passung')) : null),
             h('span', { class: 'muted' }, settingsSummary(e.settings)),
           );
           row.addEventListener('click', () => ((selected = e.id), render()));
@@ -188,6 +190,7 @@ export function materialTab(ed: Editor): HTMLElement {
         btn(t('Importieren …'), t('Einträge aus einer .kzm-, .lwm- oder LightBurn-.clb-Datei hinzufügen'), doImport),
         btn(t('Exportieren …'), t('Ganze Bibliothek als .kzm-Datei speichern'), doExport, library.entries.length > 0),
         btn(t('Materialtest …'), t('Testraster mit gestufter Geschwindigkeit und Leistung lasern'), () => openMaterialTestDialog(ed)),
+        btn(t('Passung kalibrieren …'), t('Schnittfuge und Steckspiel für ein Material ermitteln'), () => openCalibrateDialog(ed)),
       ),
     );
   };

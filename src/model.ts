@@ -327,6 +327,8 @@ export interface Mate {
   out?: boolean;
   /** Überblattung: Kreuzungspunkt auf beiden Kanten (Anteil vom Anfang) und Schlitztiefen */
   lap?: { ua: number; ub: number; da: number; db: number };
+  /** Kerf und Spiel, mit denen die Verbindung gezeichnet wurde (für „Konstruktion prüfen“; fehlt bei älteren) */
+  fit?: { k: number; c: number };
 }
 
 export type LayerMode = 'line' | 'fill';

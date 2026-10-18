@@ -2709,6 +2709,7 @@ input.bound {
 }
 .setup-close {
   font-size: 14px;
+}
 /* Fenster Prüfung (Konstruktion prüfen) */
 .win-check {
   display: flex;
@@ -2809,4 +2810,30 @@ input.bound {
 }
 .chk-ignore {
   opacity: 0.6;
+}
+.mat-fit {
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 0.85em;
+  background: var(--accent-soft);
+}
+.offset-dialog.fitcal-dialog {
+  width: 540px;
+  max-width: calc(100vw - 40px);
+}
+.offset-dialog.fitcal-dialog .form {
+  grid-template-columns: 150px 1fr;
+}
+.fitcal-dialog h4 {
+  margin: 12px 0 4px;
+}
+.fitcal-steps {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.offset-dialog.fitcal-dialog .fitcal-steps input {
+  width: 4.5em;
+  min-width: 0;
 }

@@ -5,6 +5,8 @@ import { CheckIssue, checkDesign, loadCheckSettings, removeSpans } from '../chec
 import type { Editor } from '../editor';
 import { t } from '../i18n';
 import { genLeaves } from './generators';
+import { buildGen, getGenerator, normalizeParams } from '../generators/index';
+import type { Params } from '../generators/types';
 
 export class EditorCheck {
   /** Aktuelle Seite prüfen; ausgeblendete Befunde fallen weg. Ergebnis steht danach in checkIssues. */
@@ -101,6 +103,21 @@ export class EditorCheck {
         this.setSel(objs);
         this.transformSel(translate(f.dx, f.dy), t('Aufs Bett schieben'));
         return this.afterFix();
+      }
+      case 'gen': {
+        const o = f.obj;
+        if (o.shape.kind !== 'gen' || !this.doc.objs.some((x) => contains(x, o))) return false;
+        const g = getGenerator(o.shape.gen);
+        if (!g) return false;
+        const r = buildGen(g, { ...normalizeParams(g, o.shape.params), ...f.patch } as Params);
+        const err = r.issues.find((i) => i.level === 'error');
+        if (err || !r.parts.length) {
+          this.hint = err?.msg ?? t('Bauteil ließ sich mit diesen Werten nicht erzeugen.');
+          this.emit('tool');
+          return false;
+        }
+        this.updateGen(o, r);
+        break;
       }
       case 'note':
         this.snapshot(t('Import-Hinweis ausblenden'));

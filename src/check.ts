@@ -9,8 +9,10 @@ import { bezierPt, segments } from './curves';
 import { SCALE } from './clip';
 import { copySub, extract, joinSubs } from './pathtools';
 import { dec, t, tn } from './i18n';
+import { checkFits, FitFinding } from './fitcheck';
+import type { Params } from './generators/types';
 
-export type CheckKind = 'double' | 'open' | 'unjoined' | 'web' | 'hole' | 'bed' | 'import';
+export type CheckKind = 'double' | 'open' | 'unjoined' | 'web' | 'hole' | 'bed' | 'import' | 'fit' | 'thickness';
 export type CheckLevel = 'error' | 'warn' | 'info';
 
 /** Korrektur zu einem Befund; ausgeführt vom Editor (src/editor/check.ts) */
@@ -26,7 +28,9 @@ export type CheckFix =
   /** Auf das Bett schieben */
   | { kind: 'bed'; objs: Obj[]; dx: number; dy: number }
   /** Import-Hinweis ausblenden */
-  | { kind: 'note'; objs: Obj[] };
+  | { kind: 'note'; objs: Obj[] }
+  /** Parameter eines Generator-Bauteils ändern (Passung, Materialdicke); die Baugruppe wird neu berechnet */
+  | { kind: 'gen'; obj: Obj; patch: Partial<Params>; calibrated: boolean };
 
 export interface CheckIssue {
   /** Bleibt bei erneutem Prüfen gleich (zum Ausblenden einzelner Befunde) */
@@ -94,6 +98,8 @@ export function fixLabel(f: CheckFix): string {
       return t('Aufs Bett schieben');
     case 'note':
       return t('Hinweis ausblenden');
+    case 'gen':
+      return f.calibrated ? t('Kalibrierte Werte übernehmen') : 'thickness' in f.patch && Object.keys(f.patch).length === 1 ? t('Materialdicke übernehmen') : t('Spiel anpassen');
   }
 }
 
@@ -717,6 +723,13 @@ export function checkDesign(inp: CheckInput): CheckIssue[] {
   checkOpen(cs, inp.settings, out);
   checkWebsAndHoles(cs, inp.settings, out);
   checkImport(inp, out);
+  const fits: FitFinding[] = [];
+  checkFits(inp.objs, inp.layer, inp.settings.beam, fits);
+  for (const f of fits)
+    out.push({
+      key: f.key, kind: f.kind, level: f.level, msg: f.msg, objs: f.objs, lines: f.lines, pts: [],
+      fix: f.gen ? { kind: 'gen', obj: f.gen.obj, patch: f.gen.patch, calibrated: f.calibrated } : undefined,
+    });
   return out.map((x, i) => [x, i] as const).sort((a, b) => ORDER[a[0].level] - ORDER[b[0].level] || a[1] - b[1]).map(([x]) => x);
 }
 
