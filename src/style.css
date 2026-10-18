@@ -2357,7 +2357,7 @@ input.bound {
 .tpl-thumb,
 .tpl-card img,
 .tpl-noimg {
-  width: 120px;
+  width: 100px;
   height: 90px;
   object-fit: contain;
   background: #fff;
@@ -2460,16 +2460,6 @@ input.bound {
 .param-bar button {
   white-space: nowrap;
 }
-.series-dialog textarea {
-  width: 100%;
-  box-sizing: border-box;
-  font-family: ui-monospace, monospace;
-  font-size: 12px;
-  resize: vertical;
-}
-.series-src {
-  margin-bottom: 6px;
-}
 .series-map,
 .series-gap {
   grid-template-columns: 160px 220px;
@@ -2479,4 +2469,47 @@ input.bound {
 }
 .series-gap input {
   width: 80px;
+}
+.series-src {
+  margin-bottom: 6px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.series-src .muted {
+  font-size: 11px;
+}
+.series-grid {
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 4px;
+}
+.series-grid table {
+  border-collapse: collapse;
+}
+.series-grid th,
+.series-grid td {
+  padding: 1px 2px;
+}
+.series-grid input[type='text'] {
+  width: 100px;
+  box-sizing: border-box;
+}
+.series-grid th input[type='text'] {
+  font-weight: 600;
+}
+.series-head {
+  display: flex;
+  gap: 2px;
+}
+.series-num {
+  text-align: right;
+  font-size: 11px;
+  padding-right: 4px;
+}
+.series-addrow {
+  margin-top: 4px;
 }

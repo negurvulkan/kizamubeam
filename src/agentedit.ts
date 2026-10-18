@@ -20,7 +20,7 @@ import type { Generator, Params } from './generators';
 import { coerce, ParamType, ProjectParam } from './params';
 import { genLeaves } from './editor/generators';
 import { builtinTemplates } from './builtinTemplates';
-import { defaultTemplate, listTemplates, readTemplate, templateFields, templateFileName, templateJson, writeTemplate } from './templates';
+import { defaultTemplate, guessColumns, tableRows, listTemplates, readTemplate, templateFields, templateFileName, templateJson, writeTemplate } from './templates';
 import { DEFAULT_NEST_SETTINGS, NestSettings } from './editor/nest';
 import { Args, describe, findObj, flip, machineBox, pageList, r3, Tier, ToolDef, ToolError } from './agentutil';
 
@@ -573,17 +573,30 @@ export const EDIT_TOOLS: ToolDef[] = [
     name: 'make_series',
     title: 'Serie aus Tabelle',
     description:
-      'Serie: Für jede Zeile in rows (Werte nach Parametername, z. B. [{"Name": "Anna"}, {"Name": "Bernd"}]) entsteht eine feste Kopie der aktuellen Seite (Platzhalter ersetzt, Formeln gelöst). layout grid (Standard): Raster ab unten links (Maschinen-Nullpunkt) mit gap mm Abstand, weitere Seiten bei Bedarf; pages: eine Seite je Zeile an derselben Stelle. Die Kopien kommen auf neue Seiten hinter der aktuellen; die Vorlage bleibt unverändert. Höchstens 500 Zeilen.',
+      'Serie: Für jede Zeile in rows (Werte nach Parametername, z. B. [{"Name": "Anna"}, {"Name": "Bernd"}]) entsteht eine feste Kopie der aktuellen Seite (Platzhalter ersetzt, Formeln gelöst). layout grid (Standard): Raster ab unten links (Maschinen-Nullpunkt) mit gap mm Abstand, weitere Seiten bei Bedarf; pages: eine Seite je Zeile an derselben Stelle. Die Kopien kommen auf neue Seiten hinter der aktuellen; die Vorlage bleibt unverändert. Höchstens 500 Zeilen. Statt rows geht auch table (header = Spaltennamen wie die Parameter, rows = Zeilen als Texte, Zahlen auch mit Dezimalkomma, Ja/Nein als ja/nein); table wird im Projekt gespeichert. Ohne rows und table wird die gespeicherte Tabelle benutzt.',
     tier: Tier.Edit,
     inputSchema: obj({
       rows: { type: 'array', items: { type: 'object' } },
+      table: obj({ header: { type: 'array', items: { type: 'string' } }, rows: { type: 'array', items: { type: 'array', items: { type: 'string' } } } }, ['header', 'rows']),
       layout: { type: 'string', enum: ['grid', 'pages'] },
       gap: { type: 'number' },
-    }, ['rows']),
+    }),
     run: (ed, a) => {
-      if (!Array.isArray(a.rows) || a.rows.some((r) => typeof r !== 'object' || r === null || Array.isArray(r))) throw new ToolError('„rows“ muss eine Liste von Objekten sein');
+      let rows = a.rows as Record<string, unknown>[] | undefined;
+      if (a.table !== undefined) {
+        const tb = a.table as { header?: unknown; rows?: unknown };
+        if (!Array.isArray(tb.header) || !Array.isArray(tb.rows) || tb.rows.some((r) => !Array.isArray(r))) throw new ToolError('„table“ braucht header und rows (Listen von Texten)');
+        ed.setSeriesTable({ header: tb.header.map(String), rows: (tb.rows as unknown[][]).map((r) => r.map((c) => String(c ?? ''))) });
+      }
+      if (rows === undefined) {
+        const tb = ed.doc.seriesTable;
+        if (!tb) throw new ToolError('Weder rows noch eine Tabelle im Projekt');
+        const params = ed.paramList();
+        rows = tableRows(tb.rows, guessColumns(tb.header, params, templateFields(ed.doc).map(([, f]) => f)), params);
+      }
+      if (!Array.isArray(rows) || rows.some((r) => typeof r !== 'object' || r === null || Array.isArray(r))) throw new ToolError('„rows“ muss eine Liste von Objekten sein');
       try {
-        const n = ed.makeSeries(a.rows as Record<string, unknown>[], { layout: a.layout === 'pages' ? 'pages' : 'grid', gap: typeof a.gap === 'number' ? a.gap : undefined });
+        const n = ed.makeSeries(rows, { layout: a.layout === 'pages' ? 'pages' : 'grid', gap: typeof a.gap === 'number' ? a.gap : undefined });
         return { newPages: n, pages: pageList(ed) };
       } catch (e) {
         throw new ToolError(e instanceof Error ? e.message : String(e));

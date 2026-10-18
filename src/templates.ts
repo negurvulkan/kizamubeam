@@ -200,3 +200,56 @@ export function tableRows(rows: string[][], map: Record<string, number>, params:
     return out;
   });
 }
+
+/** Tabelle für Serien, im Projekt gespeichert (Kopfzeile = Spaltennamen) */
+export interface SeriesTable {
+  header: string[];
+  rows: string[][];
+}
+
+/** Ausgangstabelle: gespeicherte Tabelle, sonst CSV des variablen Texts, sonst Spalten der gefragten Parameter mit den aktuellen Werten */
+export function initialSeriesTable(doc: Doc): SeriesTable {
+  if (doc.seriesTable?.header.length) return { header: [...doc.seriesTable.header], rows: doc.seriesTable.rows.map((r) => [...r]) };
+  const csv = doc.vt?.csv;
+  if (csv?.header?.length) return { header: [...csv.header], rows: csv.rows.map((r) => [...r]) };
+  const fields = templateFields(doc).filter(([p]) => p);
+  const cell = (p: ProjectParam) => (p.type === 'bool' ? (p.value ? t('ja') : t('nein')) : String(p.value));
+  return { header: fields.map(([p]) => p.name), rows: [fields.map(([p]) => cell(p))] };
+}
+
+/** Alle Zeilen auf die Spaltenzahl bringen */
+export function squareTable(tb: SeriesTable): SeriesTable {
+  const n = Math.max(tb.header.length, ...tb.rows.map((r) => r.length));
+  const fit = (r: string[]) => Array.from({ length: n }, (_, i) => r[i] ?? '');
+  return { header: fit(tb.header), rows: tb.rows.map(fit) };
+}
+
+/** CSV mit Semikolon (wie es Tabellenprogramme im deutschen Raum erwarten), Felder bei Bedarf in Anführungszeichen */
+export function tableToCsv(tb: SeriesTable): string {
+  const q = (s: string) => (/[;"\r\n]/.test(s) || /^\s|\s$/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+  return [tb.header, ...tb.rows].map((r) => r.map(q).join(';')).join('\r\n') + '\r\n';
+}
+
+/**
+ * Eingefügten Text (z. B. aus einem Tabellenprogramm kopiert, Tabulator oder Semikolon getrennt) ab Zelle
+ * (row, col) verteilen; row -1 = Kopfzeile. Die Tabelle wächst bei Bedarf. Gibt false zurück, wenn der
+ * Text nur eine Zelle ist (dann normal einfügen).
+ */
+export function pasteIntoTable(tb: SeriesTable, row: number, col: number, text: string): boolean {
+  const lines = text.replace(/\r\n?/g, '\n').replace(/\n$/, '').split('\n');
+  const sep = lines.some((l) => l.includes('\t')) ? '\t' : lines.some((l) => l.includes(';')) ? ';' : null;
+  if (lines.length < 2 && !sep) return false;
+  lines.forEach((l, i) => {
+    const cells = sep ? l.split(sep) : [l];
+    const r = row + i;
+    let target: string[];
+    if (r < 0) target = tb.header;
+    else {
+      while (tb.rows.length <= r) tb.rows.push([]);
+      target = tb.rows[r];
+    }
+    cells.forEach((c, j) => (target[col + j] = c));
+  });
+  Object.assign(tb, squareTable(tb));
+  return true;
+}

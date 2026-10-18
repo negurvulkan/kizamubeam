@@ -6,6 +6,7 @@ import { boundsOf } from '../geom';
 import { coerce, conditionHolds, fillTemplate, ProjectParam, Scope, scopeOf, Value } from '../params';
 import { t } from '../i18n';
 import type { Editor } from '../editor';
+import { SeriesTable, squareTable } from '../templates';
 
 export interface SeriesOptions {
   /** pages: eine Seite je Zeile; grid: Raster, das bei Bedarf auf weitere Seiten weiterläuft */
@@ -40,6 +41,15 @@ export function bakeObjs(objs: Obj[], scope: Scope): Obj[] {
 }
 
 export class EditorSeries {
+  /** Tabelle für Serien im Projekt speichern (leer = entfernen); ein Undo-Schritt, wenn sich etwas ändert */
+  setSeriesTable(this: Editor, tb: SeriesTable | null) {
+    const next = tb && (tb.header.some((c) => c.trim()) || tb.rows.some((r) => r.some((c) => c.trim()))) ? squareTable(tb) : undefined;
+    if (JSON.stringify(next) === JSON.stringify(this.doc.seriesTable)) return;
+    this.snapshot(t('Tabelle ändern'));
+    if (next) this.doc.seriesTable = next;
+    else delete this.doc.seriesTable;
+    this.emit('doc');
+  }
   /**
    * Serie anlegen: rows enthält je Zeile Werte nach Parametername (fehlende behalten ihren Wert). Die Kopien
    * kommen hinter die aktuelle Seite; danach ist die erste neue Seite aktiv. Ein Undo-Schritt. Gibt die Zahl

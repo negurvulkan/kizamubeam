@@ -11,6 +11,7 @@ g.localStorage = {
 };
 const T = await import('../src/templates');
 const P = await import('../src/params');
+const vt = await import('../src/vartext');
 const { loadDoc, newDoc } = await import('../src/model');
 const { t } = await import('../src/i18n');
 import type { ProjectParam } from '../src/params';
@@ -130,6 +131,24 @@ await test('bakeObjs: Platzhalter ersetzt (Klammern bleiben Text), Formeln weg, 
   assert.equal(out[0].bind, undefined);
   assert.equal(out[1].showIf, undefined);
   assert.notEqual(out[0].id, 1);
+});
+
+await test('Tabelle: Einfügen aus Tabellenprogramm, CSV-Export, Ausgangstabelle', () => {
+  const tb = { header: ['Name', 'Breite'], rows: [['Anna', '60']] };
+  assert.equal(T.pasteIntoTable(tb, 0, 0, 'nur eins'), false);
+  assert.ok(T.pasteIntoTable(tb, 0, 1, '70\tja\n80\n'));
+  assert.deepEqual(tb, { header: ['Name', 'Breite', ''], rows: [['Anna', '70', 'ja'], ['', '80', '']] });
+  assert.ok(T.pasteIntoTable(tb, -1, 0, 'A;B'));
+  assert.deepEqual(tb.header, ['A', 'B', '']);
+  assert.equal(T.tableToCsv({ header: ['a', 'b'], rows: [['x;y', 'he said "hi"'], [' z', '1']] }), 'a;b\r\n"x;y";"he said ""hi"""\r\n" z";1\r\n');
+  const { parseCsv } = vt;
+  assert.deepEqual(parseCsv(T.tableToCsv({ header: ['a', 'b'], rows: [['x;y', 'q"']] })), [['a', 'b'], ['x;y', 'q"']]);
+  const d = newDoc();
+  d.params = params;
+  d.template = { title: 'S', fields: [{ name: 'Name' }, { name: 'Loch' }] };
+  assert.deepEqual(T.initialSeriesTable(d), { header: ['Name', 'Loch'], rows: [['Anna', t('ja')]] });
+  d.seriesTable = { header: ['Name'], rows: [['Bernd']] };
+  assert.deepEqual(T.initialSeriesTable(d), { header: ['Name'], rows: [['Bernd']] });
 });
 
 if (failed) {
