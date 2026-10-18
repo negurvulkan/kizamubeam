@@ -571,12 +571,16 @@ export function openSetupWizard(ed: Editor) {
   }
 
   const dlg = h('dialog', { class: 'setup-dialog' },
-    h('h3', {}, t('Laser einrichten')),
+    h('div', { class: 'setup-head' },
+      h('h3', {}, t('Laser einrichten')),
+      h('button', { class: 'ib setup-close', title: t('Schließen'), onclick: () => dlg.close() }, '✕'),
+    ),
     statusLine,
     h('div', { class: 'setup-main' }, nav, h('div', { class: 'setup-right' }, body, consoleBox)),
     h('div', { class: 'dialog-buttons' },
       h('button', { class: 'btn', title: t('Alle Einstellungen des Geräts'), onclick: () => openDeviceDialog(ed, device, () => render()) }, t('Erweiterte Einstellungen …')),
       h('span', { style: 'flex:1' }),
+      h('button', { class: 'btn', onclick: () => dlg.close() }, t('Schließen')),
       backBtn,
       nextBtn,
     ),
