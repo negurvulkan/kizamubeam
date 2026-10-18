@@ -23,6 +23,7 @@ import { builtinTemplates } from './builtinTemplates';
 import { defaultTemplate, guessColumns, tableRows, listTemplates, readTemplate, templateFields, templateFileName, templateJson, writeTemplate } from './templates';
 import { DEFAULT_NEST_SETTINGS, NestSettings } from './editor/nest';
 import { Args, describe, findObj, flip, machineBox, pageList, r3, Tier, ToolDef, ToolError } from './agentutil';
+import { CheckIssue, fixLabel, loadCheckSettings } from './check';
 
 // ---------- Eingaben prüfen ----------
 
@@ -88,6 +89,20 @@ function result(ed: Editor, before: Set<number>, extra: Record<string, unknown> 
   };
 }
 const snapshotIds = (ed: Editor) => new Set(ed.doc.objs.map((o) => o.id));
+
+/** Befund aus „Konstruktion prüfen“ für Agenten */
+function issueInfo(ed: Editor, x: CheckIssue, index: number) {
+  const pts = [...x.lines.flat(), ...x.pts];
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const p of pts) {
+    x0 = Math.min(x0, p.x);
+    y0 = Math.min(y0, p.y);
+    x1 = Math.max(x1, p.x);
+    y1 = Math.max(y1, p.y);
+  }
+  const box = pts.length ? machineBox(ed, { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }) : null;
+  return { index, kind: x.kind, level: x.level, message: x.msg, ids: x.objs.map((o) => o.id), area: box, ...(x.fix ? { fix: fixLabel(x.fix) } : {}) };
+}
 
 /** Neues Objekt anlegen, optional gedreht (Grad gegen den Uhrzeigersinn um die Mitte) */
 function addObj(ed: Editor, shape: Shape, m: Mat, layer: number, rotation = 0): Obj {
@@ -1442,6 +1457,38 @@ export const EDIT_TOOLS: ToolDef[] = [
       const n = num(a, 'steps', { def: 1, min: 1, max: 50, int: true });
       for (let i = 0; i < n; i++) ed.doRedo();
       return { objectCount: ed.doc.objs.length };
+    },
+  },
+  {
+    name: 'check_design',
+    title: 'Konstruktion prüfen',
+    description:
+      'Fertigungsprüfung der aktuellen Seite wie im Fenster „Prüfung“: doppelte Schnittlinien (double), ungewollt offene Umrisse (open), Einzellinien, die einen Umriss bilden, aber nicht verbunden sind (unjoined), schmale Stege zwischen Schnitten (web), zu kleine Innenausschnitte für Schnittbreite/Kerf (hole), Objekte außerhalb des Arbeitsbereichs (bed, nur bei absolutem Start) und beim Import übersprungene Elemente (import). ' +
+      'Liefert je Befund index, kind, level (error/warn/info), message, die betroffenen Objekt-ids, den Bereich (Maschinenkoordinaten) und, falls es eine gibt, die Korrektur (fix), die fix_design_issue mit diesem index anwendet. Einstellungen (Mindeststeg, Schnittbreite, Gravur-Layer) legt die Person im Fenster fest.',
+    tier: Tier.Read,
+    inputSchema: obj({}),
+    run: (ed) => {
+      const xs = ed.runCheck();
+      return {
+        settings: loadCheckSettings(),
+        issues: xs.map((x, index) => issueInfo(ed, x, index)),
+      };
+    },
+  },
+  {
+    name: 'fix_design_issue',
+    title: 'Befund korrigieren',
+    description:
+      'Wendet die Korrektur eines Befunds aus check_design an (index aus dem letzten check_design-Aufruf): doppeltes Objekt löschen, doppelte Linien aus dem späteren Teil entfernen, Umriss schließen, Linien verbinden, aufs Bett schieben oder Import-Hinweis ausblenden. Rückgängig machbar. Danach wird neu geprüft; die Liste der verbleibenden Befunde kommt zurück.',
+    tier: Tier.Edit,
+    inputSchema: obj({ index: { type: 'integer', minimum: 0 } }, ['index']),
+    run: async (ed, a) => {
+      const before = snapshotIds(ed);
+      const x = ed.checkIssues[num(a, 'index', { int: true, min: 0 })];
+      if (!x) throw new ToolError('Kein Befund mit diesem index; erst check_design aufrufen');
+      if (!x.fix) throw new ToolError('Für diesen Befund gibt es keine automatische Korrektur');
+      if (!(await ed.applyCheckFix(x))) throw new ToolError(ed.hint || 'Korrektur nicht möglich (Objekt geändert oder entfernt); check_design erneut aufrufen');
+      return result(ed, before, { remaining: ed.checkIssues.map((y, index) => issueInfo(ed, y, index)) });
     },
   },
 ];

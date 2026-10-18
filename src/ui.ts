@@ -25,6 +25,7 @@ import { agentStatus, openAgentDialog } from './agentui';
 import { startAgentBridge } from './agent';
 import { buildObjectsPanel } from './objectsPanel';
 import { buildHistoryPanel } from './historyPanel';
+import { buildCheckPanel, openCheck } from './checkPanel';
 import { buildParamsPanel, openShowIfDialog } from './paramsPanel';
 import { buildView3dPanel } from './view3d/panel';
 import { dockWindow, initDock, isHidden, resetLayout, toggleWindow, windowList } from './dock';
@@ -110,6 +111,7 @@ export function buildUI(ed: Editor) {
   buildObjectsPanel(ed);
   buildHistoryPanel(ed);
   buildParamsPanel(ed);
+  buildCheckPanel(ed);
   buildView3dPanel(ed);
   buildLaser(ed);
   setTimeout(() => maybeOfferSetup(ed), 300);
@@ -297,6 +299,7 @@ function buildMenu(ed: Editor) {
       ] },
     ]],
     [t('Laser'), [
+      [t('Konstruktion prüfen'), '', () => openCheck()],
       [t('Vorschau …'), 'Alt+P', () => openPreview(ed)],
       [t('G-Code speichern …'), '', () => saveGCode(ed)],
       'sep',
@@ -896,6 +899,7 @@ function buildBars(ed: Editor) {
     { id: 'addpage', cat: S, short: t('+ Seite'), label: t('Neue Seite'), run: () => ed.addPage() },
     { id: 'prevpage', cat: S, icon: 'up', label: t('Vorherige Seite (Bild ↑)'), run: () => ed.setPage(ed.doc.page - 1), enabled: () => ed.doc.page > 0 },
     { id: 'nextpage', cat: S, icon: 'down', label: t('Nächste Seite (Bild ↓)'), run: () => ed.setPage(ed.doc.page + 1), enabled: () => ed.doc.page < ed.doc.pages.length - 1 },
+    { id: 'check', cat: L, icon: 'check', label: t('Konstruktion prüfen: doppelte Linien, offene Umrisse, schmale Stege, kleine Ausschnitte und Arbeitsbereich'), run: () => openCheck() },
     { id: 'preview', cat: L, icon: 'preview', label: t('Vorschau (Alt+P)'), run: () => openPreview(ed) },
     { id: 'start', cat: L, icon: 'play', label: t('Job starten'), run: () => startJob(ed) },
     { id: 'frame', cat: L, icon: 'frame', label: t('Rahmen: Rechteck um den Job abfahren'), run: () => frameJob(ed, false) },
@@ -920,7 +924,7 @@ function buildBars(ed: Editor) {
     {
       main: [
         'new', 'open', 'save', 'import', 'export', SEP, 'undo', 'redo', SEP, 'cut', 'copy', 'paste', 'delete', SEP,
-        'grp:zoom', 'view3d', SEP, 'preview', 'devsettings', SEP,
+        'grp:zoom', 'view3d', SEP, 'check', 'preview', 'devsettings', SEP,
         'group', 'ungroup', 'grp:transform', 'tolines', SEP, 'grp:align', SEP, 'theme',
       ],
       tools: [

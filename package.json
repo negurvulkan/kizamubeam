@@ -20,6 +20,7 @@
     "test:3d": "node scripts/run-ts.mjs scripts/view3d-test.ts",
     "test:nest": "node scripts/run-ts.mjs scripts/nest-test.ts",
     "test:boolean": "node scripts/run-ts.mjs scripts/boolean-test.ts",
+    "test:check": "node scripts/run-ts.mjs scripts/check-test.ts",
     "test:setup": "node scripts/run-ts.mjs scripts/setup-test.ts"
   },
   "license": "GPL-3.0-or-later",

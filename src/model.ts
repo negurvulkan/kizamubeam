@@ -279,6 +279,8 @@ export interface Obj {
   bind?: ObjBinds;
   /** Nur zeigen (und lasern), wenn diese Formel mit Projekt-Parametern wahr ist, z. B. „Deckel“ */
   showIf?: string;
+  /** Hinweis aus dem Import (übersprungene Elemente der Quelldatei), für „Konstruktion prüfen“ */
+  importNote?: string;
 }
 
 /**
