@@ -1288,9 +1288,7 @@
   "Startpunkt setzen: Knoten anklicken, an dem der Schnitt beginnt (Shift: Richtung umkehren)": "Set start point: click the node where the cut begins (Shift: reverse direction)",
   "Verbindung: Fingerzinken, Zapfen, Überblattung, Schnapp-, Haken-, Keil- oder T-Slot-Verbindung auf gerade Kanten anwenden": "Joint: apply a finger, tenon, lap, snap, hook, wedge or T-slot joint to straight edges",
   "Var. Text": "Var. text",
-  "Vereinen: alle gewählten Formen verschmelzen": "Weld: merge all selected shapes",
   " (Originale bleiben)": " (originals kept)",
-  "Schnittmenge: nur die gemeinsame Fläche behalten": "Boolean Intersection: keep only the common area",
   "Boolesche Optionen: Basis und Originale behalten": "Boolean options: base and keep originals",
   "Offset (Alt+O)": "Offset Shapes (Alt+O)",
   "Rasterarray: Auswahl in Spalten und Zeilen kopieren (Ctrl+Shift+A)": "Grid Array: copy the selection in columns and rows (Ctrl+Shift+A)",
@@ -1993,5 +1991,10 @@
   "CSV importieren …": "Import CSV …",
   "CSV exportieren …": "Export CSV …",
   "Aus Tabellenprogrammen kopierte Zellen lassen sich direkt einfügen.": "Cells copied from a spreadsheet can be pasted directly.",
-  "Tabelle behalten, keine Serie anlegen": "Keep the table without creating a series"
+  "Tabelle behalten, keine Serie anlegen": "Keep the table without creating a series",
+  "Für Boolesche Operationen mindestens zwei geschlossene Formen auswählen (offene Linien haben keine Fläche).": "Select at least two closed shapes for boolean operations (open lines have no area).",
+  "Offene Linien und Bilder wurden nicht verrechnet.": "Open lines and images were left out.",
+  "Vereinen (Alt++): alle gewählten Formen verschmelzen, eine Gruppe oder ein Text auch mit sich selbst": "Union (Alt++): merge all selected shapes; a single group or text is welded with itself",
+  "Schnittmenge (Alt+*): nur die gemeinsame Fläche behalten": "Intersect (Alt+*): keep only the shared area",
+  "Vereinen / Abziehen / Schnittmenge": "Union / Subtract / Intersect"
 }

@@ -1,7 +1,7 @@
 // Editor: In Pfad umwandeln, Boolesche Operationen, Offset und Arrays.
-import { clone, cloneObjs, IDENT, leaves, Mat, mul, newId, Obj, Pt, SubPath } from '../model';
-import { BoolBase, BoolOp, booleanOp, OffsetOptions, offsetOp, orderForBoolean } from '../ops';
-import { loadFont, textToSubs } from '../fonts';
+import { clone, cloneObjs, homeLayer, IDENT, leaves, Mat, mul, newId, Obj, Pt, SubPath } from '../model';
+import { BoolBase, BoolOp, booleanOp, closedCount, OffsetOptions, offsetOp, openSubs, orderForBoolean } from '../ops';
+import { loadFont, textGlyphSubs, textToSubs } from '../fonts';
 import { MAX_COPIES } from '../arrays';
 import { shapeSubs } from '../geom';
 import { t, tn } from '../i18n';
@@ -43,7 +43,10 @@ export class EditorShapeOps {
     this.emit('sel');
   }
 
-  /** Kopien der Objekte, in denen Texte schon als Konturen vorliegen (für Boolesche Operationen und Offset). */
+  /**
+   * Kopien der Objekte, in denen Texte schon als Konturen vorliegen (für Boolesche Operationen und Offset).
+   * Jede Glyphe wird ein eigener Pfad in einer Gruppe, damit sich überlappende Buchstaben vereinen statt Löcher zu bilden.
+   */
   async withTextOutlines(this: Editor, objs: Obj[]): Promise<Obj[]> {
     const out: Obj[] = [];
     for (const o of objs) {
@@ -52,7 +55,8 @@ export class EditorShapeOps {
         if (leaf.shape.kind !== 'text') continue;
         const t = leaf.shape;
         const f = await loadFont(t.font, t.bold, t.italic);
-        leaf.shape = { kind: 'path', subs: textToSubs(t, f.font) };
+        const children: Obj[] = textGlyphSubs(t, f.font).map((subs) => ({ id: newId(), m: IDENT, layer: leaf.layer, shape: { kind: 'path', subs } }));
+        leaf.shape = { kind: 'group', children };
       }
       out.push(c);
     }
@@ -84,17 +88,28 @@ export class EditorShapeOps {
    * (sonst die Einstellung boolBase): beim Abziehen werden alle anderen von der Basis abgezogen.
    */
   async booleanSel(this: Editor, op: BoolOp, base: BoolBase = this.boolBase) {
-    // Bilder nehmen nicht teil (sie haben keine Kontur)
-    const inputs = orderForBoolean(this.sel.filter((o) => o.shape.kind !== 'image'), this.doc.objs, base);
-    if (inputs.length < 2) {
-      this.hint = t('Für Boolesche Operationen mindestens zwei Formen auswählen.');
+    // Bilder nehmen nicht teil (sie haben keine Kontur). Reine Linien-Objekte (z. B. Biegeschnitte) haben keine Fläche:
+    // beim Abziehen und beim Schnitt werden sie an den Flächen gekürzt, beim Vereinen bleiben sie unberührt.
+    const cands = this.sel.filter((o) => o.shape.kind !== 'image');
+    const outlined = await this.withTextOutlines(cands);
+    const calc = new Map(cands.map((o, i) => [o, outlined[i]]));
+    const areas = orderForBoolean(cands.filter((o) => closedCount(calc.get(o)!) > 0), this.doc.objs, base);
+    const lines = op === 'subtract' || op === 'intersect' ? cands.filter((o) => !areas.includes(o) && openSubs(calc.get(o)!).length > 0) : [];
+    const inputs = [...areas, ...lines];
+    const skipped = cands.length - inputs.length;
+    // Vereinen geht auch mit einem einzelnen Objekt aus mehreren Konturen (Gruppe, Text): es wird mit sich selbst verschweißt
+    const weld = op === 'union' && areas.length === 1 && ['group', 'text'].includes(areas[0].shape.kind) && closedCount(calc.get(areas[0])!) > 1;
+    if (areas.length < 2 && !weld && !(areas.length && lines.length)) {
+      this.hint = skipped
+        ? t('Für Boolesche Operationen mindestens zwei geschlossene Formen auswählen (offene Linien haben keine Fläche).')
+        : t('Für Boolesche Operationen mindestens zwei Formen auswählen.');
       this.emit('tool');
       return;
     }
     const keep = this.boolKeep;
     // Ohne „Originale behalten“ gehen parametrische Bauteile im Ergebnis auf: vorher fragen
     if (!keep && !(await this.guardGen(inputs, t('Boolesche Operation')))) return;
-    const subs = booleanOp(op, await this.withTextOutlines(inputs));
+    const subs = booleanOp(op, areas.map((o) => calc.get(o)!), lines.map((o) => calc.get(o)!));
     if (!subs.length && keep) {
       this.hint = t('Ergebnis ist leer (keine gemeinsame Fläche).');
       this.emit('tool');
@@ -105,15 +120,16 @@ export class EditorShapeOps {
     // Ohne Originale nimmt das Ergebnis den Platz des hintersten Objekts ein, sonst liegt es direkt vor dem vordersten
     let idx = keep ? Math.max(...z) + 1 : Math.min(...z);
     if (!keep) this.doc.objs = this.doc.objs.filter((o) => !inputs.includes(o));
+    const note = skipped ? t('Offene Linien und Bilder wurden nicht verrechnet.') : '';
     if (!subs.length) {
       this.hint = t('Ergebnis ist leer (keine gemeinsame Fläche).');
       this.setSel([]);
     } else {
-      const res: Obj = { id: newId(), m: IDENT, layer: inputs[0].layer, shape: { kind: 'path', subs } };
+      const res: Obj = { id: newId(), m: IDENT, layer: homeLayer(lines.length && areas.length === 1 ? lines[0] : areas[0]), shape: { kind: 'path', subs } };
       idx = Math.min(idx, this.doc.objs.length);
       this.doc.objs.splice(idx, 0, res);
       this.setSel([res]);
-      this.hint = keep ? t('Originale behalten, Ergebnis liegt davor.') : '';
+      this.hint = [keep ? t('Originale behalten, Ergebnis liegt davor.') : '', note].filter(Boolean).join(' ');
     }
     this.emit('doc');
   }
@@ -130,7 +146,7 @@ export class EditorShapeOps {
       this.hint = t('Offset ergibt keine Kontur (Abstand zu groß für Innen-Offset?).');
       this.setSel(keepOriginal ? inputs : []);
     } else {
-      const res: Obj = { id: newId(), m: IDENT, layer: inputs[0].layer, shape: { kind: 'path', subs } };
+      const res: Obj = { id: newId(), m: IDENT, layer: homeLayer(inputs[0]), shape: { kind: 'path', subs } };
       this.doc.objs.push(res);
       this.setSel([res]);
       this.hint = '';

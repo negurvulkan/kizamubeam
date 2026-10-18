@@ -901,17 +901,17 @@ export const EDIT_TOOLS: ToolDef[] = [
     name: 'boolean',
     title: 'Boolesche Operation',
     description:
-      'union (vereinen), subtract (von der Basis abziehen), intersect (Schnittmenge), xor. Basis: base "first" = erstes Objekt in ids, "back" = hinterstes, "front" = vorderstes. Texte werden über ihre Konturen verrechnet. Ergebnis: ein Pfad mit Bézierkurven; Originale werden ersetzt, außer keep_originals.',
+      'union (vereinen), subtract (von der Basis abziehen), intersect (Schnittmenge), xor. Basis: base "first" = erstes Objekt in ids, "back" = hinterstes, "front" = vorderstes. Texte werden über ihre Konturen verrechnet; offene Linien (z. B. Biegeschnitte) werden bei subtract an den abgezogenen Flächen gekürzt, bei intersect auf die gemeinsame Fläche beschränkt (reine Linien-Objekte plus eine Fläche: die Fläche schneidet die Linien); Bilder nehmen nicht teil. union mit nur einer Gruppe oder einem Text verschweißt deren Teile. Ergebnis: ein Pfad mit Bézierkurven; Originale werden ersetzt, außer keep_originals.',
     tier: Tier.Edit,
     inputSchema: obj({
-      ids: { ...IDS, minItems: 2 }, op: { type: 'string', enum: ['union', 'subtract', 'intersect', 'xor'] },
+      ids: { ...IDS, minItems: 1 }, op: { type: 'string', enum: ['union', 'subtract', 'intersect', 'xor'] },
       base: { type: 'string', enum: ['first', 'back', 'front'] }, keep_originals: { type: 'boolean' },
     }, ['ids', 'op']),
     run: async (ed, a) => {
       const before = snapshotIds(ed);
       const objs = topObjs(ed, ids(a));
-      if (objs.length < 2) throw new ToolError('Mindestens zwei Objekte angeben');
       const op = oneOf(a, 'op', ['union', 'subtract', 'intersect', 'xor'] as const) as BoolOp;
+      if (objs.length < (op === 'union' ? 1 : 2)) throw new ToolError('Mindestens zwei Objekte angeben (union: eine Gruppe oder ein Text genügt)');
       const base = oneOf(a, 'base', ['first', 'back', 'front'] as const, 'first');
       ed.setSel(objs);
       const keep = ed.boolKeep;
