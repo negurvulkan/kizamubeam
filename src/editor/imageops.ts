@@ -169,6 +169,8 @@ export class EditorImages {
       return;
     }
     const layers = new Set(objs.map((o) => o.layer));
+    // Übersprungene Elemente bleiben am Objekt vermerkt und erscheinen in „Konstruktion prüfen“
+    if (res.notes.length) for (const o of objs) o.importNote = `${name}: ${res.notes.join(' ')}`;
     this.placeNew(objs, `${tn('{name}: {n} Objekt', '{name}: {n} Objekte', objs.length, { name })} ${tn('auf {n} Layer.', 'auf {n} Layern.', layers.size)} ${res.notes.join(' ')}`.trim());
   }
 

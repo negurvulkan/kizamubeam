@@ -13,6 +13,8 @@ import type { Doc, ImageLayer, Layer } from './model';
 import { materialTab } from './materialui';
 import { cameraTab } from './cameraui';
 import { dockWindow, windowBody } from './dock';
+import { loadCheckSettings } from './check';
+import { openCheck } from './checkPanel';
 import { dec, locale, t, tBackend, tn } from './i18n';
 
 const store = loadDevices();
@@ -132,6 +134,22 @@ function boundsOk(ed: Editor, job: Job): boolean {
   return confirm(t('⚠ Achtung') + '\n\n' + why + (hint ? '\n\n' + hint : '') + '\n\n' + t('Trotzdem starten?'));
 }
 
+/** Konstruktion prüfen vor dem Start: bei Fehlern oder Warnungen nachfragen, sonst die Stellen zeigen */
+function designOk(ed: Editor): boolean {
+  if (!loadCheckSettings().beforeLaser) return true;
+  let xs = ed.runCheck().filter((x) => x.level !== 'info');
+  if (device.cutSelected) xs = xs.filter((x) => x.objs.some((o) => ed.sel.includes(o)));
+  if (!xs.length) return true;
+  const lines = xs.slice(0, 6).map((x) => '• ' + x.msg);
+  if (xs.length > 6) lines.push(t('… und {n} weitere', { n: xs.length - 6 }));
+  const ok = confirm(
+    tn('Konstruktion prüfen hat {n} Problem gefunden:', 'Konstruktion prüfen hat {n} Probleme gefunden:', xs.length) +
+      '\n\n' + lines.join('\n') + '\n\n' + t('Trotzdem starten? (Abbrechen zeigt die Stellen im Fenster Prüfung.)'),
+  );
+  if (!ok) openCheck();
+  return ok;
+}
+
 /** Warum gerade kein Job oder Rahmen laufen kann (null = es geht) */
 export function runBlocker(): string | null {
   if (!machine.connected) return t('Nicht verbunden.');
@@ -153,7 +171,7 @@ function canRun(): boolean {
 export async function startJob(ed: Editor, src?: JobSource) {
   if (!canRun()) return;
   const job = await makeJob(ed, false, src);
-  if (nothingToDo(job) || !boundsOk(ed, job)) return;
+  if (nothingToDo(job) || (!src && !designOk(ed)) || !boundsOk(ed, job)) return;
   job.warnings.forEach((w) => notify(w));
   const est = estimate(job.moves, device);
   const g = await prepareGCode(job, device, est, src?.name);
@@ -168,7 +186,7 @@ export async function startJob(ed: Editor, src?: JobSource) {
 export async function startJobAt(ed: Editor, preview: Moves, i: number, frac: number, src?: JobSource): Promise<boolean> {
   if (!canRun()) return false;
   const job = await makeJob(ed, false, src);
-  if (nothingToDo(job) || !boundsOk(ed, job)) return false;
+  if (nothingToDo(job) || (!src && !designOk(ed)) || !boundsOk(ed, job)) return false;
   if (!sameMoves(preview, job.moves, job.offset)) {
     notify(t('Die Vorschau passt nicht mehr zum Job (z. B. weil sich die Laserposition geändert hat). Bitte die Vorschau neu öffnen.'), true);
     return false;
@@ -222,6 +240,8 @@ export const deviceList = () => ({ devices: store.devices, current: device.id })
 
 export function buildLaser(ed: Editor) {
   applyBed(ed);
+  // Die Lage auf dem Bett zählt nur, wenn absolut gelasert wird und keine Drehachse läuft
+  ed.checkBedApplies = () => device.startFrom === 'absolute' && !rotaryOn(device);
   // Jeder Bereich ist ein eigenes Fenster (andockbar, als Reiter stapelbar, siehe dock.ts)
   const wins: [string, string, HTMLElement, (() => void)?][] = [
     ['laser', t('Laser'), laserTab(ed)],

@@ -261,6 +261,9 @@ export class EditorRender {
       ctx.setLineDash([]);
     }
 
+    // Konstruktion prüfen: Befunde markieren
+    if (this.checkMarks && this.checkIssues.length) this.drawCheckMarks(ctx, px);
+
     // Verbindungen: gewählte Kanten (nummeriert), Kante unter dem Mauszeiger und Vorschau
     if (this.tool === 'joint') {
       ctx.save();
@@ -530,6 +533,37 @@ export class EditorRender {
       ctx.lineWidth = 1.5;
       ctx.strokeRect(q.x - 5, q.y - 5, 10, 10);
     }
+  }
+
+  /** Befunde aus „Konstruktion prüfen“: Stellen farbig nach Schwere, der angeklickte Befund kräftiger */
+  drawCheckMarks(this: Editor, ctx: CanvasRenderingContext2D, px: number) {
+    const COLORS = { error: '#e02020', warn: '#ff8a00', info: '#2f8fe8' };
+    ctx.save();
+    ctx.lineCap = ctx.lineJoin = 'round';
+    const active = this.checkActive;
+    for (const x of [...this.checkIssues.filter((i) => i.key !== active?.key), ...(active ? [active] : [])]) {
+      const on = x.key === active?.key;
+      ctx.strokeStyle = COLORS[x.level];
+      ctx.globalAlpha = on ? 0.95 : 0.55;
+      ctx.lineWidth = (on ? 5 : 3.5) * px;
+      ctx.setLineDash(x.kind === 'bed' || x.kind === 'import' ? [6 * px, 4 * px] : []);
+      if (x.kind === 'bed' || x.kind === 'import') ctx.lineWidth = (on ? 2.5 : 1.5) * px;
+      ctx.beginPath();
+      for (const l of x.lines) {
+        if (!l.length) continue;
+        ctx.moveTo(l[0].x, l[0].y);
+        for (let i = 1; i < l.length; i++) ctx.lineTo(l[i].x, l[i].y);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineWidth = (on ? 2.5 : 1.5) * px;
+      for (const p of x.pts) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, (on ? 10 : 7) * px, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
   }
 
   /** Ausrichtungshilfen und Fangpunkt mit Art (wie das Fang-Symbol am Mauszeiger in LightBurn) */

@@ -2513,3 +2513,105 @@ input.bound {
 .series-addrow {
   margin-top: 4px;
 }
+
+/* Fenster Prüfung (Konstruktion prüfen) */
+.win-check {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+.chk-bar {
+  align-items: center;
+}
+.chk-summary {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.chk-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.chk-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.chk-field > span:first-child {
+  min-width: 90px;
+}
+.chk-field input[type='number'] {
+  width: 64px;
+}
+.chk-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.chk-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.chk-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2px 0;
+}
+.chk-list .empty {
+  padding: 6px 8px;
+}
+.chk-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--line);
+}
+.chk-row:hover {
+  background: var(--surface-2);
+}
+.chk-row.cur {
+  background: var(--accent-soft);
+}
+.chk-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: #2f8fe8;
+}
+.chk-row.lvl-error .chk-dot {
+  background: #e02020;
+}
+.chk-row.lvl-warn .chk-dot {
+  background: #ff8a00;
+}
+.chk-text {
+  flex: 1;
+  min-width: 0;
+}
+.chk-objs {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chk-row button {
+  flex: none;
+}
+.chk-fix {
+  margin-top: 3px;
+}
+.chk-ignore {
+  opacity: 0.6;
+}

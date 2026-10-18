@@ -4,6 +4,7 @@ import { Doc, Mat, newDoc, Obj, Pt, Shape, SubPath, TextShape, visibleLeaves, Va
 import { defaultVarText, setVarTextSource } from './vartext';
 import { setParamSource } from './params';
 import type { Issue } from './generators';
+import type { CheckIssue } from './check';
 import { onImageReady } from './images';
 import { BoolBase } from './ops';
 import { onFontLoaded } from './fonts';
@@ -30,6 +31,7 @@ import { EditorGenerators } from './editor/generators';
 import { EditorParams } from './editor/params';
 import { EditorNest } from './editor/nest';
 import { EditorSeries } from './editor/series';
+import { EditorCheck } from './editor/check';
 import { t } from './i18n';
 
 export type { Tool } from './editor/shared';
@@ -171,6 +173,18 @@ export class Editor {
   // Projekt-Parameter
   /** Formeln, die sich bei der letzten Neuberechnung nicht auswerten ließen (für das Parameter-Fenster) */
   paramProblems: { obj: Obj; issues: Issue[] }[] = [];
+
+  // Konstruktion prüfen
+  /** Befunde der letzten Prüfung (aktuelle Seite) */
+  checkIssues: CheckIssue[] = [];
+  /** Angeklickter Befund (stärker hervorgehoben) */
+  checkActive: CheckIssue | null = null;
+  /** Befunde auf der Arbeitsfläche markieren (solange das Fenster Prüfung zu sehen ist) */
+  checkMarks = false;
+  /** In dieser Sitzung ausgeblendete Befunde */
+  checkIgnored = new Set<string>();
+  /** Lage auf dem Bett prüfen? (von laser.ts gesetzt: nicht bei Start ab Benutzer-Ursprung/Position oder mit Drehachse) */
+  checkBedApplies: () => boolean = () => true;
 
   // Zeichnen der Arbeitsfläche
   get colors() {
@@ -412,6 +426,7 @@ export interface Editor
     EditorParams,
     EditorNest,
     EditorSeries,
+    EditorCheck,
     EditorImages,
     EditorRender {}
 
@@ -432,6 +447,7 @@ const PARTS = [
   EditorParams,
   EditorNest,
   EditorSeries,
+  EditorCheck,
   EditorImages,
   EditorRender,
 ];
