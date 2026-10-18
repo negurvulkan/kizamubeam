@@ -38,7 +38,7 @@ function applyBed(ed: Editor) {
   ed.zoomPage();
 }
 
-function selectDevice(ed: Editor, id: string) {
+export function selectDevice(ed: Editor, id: string) {
   const d = store.devices.find((x) => x.id === id);
   if (!d || d === device) return;
   if (machine.connected || machine.connecting) {
@@ -50,6 +50,20 @@ function selectDevice(ed: Editor, id: string) {
   store.current = id;
   applyBed(ed);
   deviceChanged();
+}
+
+/** Einstellungen des gewählten Geräts ändern und speichern (Assistent „Laser einrichten“) */
+export function patchDevice(ed: Editor, patch: Partial<Device>) {
+  Object.assign(device, patch);
+  applyBed(ed);
+  deviceChanged();
+}
+
+/** Neues Gerät anlegen und auswählen */
+export function addDevice(ed: Editor, d: Device) {
+  store.devices.push(d);
+  deviceChanged();
+  selectDevice(ed, d.id);
 }
 
 /** Kurze Meldung im Laser-Panel (und in der Konsole) */
@@ -305,6 +319,7 @@ function laserTab(ed: Editor): HTMLElement {
   const frameB = big('frame', t('Rahmen'), t('Rechteck um den Job abfahren'), () => frameJob(ed, false));
   const contourB = big('contour', t('Kontur'), t('Umriss des Jobs abfahren (Gummiband)'), () => frameJob(ed, true));
   const homeB = big('home', t('Home'), t('Referenzfahrt'), () => {
+    if (device.limitSwitches === 'no' && !confirm(t('Für dieses Gerät ist angegeben, dass es keine Endschalter hat. Eine Referenzfahrt fährt dann bis zum Anschlag.\n\nTrotzdem referenzieren?'))) return;
     if (rotaryOn(device) && device.rotary.axis === 'Y' && !confirm(t('Die Drehachse steckt am Y-Anschluss. Eine Referenzfahrt kann sie endlos drehen lassen, weil es dort keinen Endschalter gibt.\n\nTrotzdem referenzieren?'))) return;
     machine.send(fw().home);
   });
@@ -356,6 +371,7 @@ function laserTab(ed: Editor): HTMLElement {
     ),
     h('div', { class: 'conn-row' },
       h('button', { class: 'btn', onclick: () => openDeviceDialog(ed) }, h('span', { html: ICONS.settings }), t('Geräteeinstellungen')),
+      h('button', { class: 'btn', title: t('Schritt für Schritt von der Verbindung bis zum ersten Testauftrag'), onclick: () => import('./setupWizard').then((m) => m.openSetupWizard(ed)) }, t('Laser einrichten …')),
     ),
     msg,
   );
@@ -629,6 +645,11 @@ export function openDeviceDialog(ed: Editor, target: Device = device, onDone?: (
   num(t('Telnet-Port'), () => d.tcpPort, (v) => (d.tcpPort = Math.round(v)));
   num(t('WebSocket-Port'), () => d.wsPort, (v) => (d.wsPort = Math.round(v)), t('FluidNC: 81; ist er nicht erreichbar, wird 80 versucht'));
   bool(t('Beim Verbinden referenzieren'), () => d.homeOnConnect, (v) => (d.homeOnConnect = v), t('Nach dem Verbinden eine Referenzfahrt starten'));
+  rows.push(h('label', { title: t('Ohne Endschalter bietet der Assistent „Laser einrichten“ keine Referenzfahrt an') }, t('Endschalter')), h('select', { onchange: (e: Event) => (d.limitSwitches = (e.target as HTMLSelectElement).value as Device['limitSwitches']) },
+    h('option', { value: 'unknown', selected: d.limitSwitches === 'unknown' }, t('Unbekannt')),
+    h('option', { value: 'yes', selected: d.limitSwitches === 'yes' }, t('Vorhanden')),
+    h('option', { value: 'no', selected: d.limitSwitches === 'no' }, t('Keine')),
+  ));
   head(t('Bewegung (für die Zeitschätzung)'));
   const rapid = num(t('Eilgang (mm/min)'), () => d.rapid, (v) => (d.rapid = v));
   const accel = num(t('Beschleunigung (mm/s²)'), () => d.accel, (v) => (d.accel = v));
