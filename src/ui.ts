@@ -16,6 +16,7 @@ import { openHingeDialog } from './hingeDialog';
 import { openQrDialog, openVarTextDialog } from './qrDialog';
 import { askGenConvert, openGenDialog } from './generators/dialog';
 import { genLabel, getGenerator } from './generators';
+import { maybeOfferSetup, openSetupWizard } from './setupWizard';
 import { buildLaser, frameJob, openDeviceDialog, openDevicesDialog, openPreview, openRotaryDialog, saveGCode, startJob } from './laser';
 import { openLayerDialog } from './layerdialog';
 import { openMaterialTestDialog } from './materialtest';
@@ -111,6 +112,7 @@ export function buildUI(ed: Editor) {
   buildParamsPanel(ed);
   buildView3dPanel(ed);
   buildLaser(ed);
+  setTimeout(() => maybeOfferSetup(ed), 300);
   initDock();
   buildMenu(ed);
   buildPalette(ed);
@@ -304,6 +306,7 @@ function buildMenu(ed: Editor) {
       'sep',
       [t('Materialtest …'), '', () => openMaterialTestDialog(ed)],
       'sep',
+      [t('Laser einrichten …'), '', () => openSetupWizard(ed)],
       { sub: t('Gerät'), items: [
         [t('Geräte …'), '', () => openDevicesDialog(ed)],
         [t('Geräteeinstellungen …'), '', () => openDeviceDialog(ed)],
@@ -898,6 +901,7 @@ function buildBars(ed: Editor) {
     { id: 'frame', cat: L, icon: 'frame', label: t('Rahmen: Rechteck um den Job abfahren'), run: () => frameJob(ed, false) },
     { id: 'contour', cat: L, icon: 'contour', label: t('Kontur-Rahmen: Umriss des Jobs abfahren'), run: () => frameJob(ed, true) },
     { id: 'gcode', cat: L, icon: 'gcode', label: t('G-Code speichern'), run: () => saveGCode(ed) },
+    { id: 'setup', cat: L, short: t('Einrichten'), label: t('Laser einrichten: Schritt für Schritt von der Verbindung bis zum ersten Testauftrag'), run: () => openSetupWizard(ed) },
     { id: 'materialtest', cat: L, short: t('Test'), label: t('Materialtest …'), run: () => openMaterialTestDialog(ed) },
     { id: 'devsettings', cat: L, icon: 'settings', label: t('Geräteeinstellungen'), run: () => openDeviceDialog(ed) },
     { id: 'devices', cat: L, short: t('Geräte'), label: t('Geräte …'), run: () => openDevicesDialog(ed) },

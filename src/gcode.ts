@@ -117,6 +117,8 @@ export interface Device {
   /** Nach dem Job zum Startpunkt zurückfahren */
   returnHome: boolean;
   homeOnConnect: boolean;
+  /** Hat die Maschine Endschalter? Angabe aus dem Assistenten „Laser einrichten“; ohne gibt es dort keine Referenzfahrt */
+  limitSwitches: 'yes' | 'no' | 'unknown';
   /** Rahmen mit eingeschaltetem Laser (niedrige Leistung) */
   frameLaser: boolean;
   framePower: number;
@@ -154,6 +156,7 @@ export const DEFAULT_DEVICE: Device = {
   optimize: true,
   returnHome: true,
   homeOnConnect: false,
+  limitSwitches: 'unknown',
   frameLaser: false,
   framePower: 1,
   frameSpeed: 3000,

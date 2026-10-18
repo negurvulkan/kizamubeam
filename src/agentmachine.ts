@@ -406,6 +406,7 @@ export const MACHINE_TOOLS: ToolDef[] = [
       desktopOnly();
       if (!machine.connected) throw new ToolError('Nicht verbunden (machine_connect).');
       if (machine.busy) throw new ToolError('Es läuft gerade ein Auftrag.');
+      if (device.limitSwitches === 'no') throw new ToolError('Das Gerät hat laut Geräteeinstellungen keine Endschalter; eine Referenzfahrt würde bis zum Anschlag fahren.');
       const fw = FIRMWARES[device.fw];
       const r = ask('home', device.name, {
         title: t('KI-Agent möchte eine Referenzfahrt starten'),
