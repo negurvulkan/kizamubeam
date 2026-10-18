@@ -7,6 +7,7 @@ const { IDENT } = await import('../src/model');
 const { booleanOp, closedCount, offsetOp, region } = await import('../src/ops');
 const { flattenSub } = await import('../src/clip');
 const { bezierPt, segments } = await import('../src/curves');
+const { computeHinge, DEFAULT_HINGE } = await import('../src/hinges');
 
 let failed = 0;
 function test(name: string, fn: () => void) {
@@ -142,6 +143,82 @@ test('Offset einer Gruppe mit überlappenden Formen: eine Kontur ohne Loch', () 
   const r = offsetOp([group([rect(0, 0, 10, 10), rect(5, 0, 10, 10)])], { distance: 1, direction: 'outward', join: 'miter' });
   assert.equal(r.length, 1);
   near(area(r), 17 * 12, 1e-6);
+});
+
+// ---------- Offene Linien (Biegeschnitte) ----------
+
+const vlines = (x0: number, x1: number, step: number, y0: number, y1: number) => {
+  const subs: SubPath[] = [];
+  for (let x = x0; x <= x1 + 1e-9; x += step) subs.push({ closed: false, nodes: [{ x, y: y0 }, { x, y: y1 }] });
+  return path(subs);
+};
+const onCircle = (subs: SubPath[], cx: number, cy: number, r: number) => {
+  for (const sp of subs)
+    for (const n of [sp.nodes[0], sp.nodes[sp.nodes.length - 1]]) {
+      const d = Math.hypot(n.x - cx, n.y - cy);
+      assert.ok(d > r - 0.02, `Endpunkt im Kreis (${d.toFixed(3)} mm vom Mittelpunkt)`);
+    }
+};
+
+test('Linien minus Kreis: Linien werden am Kreis gekürzt und bleiben Geraden', () => {
+  const r = booleanOp('subtract', [vlines(1, 19, 2, 0, 20)], []).length; // nur Linien, nichts abzuziehen
+  assert.equal(r, 10);
+  const cut = booleanOp('subtract', [path([circleSub(10, 10, 5)])], [vlines(1, 19, 2, 0, 20)]);
+  assert.ok(cut.every((sp) => !sp.closed && sp.nodes.length === 2 && curves([sp]) === 0));
+  // x = 1, 3, 17, 19 laufen am Kreis vorbei, 5 … 15 werden geteilt (5 und 15 berühren ihn nur)
+  assert.ok(cut.length >= 14 && cut.length <= 16, `${cut.length} Stücke`);
+  onCircle(cut, 10, 10, 5);
+  const len = cut.reduce((s, sp) => s + Math.hypot(sp.nodes[1].x - sp.nodes[0].x, sp.nodes[1].y - sp.nodes[0].y), 0);
+  const inside = [7, 9, 11, 13].reduce((s, x) => s + 2 * Math.sqrt(25 - (x - 10) ** 2), 0);
+  near(len, 200 - inside, 0.1);
+});
+
+test('Linien als Basis minus Kreis: gleiches Ergebnis wie umgekehrt gewählt', () => {
+  const a = booleanOp('subtract', [path([circleSub(10, 10, 5)])], [vlines(1, 19, 2, 0, 20)]);
+  const b = booleanOp('subtract', [vlines(1, 19, 2, 0, 20), path([circleSub(10, 10, 5)])]);
+  assert.equal(a.length, b.length);
+});
+
+test('Gruppe aus Umriss und Biegeschnitten minus Loch: Umriss bekommt Loch, Linien werden gekürzt', () => {
+  const part = group([rect(0, 0, 20, 20), vlines(1, 19, 2, 1, 19)]);
+  const r = booleanOp('subtract', [part, rect(6, 6, 8, 8)]);
+  const closed = r.filter((s) => s.closed),
+    open = r.filter((s) => !s.closed);
+  assert.equal(closed.length, 2);
+  near(area(closed), 400 - 64, 1e-6);
+  for (const sp of open) for (const n of sp.nodes) assert.ok(!(n.x > 6.001 && n.x < 13.999 && n.y > 6.001 && n.y < 13.999), `Punkt im Loch: ${n.x},${n.y}`);
+  assert.equal(open.length, 6 + 4 * 2);
+});
+
+test('Wellenlinie minus Rechteck: Reste bleiben Bézierkurven', () => {
+  const wave: SubPath = { closed: false, nodes: [{ x: 0, y: 0, cout: { x: 2, y: 3 } }, { x: 10, y: 0, cin: { x: 8, y: -3 }, cout: { x: 12, y: 3 } }, { x: 20, y: 0, cin: { x: 18, y: -3 } }] };
+  const r = booleanOp('subtract', [path([wave]), rect(8, -5, 4, 10)]);
+  assert.equal(r.length, 2);
+  assert.ok(r.every((sp) => curves([sp]) > 0));
+  near(Math.max(...r[0].nodes.map((n) => n.x)), 8, 0.02);
+});
+
+test('Schnittmenge: nur die Linienstücke in der Fläche bleiben', () => {
+  const r = booleanOp('intersect', [rect(4, 5, 12, 10)], [vlines(1, 19, 2, 0, 20)]);
+  assert.equal(r.length, 6);
+  for (const sp of r) {
+    near(Math.min(sp.nodes[0].y, sp.nodes[1].y), 5, 0.01);
+    near(Math.max(sp.nodes[0].y, sp.nodes[1].y), 15, 0.01);
+  }
+});
+
+test('Echte Biegeschnitte minus Kreis: kein Schnitt mehr im Kreis', () => {
+  const h = computeHinge([rect(0, 0, 60, 40)], { ...DEFAULT_HINGE, kind: 'wave' });
+  assert.ok(!h.error && h.subs.length > 10);
+  const r = booleanOp('subtract', [path(h.subs), path([circleSub(30, 20, 8)])]);
+  assert.ok(r.length > 0 && r.every((sp) => !sp.closed));
+  for (const sp of r)
+    for (const g of segments(sp))
+      for (let i = 0; i <= 10; i++) {
+        const p = bezierPt(g.a, g.c1, g.c2, g.b, i / 10);
+        assert.ok(Math.hypot(p.x - 30, p.y - 20) > 8 - 0.02, 'Schnitt im Kreis');
+      }
+  assert.ok(curves(r) > 0, 'Wellen bleiben Kurven');
 });
 
 if (failed) {

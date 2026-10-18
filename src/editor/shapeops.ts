@@ -1,6 +1,6 @@
 // Editor: In Pfad umwandeln, Boolesche Operationen, Offset und Arrays.
 import { clone, cloneObjs, homeLayer, IDENT, leaves, Mat, mul, newId, Obj, Pt, SubPath } from '../model';
-import { BoolBase, BoolOp, booleanOp, closedCount, OffsetOptions, offsetOp, orderForBoolean } from '../ops';
+import { BoolBase, BoolOp, booleanOp, closedCount, OffsetOptions, offsetOp, openSubs, orderForBoolean } from '../ops';
 import { loadFont, textGlyphSubs, textToSubs } from '../fonts';
 import { MAX_COPIES } from '../arrays';
 import { shapeSubs } from '../geom';
@@ -88,16 +88,18 @@ export class EditorShapeOps {
    * (sonst die Einstellung boolBase): beim Abziehen werden alle anderen von der Basis abgezogen.
    */
   async booleanSel(this: Editor, op: BoolOp, base: BoolBase = this.boolBase) {
-    // Bilder nehmen nicht teil (sie haben keine Kontur), offene Linien auch nicht (sie haben keine Fläche)
+    // Bilder nehmen nicht teil (sie haben keine Kontur). Reine Linien-Objekte (z. B. Biegeschnitte) haben keine Fläche:
+    // beim Abziehen und beim Schnitt werden sie an den Flächen gekürzt, beim Vereinen bleiben sie unberührt.
     const cands = this.sel.filter((o) => o.shape.kind !== 'image');
     const outlined = await this.withTextOutlines(cands);
-    const area = new Map(cands.map((o, i) => [o, outlined[i]]));
-    for (const [o, c] of [...area]) if (!closedCount(c)) area.delete(o);
-    const inputs = orderForBoolean([...area.keys()], this.doc.objs, base);
+    const calc = new Map(cands.map((o, i) => [o, outlined[i]]));
+    const areas = orderForBoolean(cands.filter((o) => closedCount(calc.get(o)!) > 0), this.doc.objs, base);
+    const lines = op === 'subtract' || op === 'intersect' ? cands.filter((o) => !areas.includes(o) && openSubs(calc.get(o)!).length > 0) : [];
+    const inputs = [...areas, ...lines];
     const skipped = cands.length - inputs.length;
     // Vereinen geht auch mit einem einzelnen Objekt aus mehreren Konturen (Gruppe, Text): es wird mit sich selbst verschweißt
-    const weld = op === 'union' && inputs.length === 1 && ['group', 'text'].includes(inputs[0].shape.kind) && closedCount(area.get(inputs[0])!) > 1;
-    if (inputs.length < 2 && !weld) {
+    const weld = op === 'union' && areas.length === 1 && ['group', 'text'].includes(areas[0].shape.kind) && closedCount(calc.get(areas[0])!) > 1;
+    if (areas.length < 2 && !weld && !(areas.length && lines.length)) {
       this.hint = skipped
         ? t('Für Boolesche Operationen mindestens zwei geschlossene Formen auswählen (offene Linien haben keine Fläche).')
         : t('Für Boolesche Operationen mindestens zwei Formen auswählen.');
@@ -107,7 +109,7 @@ export class EditorShapeOps {
     const keep = this.boolKeep;
     // Ohne „Originale behalten“ gehen parametrische Bauteile im Ergebnis auf: vorher fragen
     if (!keep && !(await this.guardGen(inputs, t('Boolesche Operation')))) return;
-    const subs = booleanOp(op, inputs.map((o) => area.get(o)!));
+    const subs = booleanOp(op, areas.map((o) => calc.get(o)!), lines.map((o) => calc.get(o)!));
     if (!subs.length && keep) {
       this.hint = t('Ergebnis ist leer (keine gemeinsame Fläche).');
       this.emit('tool');
@@ -123,7 +125,7 @@ export class EditorShapeOps {
       this.hint = t('Ergebnis ist leer (keine gemeinsame Fläche).');
       this.setSel([]);
     } else {
-      const res: Obj = { id: newId(), m: IDENT, layer: homeLayer(inputs[0]), shape: { kind: 'path', subs } };
+      const res: Obj = { id: newId(), m: IDENT, layer: homeLayer(lines.length && areas.length === 1 ? lines[0] : areas[0]), shape: { kind: 'path', subs } };
       idx = Math.min(idx, this.doc.objs.length);
       this.doc.objs.splice(idx, 0, res);
       this.setSel([res]);

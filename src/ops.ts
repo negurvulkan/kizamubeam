@@ -1,15 +1,16 @@
 // Geometrische Operationen mit Clipper (Angus Johnson, JS-Port): Boolesche Verknüpfungen und Offset.
 // Kurven werden dafür fein in Linien zerlegt (Toleranz FLATTEN_TOL).
 import ClipperLib from 'clipper-lib';
-import { leaves, Obj, SubPath } from './model';
+import { apply, IDENT, leaves, Mat, Node, Obj, Pt, SubPath } from './model';
 import { shapeSubs } from './geom';
 import { execute, FLATTEN_TOL, flattenSub, Paths, pathsToSubs, SCALE } from './clip';
+import { extract, nearestParam, piecesOf } from './pathtools';
 
 export { SCALE };
 
 export type JoinStyle = 'round' | 'miter' | 'square';
 
-const { ClipType, PolyFillType, ClipperOffset, JoinType, EndType } = ClipperLib;
+const { Clipper, ClipType, PolyType, PolyFillType, PolyTree, ClipperOffset, JoinType, EndType } = ClipperLib;
 
 /** Geschlossene und offene Konturen eines Objekts (inkl. Gruppen) in Weltkoordinaten. */
 export function objectPaths(o: Obj): { closed: Paths; open: Paths } {
@@ -67,13 +68,100 @@ export function orderForBoolean<T>(sel: T[], stack: T[], base: BoolBase): T[] {
 /**
  * Boolesche Verknüpfung. Das erste Objekt ist die Basis:
  * Vereinen verschmilzt alle, Abziehen entfernt alle weiteren von der Basis, Schnitt behält die gemeinsame Fläche.
+ * Offene Linien (z. B. Biegeschnitte) der Basis und der Objekte in `lines` werden beim Abziehen an den Flächen
+ * der abgezogenen Formen gekürzt, beim Schnitt auf die gemeinsame Fläche beschränkt. Ist neben `lines` nur eine
+ * Fläche gewählt, ist sie selbst die abgezogene bzw. begrenzende Form. Beim Vereinen bleiben offene Linien unverändert.
+ * Die Linien behalten ihre Geraden und Bézierkurven, nur die Enden liegen neu auf dem Rand.
  */
-export function booleanOp(op: BoolOp, objs: Obj[]): SubPath[] {
+export function booleanOp(op: BoolOp, objs: Obj[], lines: Obj[] = []): SubPath[] {
   const regions = objs.map(region);
-  let acc = regions[0];
-  const type = { union: ClipType.ctUnion, subtract: ClipType.ctDifference, intersect: ClipType.ctIntersection, xor: ClipType.ctXor }[op];
-  for (const r of regions.slice(1)) acc = execute(type, acc, r, PolyFillType.pftNonZero);
-  return pathsToSubs(dropSlivers(acc));
+  if (op === 'union' || op === 'xor') {
+    let acc = regions[0];
+    for (const r of regions.slice(1)) acc = execute(op === 'union' ? ClipType.ctUnion : ClipType.ctXor, acc, r, PolyFillType.pftNonZero);
+    return [...pathsToSubs(dropSlivers(acc)), ...objs.flatMap(openSubs)];
+  }
+  // Nur Linien und eine Fläche: die Fläche schneidet die Linien
+  const onlyLines = objs.length === 1 && lines.length > 0;
+  const lineSrc = onlyLines ? lines : [objs[0], ...lines];
+  let closed: Paths = [];
+  let open: SubPath[];
+  if (op === 'subtract') {
+    const cutters = onlyLines ? regions : regions.slice(1);
+    if (!onlyLines) {
+      closed = regions[0];
+      for (const r of cutters) closed = execute(ClipType.ctDifference, closed, r, PolyFillType.pftNonZero);
+    }
+    open = lineSrc.flatMap((o) => clipOpen(o, cutters.flat(), false));
+  } else {
+    let common = regions[0];
+    for (const r of regions.slice(1)) common = execute(ClipType.ctIntersection, common, r, PolyFillType.pftNonZero);
+    if (!onlyLines) closed = common;
+    open = lineSrc.flatMap((o) => clipOpen(o, common, true));
+  }
+  return [...pathsToSubs(dropSlivers(closed)), ...open];
+}
+
+/** Offene Unterpfade eines Objekts (inkl. Gruppen) in Weltkoordinaten */
+export function openSubs(o: Obj): SubPath[] {
+  const out: SubPath[] = [];
+  for (const [leaf, m] of leaves([o])) {
+    if (leaf.shape.kind === 'text' || leaf.shape.kind === 'image') continue;
+    for (const sp of shapeSubs(leaf.shape)) if (!sp.closed && sp.nodes.length > 1) out.push(mapSub(sp, m));
+  }
+  return out;
+}
+
+function mapSub(sp: SubPath, m: Mat): SubPath {
+  const q = (p: Pt) => apply(m, p.x, p.y);
+  return {
+    closed: sp.closed,
+    nodes: sp.nodes.map((n) => {
+      const r: Node = q(n);
+      if (n.cin) r.cin = q(n.cin);
+      if (n.cout) r.cout = q(n.cout);
+      if (n.smooth) r.smooth = true;
+      return r;
+    }),
+  };
+}
+
+/**
+ * Offene Linien eines Objekts an einer Fläche kürzen: inside = nur die Stücke in der Fläche behalten, sonst nur die außerhalb.
+ * Clipper liefert die Schnittstellen am zerlegten Linienzug; das Stück wird dann aus der Originalkurve herausgeschnitten.
+ */
+function clipOpen(o: Obj, area: Paths, inside: boolean): SubPath[] {
+  const subs = openSubs(o);
+  if (!area.length) return inside ? [] : subs;
+  const out: SubPath[] = [];
+  for (const sp of subs) {
+    const c = new Clipper();
+    c.AddPath(flattenSub(sp, IDENT), PolyType.ptSubject, false);
+    c.AddPaths(area, PolyType.ptClip, true);
+    const tree = new PolyTree();
+    c.Execute(inside ? ClipType.ctIntersection : ClipType.ctDifference, tree, PolyFillType.pftNonZero, PolyFillType.pftNonZero);
+    const n = piecesOf(sp).length;
+    const parts = Clipper.OpenPathsFromPolyTree(tree)
+      .filter((p) => p.length > 1)
+      .map((p) => {
+        const end = (q: ClipperLib.IntPoint) => nearestParam(sp, { x: q.X / SCALE, y: q.Y / SCALE }).u;
+        const a = end(p[0]),
+          b = end(p[p.length - 1]);
+        return [Math.min(a, b), Math.max(a, b)];
+      })
+      .sort((x, y) => x[0] - y[0]);
+    // Stücke, die an derselben Stelle aneinanderstoßen, zusammenfassen
+    const spans: number[][] = [];
+    for (const [a, b] of parts) {
+      const l = spans[spans.length - 1];
+      if (l && a <= l[1] + 1e-6) l[1] = Math.max(l[1], b);
+      else spans.push([a, b]);
+    }
+    for (const [a, b] of spans) {
+      if (b - a < 1e-6) continue;
+      out.push(a < 1e-6 && b > n - 1e-6 ? sp : extract(sp, a, b));
+    }
+  }
+  return out;
 }
 
 /** Breite (mm), unter der Reste beim Verrechnen nur Rundungsfehler sind */
