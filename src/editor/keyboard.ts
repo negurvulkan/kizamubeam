@@ -53,6 +53,10 @@ export class EditorKeyboard {
     }
     if (k === 'pageup' && !e.altKey) return run(() => this.setPage(this.doc.page - 1));
     if (k === 'pagedown' && !e.altKey) return run(() => this.setPage(this.doc.page + 1));
+    // Boolesche Operationen: Alt + Plus / Minus / Stern (Mac: Option liefert ±, – bzw. ein Sonderzeichen, daher auch Ziffernblock-Codes)
+    if (e.altKey && (k === '+' || k === '±' || e.code === 'NumpadAdd')) return run(() => void this.booleanSel('union'));
+    if (e.altKey && (k === '-' || k === '–' || e.code === 'NumpadSubtract')) return run(() => void this.booleanSel('subtract'));
+    if (e.altKey && (k === '*' || e.code === 'NumpadMultiply')) return run(() => void this.booleanSel('intersect'));
     if (e.altKey && k === 'w') return run(() => ((this.filled = !this.filled), this.emit('view')));
     // Alt+J / Alt+B (Mac: Option, dort liefert e.key ein Sonderzeichen, daher e.code)
     if (e.altKey && !e.shiftKey && e.code === 'KeyJ') return run(() => this.joinSel());

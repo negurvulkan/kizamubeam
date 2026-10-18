@@ -123,6 +123,11 @@ export async function systemFonts(): Promise<string[] | null> {
  * Gleiche Anordnung wie die Anzeige: Grundlinie der ersten Zeile bei y = 0, Zeilenhöhe 1,2 × Größe + Zeilenabstand.
  */
 export function textToSubs(t: TextShape, font: opentype.Font): SubPath[] {
+  return textGlyphSubs(t, font).flat();
+}
+
+/** Wie textToSubs, aber je Glyphe eine eigene Liste (bei geschweißtem Text eine einzige). */
+export function textGlyphSubs(t: TextShape, font: opentype.Font): SubPath[][] {
   t = fitText(t, font);
   const scale = t.size / font.unitsPerEm;
   const glyphs: PlacedGlyph[] = [];
@@ -135,7 +140,7 @@ export function textToSubs(t: TextShape, font: opentype.Font): SubPath[] {
     });
   // Text auf Pfad: jede Glyphe für sich auf die Kurve setzen
   const placed = t.path && t.path.sub.nodes.length > 1 ? placeOnPath(glyphs, t.path, t.align) : glyphs.map((g) => g.subs);
-  return t.weld ? weldGlyphs(placed) : placed.flat();
+  return t.weld ? [weldGlyphs(placed)] : placed;
 }
 
 function squeezeNode(n: Node, x0: number, sx: number) {

@@ -25,9 +25,28 @@ export function objectPaths(o: Obj): { closed: Paths; open: Paths } {
   return { closed, open };
 }
 
-/** Fläche eines Objekts: Löcher (z. B. in Buchstaben) nach Gerade-Ungerade-Regel. */
+/**
+ * Fläche eines Objekts. Innerhalb eines Pfads gilt die Gerade-Ungerade-Regel (Löcher wie in Buchstaben),
+ * die Teile einer Gruppe werden danach vereint: überlappende Formen in einer Gruppe ergeben kein Loch.
+ */
 export function region(o: Obj): Paths {
-  return execute(ClipType.ctUnion, objectPaths(o).closed, [], PolyFillType.pftEvenOdd);
+  const parts: Paths = [];
+  let n = 0;
+  for (const [leaf, m] of leaves([o])) {
+    if (leaf.shape.kind === 'text' || leaf.shape.kind === 'image') continue;
+    const own = shapeSubs(leaf.shape)
+      .filter((sp) => sp.closed && sp.nodes.length > 1)
+      .map((sp) => flattenSub(sp, m));
+    if (!own.length) continue;
+    parts.push(...execute(ClipType.ctUnion, own, [], PolyFillType.pftEvenOdd));
+    n++;
+  }
+  return n > 1 ? execute(ClipType.ctUnion, parts, [], PolyFillType.pftNonZero) : parts;
+}
+
+/** Anzahl geschlossener Konturen. Ohne sie hat ein Objekt keine Fläche (offene Linien nehmen an Booleschen Operationen nicht teil). */
+export function closedCount(o: Obj): number {
+  return objectPaths(o).closed.length;
 }
 
 export type BoolOp = 'union' | 'subtract' | 'intersect' | 'xor';
@@ -54,7 +73,27 @@ export function booleanOp(op: BoolOp, objs: Obj[]): SubPath[] {
   let acc = regions[0];
   const type = { union: ClipType.ctUnion, subtract: ClipType.ctDifference, intersect: ClipType.ctIntersection, xor: ClipType.ctXor }[op];
   for (const r of regions.slice(1)) acc = execute(type, acc, r, PolyFillType.pftNonZero);
-  return pathsToSubs(acc);
+  return pathsToSubs(dropSlivers(acc));
+}
+
+/** Breite (mm), unter der Reste beim Verrechnen nur Rundungsfehler sind */
+const SLIVER = FLATTEN_TOL;
+
+/**
+ * Haarfeine Reste entfernen (morphologisches Öffnen: kurz schrumpfen, dann wieder wachsen).
+ * Liegen Kanten zweier Formen aufeinander, aber ihre Kurven wurden verschieden zerlegt (z. B. gedrehte Kreise),
+ * bleiben sonst hauchdünne Splitter übrig, die der Laser als eigene Linien schneiden würde.
+ */
+export function dropSlivers(paths: Paths): Paths {
+  if (!paths.length) return paths;
+  const run = (p: Paths, delta: number) => {
+    const co = new ClipperOffset(4, (FLATTEN_TOL / 4) * SCALE);
+    co.AddPaths(p, JoinType.jtMiter, EndType.etClosedPolygon);
+    const out: Paths = [];
+    co.Execute(out, delta);
+    return out;
+  };
+  return ClipperLib.Clipper.CleanPolygons(run(run(paths, -SLIVER * SCALE), SLIVER * SCALE), (SLIVER / 2) * SCALE);
 }
 
 export interface OffsetOptions {
@@ -71,9 +110,8 @@ export function offsetOp(objs: Obj[], opt: OffsetOptions): SubPath[] {
   const closed: Paths = [],
     open: Paths = [];
   for (const o of objs) {
-    const p = objectPaths(o);
-    closed.push(...execute(ClipType.ctUnion, p.closed, [], PolyFillType.pftEvenOdd));
-    open.push(...p.open);
+    closed.push(...region(o));
+    open.push(...objectPaths(o).open);
   }
   // Bogentoleranz in µm
   const inflate = (paths: Paths, delta: number, end: ClipperLib.EndType) => {
