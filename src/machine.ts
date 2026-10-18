@@ -228,7 +228,8 @@ class Machine {
       this.connected = true;
       this.where = where;
       this.log(t('Verbunden mit {where}.', { where }));
-      if (home) await this.send(fw.home);
+      // Ohne Endschalter nie referenzieren, die Achsen würden bis zum Anschlag fahren
+      if (home && d.limitSwitches !== 'no') await this.send(fw.home);
     } catch (e) {
       this.log(t('Verbindung fehlgeschlagen: {error}', { error: tBackend(String(e)) }), 'error');
     } finally {
