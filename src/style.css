@@ -2702,3 +2702,11 @@ input.bound {
     flex-wrap: wrap;
   }
 }
+.setup-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.setup-close {
+  font-size: 14px;
+}
