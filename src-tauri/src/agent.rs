@@ -22,7 +22,7 @@ use tauri::{AppHandle, Emitter, State};
 
 /// Muss zu `identifier` in tauri.conf.json passen (gleicher Ordner wie die übrigen App-Daten).
 /// Bleibt seit der Umbenennung in KizamuBeam unverändert, sonst gingen Einstellungen und Speicher verloren.
-const APP_ID: &str = "org.laserwerk.app";
+pub(crate) const APP_ID: &str = "org.laserwerk.app";
 const DEFAULT_PORT: u16 = 47800;
 const PROTOCOL_VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const MAX_BODY: usize = 16 * 1024 * 1024;

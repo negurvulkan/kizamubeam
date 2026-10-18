@@ -153,6 +153,8 @@ export class EditorDocument {
     const d = loadDoc(JSON.parse(json));
     if (d.assets) for (const [id, url] of Object.entries(d.assets)) registerAsset(id, url);
     delete d.assets;
+    // Vorschau nur in Vorlagen-Dateien (wird beim Speichern als Vorlage neu erzeugt)
+    delete d.template?.preview;
     restoreAssets(this.assetIds(allObjs(d)));
     this.snapshot(t('Datei öffnen'));
     this.clearPageState();

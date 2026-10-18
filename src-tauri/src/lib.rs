@@ -2,6 +2,7 @@ pub mod agent;
 mod machine;
 mod native;
 mod stream;
+mod templates;
 mod ws;
 
 use std::sync::OnceLock;
@@ -211,7 +212,12 @@ pub fn run() {
             agent::agent_new_token,
             agent::agent_respond,
             agent::agent_write_file,
-            agent::agent_machine_log
+            agent::agent_machine_log,
+            templates::template_list,
+            templates::template_read,
+            templates::template_write,
+            templates::template_delete,
+            templates::template_open_folder
         ])
         .run(tauri::generate_context!())
         .expect("Fehler beim Start der Anwendung");

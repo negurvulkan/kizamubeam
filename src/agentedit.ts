@@ -19,6 +19,7 @@ import { buildGen, checkInput, GENERATORS, getGenerator, normalizeParams, resolv
 import type { Generator, Params } from './generators';
 import { coerce, ParamType, ProjectParam } from './params';
 import { genLeaves } from './editor/generators';
+import { defaultTemplate, listTemplates, readTemplate, templateFields, templateFileName, templateJson, writeTemplate } from './templates';
 import { DEFAULT_NEST_SETTINGS, NestSettings } from './editor/nest';
 import { Args, describe, findObj, flip, machineBox, pageList, r3, Tier, ToolDef, ToolError } from './agentutil';
 
@@ -472,6 +473,88 @@ export const EDIT_TOOLS: ToolDef[] = [
       return {
         parameters: ed.paramList().map((p) => ({ ...p, usedBy: ed.paramUsers(p).map((o) => o.id) })),
         problems: problems.map(({ obj, issues }) => ({ id: obj.id, issues: issues.map((i) => `${i.level}: ${i.msg}`) })),
+      };
+    },
+  },
+  {
+    name: 'template',
+    title: 'Vorlage einrichten',
+    description:
+      'Macht das Projekt zur Vorlage: Titel, Beschreibung und welche Projekt-Parameter beim Ausfüllen gefragt werden (fields, in dieser Reihenfolge; label = Beschriftung, slider = Schieberegler bei Zahlen mit min/max). setup null entfernt die Vorlagen-Angaben. saveToLibrary speichert das Projekt in den Vorlagen-Ordner (Datei aus dem Titel, .kzt); vorhandene nur mit overwrite. list zeigt die Vorlagen im Ordner. Ohne Angaben nur lesen. Neue Projekte daraus: new_from_template.',
+    tier: Tier.Edit,
+    inputSchema: obj({
+      setup: {
+        type: ['object', 'null'],
+        properties: {
+          title: { type: 'string' },
+          description: { type: 'string' },
+          fields: { type: 'array', items: obj({ name: { type: 'string' }, label: { type: 'string' }, slider: { type: 'boolean' } }, ['name']) },
+        },
+      },
+      saveToLibrary: { type: 'boolean' },
+      overwrite: { type: 'boolean' },
+      list: { type: 'boolean' },
+    }),
+    run: async (ed, a) => {
+      if (a.setup === null) ed.setTemplate(null);
+      else if (a.setup !== undefined) {
+        const st = a.setup as Record<string, unknown>;
+        const fields = Array.isArray(st.fields) ? (st.fields as Record<string, unknown>[]) : undefined;
+        for (const f of fields ?? []) if (!ed.findParam(String(f.name))) throw new ToolError(`Unbekannter Parameter „${f.name}“`);
+        const cur = ed.doc.template ?? defaultTemplate(ed.doc);
+        ed.setTemplate({
+          title: typeof st.title === 'string' ? st.title : cur.title,
+          description: typeof st.description === 'string' ? st.description : cur.description,
+          fields: fields ? fields.map((f) => ({ name: String(f.name), label: typeof f.label === 'string' ? f.label : undefined, slider: f.slider === true })) : cur.fields,
+        });
+      }
+      let saved: string | undefined;
+      if (bool(a, 'saveToLibrary', false)) {
+        const info = ed.doc.template ?? defaultTemplate(ed.doc);
+        if (!ed.doc.template) ed.setTemplate(info);
+        saved = templateFileName(info.title);
+        try {
+          await writeTemplate(saved, templateJson(ed.serialize(), info, buildSvg(ed, { preview: true })), bool(a, 'overwrite', false));
+        } catch (e) {
+          throw new ToolError(e instanceof Error ? e.message : String(e));
+        }
+      }
+      const info = ed.doc.template;
+      return {
+        template: info
+          ? { title: info.title, description: info.description, fields: templateFields(ed.doc).map(([p, f]) => ({ ...f, type: p.type, value: p.value })) }
+          : null,
+        ...(saved ? { saved } : {}),
+        ...(bool(a, 'list', false) ? { library: (await listTemplates()).map((e) => ({ file: e.file, title: e.info.title, description: e.info.description })) } : {}),
+      };
+    },
+  },
+  {
+    name: 'new_from_template',
+    title: 'Neu aus Vorlage',
+    description:
+      'Legt aus einer Vorlage im Vorlagen-Ordner (file, siehe template mit list) ein neues Projekt an und ersetzt das aktuelle (rückgängig machbar mit undo). values setzt Parameter nach Name, z. B. {"Name": "Anna", "Breite": 80}.',
+    tier: Tier.Edit,
+    ownUndo: true,
+    inputSchema: obj({ file: { type: 'string' }, values: { type: 'object' } }, ['file']),
+    run: async (ed, a) => {
+      if (a.values !== undefined && (typeof a.values !== 'object' || a.values === null || Array.isArray(a.values))) throw new ToolError('„values“ muss ein Objekt sein');
+      let json: string;
+      try {
+        json = await readTemplate(String(a.file ?? ''));
+      } catch (e) {
+        throw new ToolError(e instanceof Error ? e.message : String(e));
+      }
+      try {
+        ed.openTemplate(json, (a.values as Record<string, unknown>) ?? {});
+      } catch (e) {
+        throw new ToolError(e instanceof Error ? e.message : String(e));
+      }
+      return {
+        title: ed.doc.template?.title,
+        fields: templateFields(ed.doc).map(([p, f]) => ({ ...f, type: p.type, value: p.value })),
+        problems: ed.paramProblems.map(({ obj, issues }) => ({ id: obj.id, issues: issues.map((i) => `${i.level}: ${i.msg}`) })),
+        pages: pageList(ed),
       };
     },
   },

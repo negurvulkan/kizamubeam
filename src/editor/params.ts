@@ -9,6 +9,7 @@ import {
 } from '../params';
 import { t } from '../i18n';
 import type { Editor } from '../editor';
+import { normalizeTemplate, TemplateInfo } from '../templates';
 
 export class EditorParams {
   /** Parameter des Projekts (leer, wenn es keine gibt) */
@@ -76,6 +77,7 @@ export class EditorParams {
     this.snapshot(t('Parameter „{name}“ löschen', { name: p.name }));
     this.doc.params = this.paramList().filter((x) => x !== p);
     if (!this.doc.params.length) delete this.doc.params;
+    if (this.doc.template) this.doc.template.fields = this.doc.template.fields.filter((f) => f.name !== p.name);
     for (const o of allObjs(this.doc)) {
       if (o.showIf && usesName(o.showIf, p.name, false)) delete o.showIf;
       if (!o.bind) continue;
@@ -100,6 +102,7 @@ export class EditorParams {
     this.emit('doc');
   }
   renameParamRefs(this: Editor, from: string, to: string) {
+    for (const f of this.doc.template?.fields ?? []) if (f.name.toLowerCase() === from.toLowerCase()) f.name = to;
     for (const o of allObjs(this.doc)) {
       if (o.showIf) o.showIf = renameInExpr(o.showIf, from, to);
       if (o.bind) for (const k of OBJ_BIND_KEYS) if (o.bind[k]) o.bind[k] = renameInExpr(o.bind[k]!, from, to);
@@ -282,6 +285,35 @@ export class EditorParams {
       for (const k of keys) delete o.bind[k];
       if (!OBJ_BIND_KEYS.some((k) => o.bind![k])) delete o.bind;
     }
+  }
+  /** Vorlagen-Angaben setzen (null = Projekt ist keine Vorlage mehr); ein Undo-Schritt, wenn sich etwas ändert */
+  setTemplate(this: Editor, info: TemplateInfo | null) {
+    const next = info ? normalizeTemplate(info, this.paramList()) : undefined;
+    if (next) delete next.preview;
+    if (JSON.stringify(next) === JSON.stringify(this.doc.template)) return;
+    this.snapshot(t('Vorlage einrichten'));
+    if (next) this.doc.template = next;
+    else delete this.doc.template;
+    this.emit('doc');
+  }
+  /**
+   * Vorlage (Inhalt einer .kzt-Datei) als neues Projekt öffnen, ein Undo-Schritt. values: Werte nach
+   * Parametername; unbekannte Namen werden gemeldet, bevor sich etwas ändert.
+   */
+  openTemplate(this: Editor, json: string, values: Record<string, unknown> = {}) {
+    const raw = JSON.parse(json) as { params?: ProjectParam[] };
+    const known = new Set((raw.params ?? []).map((p) => String(p?.name ?? '').toLowerCase()));
+    for (const k of Object.keys(values)) if (!known.has(k.toLowerCase())) throw new Error(t('Unbekannter Parameter „{name}“', { name: k }));
+    this.openDoc(json);
+    const title = this.doc.template?.title;
+    this.history.relabel(title ? t('Neu aus Vorlage „{name}“', { name: title }) : t('Neu aus Vorlage'));
+    if (this.doc.template) this.doc.template = normalizeTemplate(this.doc.template, this.paramList());
+    delete this.doc.template?.preview;
+    for (const [k, v] of Object.entries(values)) {
+      const p = this.findParam(k)!;
+      p.value = coerce(p, v);
+    }
+    this.applyParams();
   }
   /** Bedingung „Nur zeigen, wenn …“ setzen (leer = immer zeigen) */
   setShowIf(this: Editor, objs: Obj[], src: string) {

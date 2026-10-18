@@ -4,6 +4,7 @@ import { ICONS } from './icons';
 import { DITHER_MODES, DitherMode, ImageAdjust, ImageLayer, ImageShape, isCellMode, Layer, layerLabel, Obj, ObjBindKey, pageName, PALETTE, SubPath, TextShape, BarcodeShape, GenShape } from './model';
 import { evaluate, formatNumber, namesIn } from './params';
 import { deletePreset, loadPresets, presetOutput, savePreset } from './imagePresets';
+import { openFillDialog, openSaveTemplateDialog, openTemplateLibrary } from './templateDialogs';
 import { exportSvg, importFile, installDropAndPaste, openProject, saveProcessedBitmap, saveProject } from './files';
 import { assetImage, displayCanvas, onImageReady, outputGrid } from './images';
 import { systemFonts } from './fonts';
@@ -161,8 +162,12 @@ function buildMenu(ed: Editor) {
   const menus: [string, MenuItem[]][] = [
     [t('Datei'), [
       [t('Neu'), '', () => ed.newDocument()],
+      [t('Neu aus Vorlage …'), '', () => openTemplateLibrary(ed)],
       [t('Öffnen …'), '', () => openProject(ed)],
       [t('Speichern …'), '', () => saveProject(ed)],
+      'sep',
+      [t('Als Vorlage speichern …'), '', () => openSaveTemplateDialog(ed)],
+      [t('Vorlage ausfüllen …'), '', () => openFillDialog(ed)],
       'sep',
       [t('Importieren …'), 'Ctrl+I', () => importFile(ed)],
       [t('Als SVG exportieren …'), '', () => exportSvg(ed)],

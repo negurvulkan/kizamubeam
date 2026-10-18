@@ -220,6 +220,9 @@ export class Editor {
   on(fn: (what: 'doc' | 'sel' | 'view' | 'tool') => void) {
     this.listeners.add(fn);
   }
+  off(fn: (what: 'doc' | 'sel' | 'view' | 'tool') => void) {
+    this.listeners.delete(fn);
+  }
   emit(what: 'doc' | 'sel' | 'view' | 'tool') {
     this.dirty = true;
     if (what !== 'view') this.snapVer++;
