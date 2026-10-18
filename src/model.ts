@@ -1,6 +1,6 @@
 import { t } from './i18n';
 import type { ProjectParam } from './params';
-import type { TemplateInfo } from './templates';
+import type { SeriesTable, TemplateInfo } from './templates';
 import { conditionHolds } from './params';
 // Datenmodell: Dokument, Objekte, Layer, Matrizen.
 // Interne Koordinaten sind Millimeter mit y nach unten (wie SVG), Ursprung oben links am Bett.
@@ -453,6 +453,8 @@ export interface Doc {
   params?: ProjectParam[];
   /** Vorlagen-Angaben: Titel, Beschreibung und die beim Ausfüllen gefragten Parameter */
   template?: TemplateInfo;
+  /** Tabelle für Serien (Datei → Serie aus Tabelle): Kopfzeile und Zeilen */
+  seriesTable?: SeriesTable;
   /** Nur in Projektdateien: Bilddaten (Asset-ID → data:-URL) */
   assets?: Record<string, string>;
 }

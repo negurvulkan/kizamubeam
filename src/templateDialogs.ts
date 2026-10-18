@@ -10,7 +10,7 @@ import { parseCsv } from './vartext';
 import type { ProjectParam } from './params';
 import { paramControl } from './paramsPanel';
 import {
-  canSlide, defaultTemplate, deleteTemplate, guessColumns, hasTemplateFolder, tableRows, LibraryEntry, listTemplates, normalizeTemplate, openTemplateFolder, readTemplate,
+  canSlide, defaultTemplate, deleteTemplate, guessColumns, hasTemplateFolder, initialSeriesTable, pasteIntoTable, squareTable, tableRows, tableToCsv, LibraryEntry, listTemplates, normalizeTemplate, openTemplateFolder, readTemplate,
   TEMPLATE_EXT, TemplateField, TemplateInfo, templateFields, templateFileName, templateJson, writeTemplate,
 } from './templates';
 
@@ -347,7 +347,10 @@ export function openFillDialog(ed: Editor, fresh?: { before: string; redo: Retur
 
 // ---------- Serie aus Tabelle ----------
 
-/** Serie aus einer CSV-Tabelle: je Zeile eine feste Kopie der aktuellen Seite mit den Werten der Zeile */
+/**
+ * Serie aus einer Tabelle: je Zeile eine feste Kopie der aktuellen Seite mit den Werten der Zeile. Die Tabelle
+ * wird direkt im Dialog bearbeitet (oder aus einer CSV-Datei geladen) und mit dem Projekt gespeichert.
+ */
 export function openSeriesDialog(ed: Editor) {
   const params = ed.paramList();
   if (!params.length) {
@@ -355,36 +358,25 @@ export function openSeriesDialog(ed: Editor) {
     return;
   }
   const fields = templateFields(ed.doc).map(([, f]) => f);
-  const vtCsv = ed.doc.vt?.csv;
-  const area = h('textarea', {
-    id: 'series-csv', rows: 5, spellcheck: false,
-    placeholder: params.slice(0, 2).map((p) => p.name).join(';') + '\n…',
-  }, vtCsv?.header ? [vtCsv.header, ...vtCsv.rows].map((r) => r.join(';')).join('\n') : '') as HTMLTextAreaElement;
+  let tb = squareTable(initialSeriesTable(ed.doc));
+  const gridBox = h('div', { class: 'series-grid' });
   const status = h('div', { class: 'note' });
   const mapBox = h('div', { class: 'form series-map' });
   const err = h('div', { class: 'error' });
-  const map: Record<string, number> = {};
-  let table: string[][] = [];
+  let map: Record<string, number> = guessColumns(tb.header, params, fields);
   let layout: 'pages' | 'grid' = 'grid';
   let gap = 3;
-
   const ok = h('button', { class: 'btn primary' }, t('Serie anlegen')) as HTMLButtonElement;
-  const update = (guess: boolean) => {
-    table = parseCsv(area.value);
-    const header = table[0] ?? [];
-    if (guess) {
-      for (const k of Object.keys(map)) delete map[k];
-      Object.assign(map, guessColumns(header, params, fields));
-    }
-    const n = Math.max(0, table.length - 1);
-    status.textContent = table.length
-      ? t('{n} Zeilen, Spalten: {cols}', { n, cols: header.join(', ') })
-      : t('Tabelle aus einer CSV-Datei laden oder hier einfügen. Die erste Zeile enthält die Spaltennamen.');
+
+  /** Nach Änderungen an den Spaltennamen: nicht zugeordnete Parameter neu raten, Zuordnung neu zeichnen */
+  const remap = (full = false) => {
+    const guess = guessColumns(tb.header, params, fields);
+    map = full ? guess : { ...guess, ...Object.fromEntries(Object.entries(map).filter(([, i]) => i < tb.header.length)) };
     mapBox.replaceChildren(
       ...params.flatMap((p) => {
         const sel = h('select', { id: `series-${p.name}` },
           h('option', { value: '-1' }, t('— Wert bleibt —')),
-          ...header.map((c, i) => h('option', { value: String(i), selected: map[p.name] === i }, c || t('Spalte {n}', { n: i + 1 }))),
+          ...tb.header.map((c, i) => h('option', { value: String(i), selected: map[p.name] === i }, c.trim() || t('Spalte {n}', { n: i + 1 }))),
         ) as HTMLSelectElement;
         sel.onchange = () => {
           const v = Number(sel.value);
@@ -397,26 +389,128 @@ export function openSeriesDialog(ed: Editor) {
     );
     check_();
   };
+  const filled = () => tb.rows.filter((r) => r.some((c) => c.trim()));
   const check_ = () => {
-    const n = table.length - 1;
+    const n = filled().length;
+    status.textContent = t('{n} Zeilen', { n });
     ok.disabled = n < 1 || !Object.keys(map).length;
     err.textContent = n >= 1 && !Object.keys(map).length ? t('Mindestens einem Parameter eine Spalte zuordnen.') : '';
   };
-  area.addEventListener('input', () => update(true));
+
+  /** Zelleneingabe; row -1 = Kopfzeile */
+  const cell = (row: number, col: number) => {
+    const list = row < 0 ? tb.header : tb.rows[row];
+    const inp = h('input', { type: 'text', value: list[col] ?? '', 'data-r': row, 'data-c': col, spellcheck: false }) as HTMLInputElement;
+    inp.oninput = () => {
+      list[col] = inp.value;
+      if (row < 0) remap();
+      else check_();
+    };
+    inp.onpaste = (e) => {
+      const text = e.clipboardData?.getData('text/plain') ?? '';
+      if (!pasteIntoTable(tb, row, col, text)) return;
+      e.preventDefault();
+      render();
+      remap(row < 0);
+      focusCell(row, col);
+    };
+    inp.onkeydown = (e) => {
+      if (e.key !== 'Enter' && e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      e.preventDefault();
+      let r = row + (e.key === 'ArrowUp' ? -1 : 1);
+      // Enter in der letzten Zeile: neue Zeile
+      if (r >= tb.rows.length && e.key === 'Enter') {
+        tb.rows.push(tb.header.map(() => ''));
+        render();
+        check_();
+      }
+      r = Math.max(-1, Math.min(tb.rows.length - 1, r));
+      focusCell(r, col);
+    };
+    return inp;
+  };
+  const focusCell = (r: number, c: number) => (gridBox.querySelector(`input[data-r="${r}"][data-c="${c}"]`) as HTMLInputElement | null)?.focus();
+  const render = () => {
+    const cols = tb.header.length;
+    gridBox.replaceChildren(
+      h('table', {},
+        h('thead', {},
+          h('tr', {},
+            h('th', {}),
+            ...tb.header.map((_, c) =>
+              h('th', {}, h('div', { class: 'series-head' },
+                cell(-1, c),
+                h('button', {
+                  class: 'small', title: t('Spalte löschen'),
+                  onclick: () => {
+                    tb.header.splice(c, 1);
+                    tb.rows.forEach((r) => r.splice(c, 1));
+                    render();
+                    remap(true);
+                  },
+                }, '×'),
+              ))),
+            h('th', {}, h('button', {
+              class: 'small', title: t('Spalte hinzufügen'),
+              onclick: () => {
+                tb.header.push(t('Spalte {n}', { n: cols + 1 }));
+                tb.rows.forEach((r) => r.push(''));
+                render();
+                remap();
+                focusCell(-1, cols);
+              },
+            }, '+')),
+          ),
+        ),
+        h('tbody', {},
+          ...tb.rows.map((r, ri) =>
+            h('tr', {},
+              h('td', { class: 'muted series-num' }, String(ri + 1)),
+              ...r.map((_, c) => h('td', {}, cell(ri, c))),
+              h('td', {}, h('button', {
+                class: 'small', title: t('Zeile löschen'),
+                onclick: () => {
+                  tb.rows.splice(ri, 1);
+                  render();
+                  check_();
+                },
+              }, '×')),
+            )),
+        ),
+      ),
+      h('button', {
+        class: 'small series-addrow',
+        onclick: () => {
+          tb.rows.push(tb.header.map(() => ''));
+          render();
+          check_();
+          focusCell(tb.rows.length - 1, 0);
+        },
+      }, t('+ Zeile')),
+    );
+  };
+
   const fromFile = async () => {
     const r = await openText(t('CSV-Tabelle'), ['csv', 'txt', 'tsv']);
     if (!r) return;
-    area.value = r[1];
-    update(true);
+    const rows = parseCsv(r[1]);
+    if (!rows.length) return void (err.textContent = t('Die Datei enthält keine Tabelle.'));
+    tb = squareTable({ header: rows[0], rows: rows.slice(1) });
+    render();
+    remap(true);
   };
+  const toFile = () => saveText('tabelle.csv', t('CSV-Tabelle'), 'csv', 'text/csv', tableToCsv({ header: tb.header, rows: filled() }));
   const radio = (v: 'pages' | 'grid', label: string) =>
     h('label', {}, h('input', { type: 'radio', name: 'series-layout', checked: layout === v, onchange: () => (layout = v) }), label);
   const gapIn = h('input', { type: 'number', id: 'series-gap', value: gap, min: 0, step: 0.5, class: 'num' }) as HTMLInputElement;
   gapIn.oninput = () => (gap = Math.max(0, Number(gapIn.value) || 0));
 
+  /** Tabelle mit dem Projekt speichern (eigener Undo-Schritt, nur wenn geändert) */
+  const keep = () => ed.setSeriesTable({ header: tb.header, rows: filled() });
   ok.onclick = () => {
     try {
-      const rows = tableRows(table.slice(1), map, params);
+      const rows = tableRows(filled(), map, params);
+      keep();
       ed.makeSeries(rows, { layout, gap });
       dlg.close();
     } catch (e) {
@@ -425,9 +519,13 @@ export function openSeriesDialog(ed: Editor) {
   };
   const dlg = h('dialog', { class: 'tpl-dialog series-dialog' },
     h('h3', {}, t('Serie aus Tabelle')),
-    h('p', { class: 'note' }, t('Für jede Zeile entsteht eine feste Kopie der aktuellen Seite mit den Werten der Zeile, z. B. Namensschilder für eine ganze Liste. Die Vorlage selbst bleibt unverändert.')),
-    h('div', { class: 'series-src' }, h('button', { class: 'btn', onclick: fromFile }, t('CSV-Datei wählen …'))),
-    area,
+    h('p', { class: 'note' }, t('Für jede Zeile entsteht eine feste Kopie der aktuellen Seite mit den Werten der Zeile, z. B. Namensschilder für eine ganze Liste. Die Vorlage selbst bleibt unverändert. Die Tabelle wird mit dem Projekt gespeichert.')),
+    h('div', { class: 'series-src' },
+      h('button', { class: 'btn', onclick: fromFile }, t('CSV importieren …')),
+      h('button', { class: 'btn', onclick: toFile }, t('CSV exportieren …')),
+      h('span', { class: 'muted' }, t('Aus Tabellenprogrammen kopierte Zellen lassen sich direkt einfügen.')),
+    ),
+    gridBox,
     status,
     h('h4', {}, t('Spalten zuordnen')),
     mapBox,
@@ -439,10 +537,12 @@ export function openSeriesDialog(ed: Editor) {
     h('div', { class: 'form series-gap' }, h('label', { for: 'series-gap' }, t('Abstand (mm)')), gapIn),
     err,
     h('div', { class: 'dialog-buttons' },
-      h('button', { class: 'btn', onclick: () => dlg.close() }, t('Abbrechen')),
+      h('button', { class: 'btn', onclick: () => dlg.close(), title: t('Tabelle behalten, keine Serie anlegen') }, t('Schließen')),
       ok,
     ),
   ) as HTMLDialogElement;
-  showDialog(dlg, () => {});
-  update(true);
+  // Auch beim Schließen mit Esc bleibt die Tabelle im Projekt
+  showDialog(dlg, keep);
+  render();
+  remap();
 }
