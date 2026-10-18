@@ -10,6 +10,7 @@ g.localStorage = {
   removeItem: (k: string) => void mem.delete(k),
 };
 const T = await import('../src/templates');
+const P = await import('../src/params');
 const { loadDoc, newDoc } = await import('../src/model');
 const { t } = await import('../src/i18n');
 import type { ProjectParam } from '../src/params';
@@ -83,6 +84,52 @@ await test('Vorlagen-Ordner im Browser: schreiben, auflisten, lesen, löschen', 
   assert.equal(await T.readTemplate('Schild.kzt'), json);
   await T.deleteTemplate('Schild.kzt');
   await assert.rejects(() => T.readTemplate('Schild.kzt'));
+});
+
+await test('guessColumns und tableRows: Spalten nach Name oder Beschriftung, Zahlen mit Komma, Ja/Nein', () => {
+  const map = T.guessColumns(['NAME', 'Breite (mm)', 'Dein Loch', 'Loch?'], params, [{ name: 'Loch', label: 'Dein Loch' }]);
+  assert.deepEqual(map, { Name: 0, Loch: 2 });
+  const rows = T.tableRows([['Anna', '', 'ja'], ['Bernd', '', '0'], ['Clara']], { Name: 0, Breite: 1, Loch: 2 }, params);
+  assert.deepEqual(rows, [{ Name: 'Anna', Loch: true }, { Name: 'Bernd', Loch: false }, { Name: 'Clara', Loch: false }]);
+  assert.deepEqual(T.tableRows([['x', '90,5']], { Breite: 1 }, params), [{ Breite: 90.5 }]);
+});
+
+const { builtinTemplates } = await import('../src/builtinTemplates');
+const { usesName } = await import('../src/params');
+await test('Mitgelieferte Vorlagen: gültige Dateien, alle Formeln nennen nur vorhandene Parameter', () => {
+  const list = builtinTemplates();
+  assert.deepEqual(list.map((b) => b.id), ['keyfob', 'nametag', 'labelbox']);
+  for (const b of list) {
+    const d = loadDoc(JSON.parse(b.json()));
+    const names = (d.params ?? []).map((p) => p.name);
+    assert.ok(d.template && d.template.fields.length >= 3, b.id);
+    for (const f of d.template!.fields) assert.ok(names.includes(f.name), `${b.id}: Feld ${f.name}`);
+    assert.equal(d.template!.preview, undefined);
+    // Jede Formel muss sich mit den Parametern auswerten lassen
+    const scope = P.scopeOf(d.params);
+    for (const o of d.objs) {
+      for (const v of Object.values(o.bind ?? {})) if (typeof v === 'string') P.evaluate(v, scope);
+      if (o.showIf) P.evaluate(o.showIf, scope);
+      if (o.shape.kind === 'gen') for (const v of Object.values(o.shape.bind ?? {})) P.evaluate(v, scope);
+    }
+    assert.ok(names.some((n) => d.objs.some((o) => o.shape.kind === 'text' && usesName(o.shape.text, n, true))), `${b.id}: Text mit Platzhalter`);
+  }
+});
+
+const { bakeObjs } = await import('../src/editor/series');
+await test('bakeObjs: Platzhalter ersetzt (Klammern bleiben Text), Formeln weg, Bedingung ausgewertet', () => {
+  const scope = P.scopeOf([{ name: 'Name', type: 'text', value: 'Clara {Chefin}' }, { name: 'Loch', type: 'bool', value: false }]);
+  const objs = [
+    { id: 1, m: [1, 0, 0, 1, 0, 0], layer: 0, shape: { kind: 'text', text: 'Hallo {Name}', font: 'Arial', size: 5, bold: false, italic: false, upper: false, align: 'left', hSpace: 0, vSpace: 0 }, bind: { size: 'Name' } },
+    { id: 2, m: [1, 0, 0, 1, 0, 0], layer: 1, shape: { kind: 'ellipse', rx: 1, ry: 1 }, showIf: 'Loch' },
+    { id: 3, m: [1, 0, 0, 1, 0, 0], layer: 1, shape: { kind: 'rect', w: 1, h: 1, r: 0 }, showIf: '!Loch' },
+  ] as never;
+  const out = bakeObjs(objs, scope);
+  assert.equal(out.length, 2);
+  assert.equal((out[0].shape as { text: string }).text, 'Hallo Clara {{Chefin}}');
+  assert.equal(out[0].bind, undefined);
+  assert.equal(out[1].showIf, undefined);
+  assert.notEqual(out[0].id, 1);
 });
 
 if (failed) {

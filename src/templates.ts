@@ -162,3 +162,41 @@ export async function deleteTemplate(file: string) {
 export async function openTemplateFolder() {
   if (isTauri()) await invoke<string>('template_open_folder');
 }
+
+// ---------- Serien aus Tabellen ----------
+
+/** Spalte je Parameter vorschlagen: Kopfzeile gleich Name oder Beschriftung (Groß-/Kleinschreibung egal) */
+export function guessColumns(header: string[], params: ProjectParam[], fields: TemplateField[] = []): Record<string, number> {
+  const norm = (s: string) => s.trim().toLowerCase();
+  const out: Record<string, number> = {};
+  for (const p of params) {
+    const label = fields.find((f) => f.name === p.name)?.label;
+    const i = header.findIndex((h) => norm(h) === norm(p.name) || (!!label && norm(h) === norm(label)));
+    if (i >= 0) out[p.name] = i;
+  }
+  return out;
+}
+
+const TRUE_RE = /^(1|ja|j|yes|y|true|wahr|x|✓)$/i;
+
+/**
+ * Tabellenzeilen (ohne Kopfzeile) zu Werten nach Parametername. Zahlen dürfen ein Dezimalkomma haben; leere
+ * oder ungültige Zahlen fallen weg (der Parameter behält dann seinen Wert). Ja/Nein: 1, ja, yes, true, x.
+ */
+export function tableRows(rows: string[][], map: Record<string, number>, params: ProjectParam[]): Record<string, string | number | boolean>[] {
+  return rows.map((r) => {
+    const out: Record<string, string | number | boolean> = {};
+    for (const [name, col] of Object.entries(map)) {
+      const p = params.find((x) => x.name === name);
+      if (!p || col < 0) continue;
+      const cell = r[col] ?? '';
+      if (p.type === 'text') out[name] = cell;
+      else if (p.type === 'bool') out[name] = TRUE_RE.test(cell.trim());
+      else {
+        const n = Number(cell.trim().replace(/\s/g, '').replace(',', '.'));
+        if (cell.trim() && isFinite(n)) out[name] = n;
+      }
+    }
+    return out;
+  });
+}

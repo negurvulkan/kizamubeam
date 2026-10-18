@@ -2460,3 +2460,23 @@ input.bound {
 .param-bar button {
   white-space: nowrap;
 }
+.series-dialog textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+.series-src {
+  margin-bottom: 6px;
+}
+.series-map,
+.series-gap {
+  grid-template-columns: 160px 220px;
+}
+.series-gap {
+  margin-top: 8px;
+}
+.series-gap input {
+  width: 80px;
+}
