@@ -32,6 +32,8 @@ npm run tauri build    # installer package
 
 On Windows, `npm run tauri build` only builds the NSIS installer (`.exe`, see `src-tauri/tauri.windows.conf.json`), because the MSI installer does not accept pre-release versions such as `1.0.0-alpha`.
 
+Releases: pushing a tag `v*` (or creating a release with a new tag on GitHub) runs `.github/workflows/release.yml`, which builds the installers for macOS (universal, Apple Silicon and Intel), Windows (NSIS) and Linux (AppImage, .deb, .rpm) and attaches them to a draft release. The builds are not code-signed yet, so macOS and Windows show a warning on first launch.
+
 ## Features
 
 - Familiar layout: menu, main toolbar, numeric edits toolbar at the top, tools on the left, Cuts / Layers and Laser on the right, color palette 00–29 plus T1/T2 at the bottom, status bar.
