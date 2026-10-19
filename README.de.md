@@ -12,7 +12,7 @@
 Freie Laser-Software zum Entwerfen, Bilder bearbeiten und direkt an den Laser senden. Die Bedienung orientiert sich an LightBurn, damit sich Umsteiger sofort zurechtfinden.
 Stack: Tauri 2, TypeScript (Oberfläche, Editor, G-Code), Rust (Desktop-Hülle, Maschinenanbindung, MCP-Server). Lizenz: GPL-3.0-or-later (siehe `LICENSE`). Version: 1.2.0-beta.
 
-„Kizamu“ (刻む) ist japanisch und heißt einritzen, gravieren, fein schneiden. Bis Version 1.0.0-alpha hieß das Projekt Laserwerk; Einstellungen, Geräte und Materialbibliotheken werden beim ersten Start übernommen, alte `.lwk`-Projekte und `.lwm`-Bibliotheken lassen sich weiter öffnen.
+„Kizamu“ (刻む) ist japanisch und heißt einritzen, gravieren, fein schneiden.
 
 ## Logo
 
