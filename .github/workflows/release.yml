@@ -94,6 +94,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS: ohne Apple-Zertifikat ad hoc signieren. Sonst ist die Signatur nach dem Bündeln
+          # ungültig und macOS meldet die heruntergeladene App als „beschädigt“.
+          APPLE_SIGNING_IDENTITY: '-'
         with:
           tagName: ${{ env.TAG }}
           releaseName: KizamuBeam ${{ env.TAG }}
