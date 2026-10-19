@@ -12,7 +12,7 @@ English · [Deutsch](README.de.md) · [Website](https://negurvulkan.github.io/ki
 Free laser software for designing, editing images and sending jobs straight to the laser. The workflow follows LightBurn, so people switching over find their way around right away.
 Stack: Tauri 2, TypeScript (UI, editor, G-code), Rust (desktop shell, machine connection, MCP server). License: GPL-3.0-or-later (see `LICENSE`). Version: 1.2.0-beta.
 
-“Kizamu” (刻む) is Japanese for to carve, to engrave, to cut finely. Up to version 1.0.0-alpha the project was called Laserwerk; settings, devices and material libraries carry over on the first start, and old `.lwk` projects and `.lwm` libraries still open.
+“Kizamu” (刻む) is Japanese for to carve, to engrave, to cut finely.
 
 ## Logo
 
