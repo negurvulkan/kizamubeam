@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="{{lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{meta.title}}</title>
+<meta name="description" content="{{meta.description}}">
+<link rel="canonical" href="{{page_url}}">
+<link rel="alternate" hreflang="de" href="{{site}}">
+<link rel="alternate" hreflang="en" href="{{site}}en/">
+<link rel="alternate" hreflang="x-default" href="{{site}}">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f7f5f2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#161c21" media="(prefers-color-scheme: dark)">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="KizamuBeam">
+<meta property="og:title" content="{{meta.og_title}}">
+<meta property="og:description" content="{{meta.description}}">
+<meta property="og:url" content="{{page_url}}">
+<meta property="og:locale" content="{{locale}}">
+<meta property="og:locale:alternate" content="{{alt_locale}}">
+<meta property="og:image" content="{{site}}assets/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="{{meta.og_image_alt}}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{{meta.og_title}}">
+<meta name="twitter:description" content="{{meta.description}}">
+<meta name="twitter:image" content="{{site}}assets/og-image.png">
+<link rel="icon" href="{{base}}assets/favicon.ico" sizes="any">
+<link rel="icon" href="{{base}}assets/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="{{base}}assets/apple-touch-icon.png">
+<link rel="manifest" href="{{base}}site.webmanifest">
+<link rel="stylesheet" href="{{base}}styles.css">
+{{raw:redirect_script}}
+<script src="{{base}}main.js" defer></script>
+<script type="application/ld+json">{{raw:jsonld}}</script>
+</head>
+<body>
+<a class="skip-link" href="#main">{{ui.skip}}</a>
+
+<header class="site-header">
+  <div class="container header-inner">
+    <a class="brand" href="./" aria-label="{{ui.home_label}}">
+      <picture>
+        <source srcset="{{base}}assets/logo-dark.webp" media="(prefers-color-scheme: dark)">
+        <img src="{{base}}assets/logo-light.webp" alt="{{alt.logo}}" width="337" height="80" class="brand-logo">
+      </picture>
+    </a>
+    <nav class="main-nav" aria-label="{{ui.nav_label}}">
+      <ul>
+        <li><a href="#features">{{nav.features}}</a></li>
+        <li><a href="#hardware">{{nav.hardware}}</a></li>
+        <li><a href="#download">{{nav.download}}</a></li>
+        <li><a href="#faq">{{nav.faq}}</a></li>
+      </ul>
+    </nav>
+    <div class="header-actions">
+      <a class="lang-switch" href="{{alt_href}}" hreflang="{{alt_lang}}" lang="{{alt_lang}}" data-set-lang="{{alt_lang}}" title="{{nav.lang}}">
+        <span class="lang-current" aria-hidden="true">{{lang_upper}}</span><span class="lang-sep" aria-hidden="true">/</span><span class="lang-other" aria-hidden="true">{{nav.lang_short}}</span>
+        <span class="visually-hidden">{{nav.lang}}</span>
+      </a>
+      <a class="icon-btn" href="{{repo}}" aria-label="{{ui.github_label}}">{{svg:github}}</a>
+    </div>
+  </div>
+</header>
+
+<main id="main" tabindex="-1">
+
+<section class="hero" aria-labelledby="hero-title">
+  <div class="hero-grid" aria-hidden="true"></div>
+  <div class="container hero-inner">
+    <div class="hero-copy">
+      <p class="chip"><span class="chip-dot" aria-hidden="true"></span>{{hero.badge}}</p>
+      <h1 id="hero-title">{{raw:hero_title_html}}</h1>
+      <p class="hero-sub">{{hero.subtitle}}</p>
+      <hr class="beam beam-hero">
+      <div class="hero-ctas">
+        <a class="btn btn-primary btn-lg" href="#download">{{svg:download}}<span>{{hero.cta_primary}}</span></a>
+        <a class="btn btn-secondary btn-lg" href="{{repo}}">{{svg:github}}<span>{{hero.cta_secondary}}</span></a>
+      </div>
+      <p class="hero-meta mono">{{hero.meta_line}}</p>
+      <p class="hero-note">{{hero.name_note}}</p>
+    </div>
+    <div class="hero-visual">
+      <div class="glow" aria-hidden="true"></div>
+      <figure class="shot shot-hero">
+        <div class="shot-bar" aria-hidden="true"><i></i><i></i><i></i></div>
+        <picture>
+          <source srcset="{{base}}assets/editor-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="{{base}}assets/editor-light.webp" alt="{{alt.hero}}" width="1600" height="1000" fetchpriority="high" decoding="async">
+        </picture>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="why" aria-label="{{why.label}}">
+  <div class="container">
+    <ul class="why-grid">
+      {{#each why.items}}
+      <li class="why-item">
+        <span class="why-icon" aria-hidden="true">{{svg:.icon}}</span>
+        <h2 class="why-title">{{.title}}</h2>
+        <p>{{.text}}</p>
+      </li>
+      {{/each}}
+    </ul>
+  </div>
+</section>
+
+<section id="features" class="section" aria-labelledby="feat-title">
+  <div class="container">
+    <header class="section-head">
+      <p class="eyebrow">{{feat.eyebrow}}</p>
+      <h2 id="feat-title">{{feat.title}}</h2>
+      <p class="section-lead">{{feat.subtitle}}</p>
+    </header>
+
+    <div class="feature-cards">
+      <article class="card feature-card">
+        <span class="card-icon" aria-hidden="true">{{svg:pen}}</span>
+        <h3>{{feat.design.title}}</h3>
+        <p class="card-lead">{{feat.design.lead}}</p>
+        <ul class="ticks">{{#each feat.design.b}}<li>{{.}}</li>{{/each}}</ul>
+      </article>
+      <article class="card feature-card">
+        <span class="card-icon" aria-hidden="true">{{svg:image}}</span>
+        <h3>{{feat.image.title}}</h3>
+        <p class="card-lead">{{feat.image.lead}}</p>
+        <ul class="ticks">{{#each feat.image.b}}<li>{{.}}</li>{{/each}}</ul>
+      </article>
+      <article class="card feature-card">
+        <span class="card-icon" aria-hidden="true">{{svg:laser}}</span>
+        <h3>{{feat.machine.title}}</h3>
+        <p class="card-lead">{{feat.machine.lead}}</p>
+        <ul class="ticks">{{#each feat.machine.b}}<li>{{.}}</li>{{/each}}</ul>
+      </article>
+    </div>
+
+    <article class="spotlight">
+      <div class="spotlight-copy">
+        <span class="card-icon" aria-hidden="true">{{svg:gear}}</span>
+        <h3>{{feat.gen.title}}</h3>
+        <p class="card-lead">{{feat.gen.lead}}</p>
+        <ul class="ticks">{{#each feat.gen.b}}<li>{{.}}</li>{{/each}}</ul>
+      </div>
+      <figure class="shot">
+        <div class="shot-bar" aria-hidden="true"><i></i><i></i><i></i></div>
+        <picture>
+          <source srcset="{{base}}assets/3d-drawer-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="{{base}}assets/3d-drawer-light.webp" alt="{{alt.gen}}" width="1600" height="1000" loading="lazy" decoding="async">
+        </picture>
+      </figure>
+    </article>
+
+    <article class="spotlight spotlight-rev">
+      <div class="spotlight-copy">
+        <span class="card-icon" aria-hidden="true">{{svg:layers}}</span>
+        <h3>{{feat.prod.title}}</h3>
+        <p class="card-lead">{{feat.prod.lead}}</p>
+        <ul class="ticks">{{#each feat.prod.b}}<li>{{.}}</li>{{/each}}</ul>
+      </div>
+      <figure class="shot">
+        <div class="shot-bar" aria-hidden="true"><i></i><i></i><i></i></div>
+        <img src="{{base}}assets/nesting-dialog-light.webp" alt="{{alt.prod}}" width="1600" height="1000" loading="lazy" decoding="async">
+      </figure>
+    </article>
+
+    <article class="card card-wide">
+      <div class="card-wide-head">
+        <span class="card-icon" aria-hidden="true">{{svg:open}}</span>
+        <h3>{{feat.open.title}}</h3>
+        <p class="card-lead">{{feat.open.lead}}</p>
+      </div>
+      <ul class="ticks ticks-cols">{{#each feat.open.b}}<li>{{.}}</li>{{/each}}</ul>
+    </article>
+
+    <div class="gallery">
+      <h3 class="gallery-title">{{gallery.title}}</h3>
+      <div class="gallery-grid">
+        <figure class="gallery-item">
+          <div class="shot">
+            <div class="shot-bar" aria-hidden="true"><i></i><i></i><i></i></div>
+            <picture>
+              <source srcset="{{base}}assets/generator-gearpair-dark.webp" media="(prefers-color-scheme: dark)">
+              <img src="{{base}}assets/generator-gearpair-light.webp" alt="{{alt.gearpair}}" width="1600" height="1000" loading="lazy" decoding="async">
+            </picture>
+          </div>
+          <figcaption>{{gallery.gearpair}}</figcaption>
+        </figure>
+        <figure class="gallery-item">
+          <div class="shot">
+            <div class="shot-bar" aria-hidden="true"><i></i><i></i><i></i></div>
+            <img src="{{base}}assets/design-check-light.webp" alt="{{alt.check}}" width="1500" height="900" loading="lazy" decoding="async">
+          </div>
+          <figcaption>{{gallery.check}}</figcaption>
+        </figure>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="hardware" class="section section-alt" aria-labelledby="hw-title">
+  <div class="container">
+    <header class="section-head">
+      <p class="eyebrow">{{hw.eyebrow}}</p>
+      <h2 id="hw-title">{{hw.title}}</h2>
+      <p class="section-lead">{{hw.lead}}</p>
+    </header>
+    <div class="hw-grid">
+      <div class="card hw-card">
+        <h3 class="hw-label">{{svg:chip}}{{hw.firmware_label}}</h3>
+        <ul class="tags">{{#each hw.firmware}}<li class="mono">{{.}}</li>{{/each}}</ul>
+      </div>
+      <div class="card hw-card">
+        <h3 class="hw-label">{{svg:plug}}{{hw.conn_label}}</h3>
+        <ul class="tags">{{#each hw.conn}}<li>{{.}}</li>{{/each}}</ul>
+      </div>
+      <div class="card hw-card">
+        <h3 class="hw-label">{{svg:list}}{{hw.presets_label}}</h3>
+        <p>{{hw.presets_text}}</p>
+      </div>
+    </div>
+    <ul class="hw-notes">
+      <li class="ok">{{svg:check}}<span>{{hw.tested}}</span></li>
+      <li class="no">{{svg:x}}<span>{{hw.not_supported}}</span></li>
+    </ul>
+    <p class="fineprint">{{hw.disclaimer}}</p>
+  </div>
+</section>
+
+<section id="download" class="section download" aria-labelledby="dl-title">
+  <div class="container">
+    <header class="section-head center">
+      <p class="eyebrow">{{dl.eyebrow}}</p>
+      <h2 id="dl-title">{{dl.title}}</h2>
+      <p class="section-lead" data-dl-lead data-template="{{dl.lead_tpl}}">{{dl.lead}}</p>
+      <hr class="beam beam-center">
+    </header>
+    <div class="dl-grid">
+      <article class="card dl-card" data-os="mac">
+        <span class="dl-rec">{{ui.recommended}}</span>
+        <span class="dl-icon" aria-hidden="true">{{svg:apple}}</span>
+        <h3>{{dl.mac_title}}</h3>
+        <p class="dl-detail mono">{{dl.mac_detail}}</p>
+        <a class="btn btn-secondary dl-btn" href="{{releases}}" data-dl="mac" aria-label="{{dl.button_mac}}">{{svg:download}}<span>{{dl.button}}</span></a>
+      </article>
+      <article class="card dl-card" data-os="win">
+        <span class="dl-rec">{{ui.recommended}}</span>
+        <span class="dl-icon" aria-hidden="true">{{svg:windows}}</span>
+        <h3>{{dl.win_title}}</h3>
+        <p class="dl-detail mono">{{dl.win_detail}}</p>
+        <a class="btn btn-secondary dl-btn" href="{{releases}}" data-dl="win" aria-label="{{dl.button_win}}">{{svg:download}}<span>{{dl.button}}</span></a>
+      </article>
+      <article class="card dl-card" data-os="linux">
+        <span class="dl-rec">{{ui.recommended}}</span>
+        <span class="dl-icon" aria-hidden="true">{{svg:terminal}}</span>
+        <h3>{{dl.linux_title}}</h3>
+        <p class="dl-detail mono">{{dl.linux_detail}}</p>
+        <a class="btn btn-secondary dl-btn" href="{{releases}}" data-dl="linux" aria-label="{{dl.button_linux}}">{{svg:download}}<span>{{dl.button}}</span></a>
+        <p class="dl-more" data-dl-more hidden><span>{{ui.more_formats}}:</span></p>
+      </article>
+    </div>
+    <p class="dl-links">
+      <a href="{{releases}}">{{dl.all_releases}}</a>
+      <span aria-hidden="true">·</span>
+      <a href="{{repo}}#readme">{{dl.source}}</a>
+    </p>
+
+    <div class="notes">
+      <aside class="note note-beta" aria-labelledby="beta-title">
+        <h3 id="beta-title">{{svg:flask}}{{beta.title}}</h3>
+        <p>{{beta.text}}</p>
+      </aside>
+      <aside class="note note-unsigned" aria-labelledby="unsigned-title">
+        <h3 id="unsigned-title">{{svg:shield}}{{beta.unsigned_title}}</h3>
+        <p>{{beta.unsigned_text}}</p>
+        <ul>
+          <li>{{beta.unsigned_mac}}</li>
+          <li>{{beta.unsigned_win}}</li>
+        </ul>
+      </aside>
+    </div>
+    <p class="safety">{{svg:warn}}<span>{{beta.safety}}</span></p>
+  </div>
+</section>
+
+<section id="faq" class="section section-alt" aria-labelledby="faq-title">
+  <div class="container narrow">
+    <header class="section-head center">
+      <h2 id="faq-title">{{faq.title}}</h2>
+    </header>
+    <div class="faq-list">
+      {{#each faq.items}}
+      <details class="faq-item">
+        <summary><span>{{.q}}</span>{{svg:plus}}</summary>
+        <p>{{.a}}</p>
+      </details>
+      {{/each}}
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="container footer-inner">
+    <div class="footer-brand">
+      <img src="{{base}}assets/logo-dark.webp" alt="{{alt.logo}}" width="337" height="80" loading="lazy" decoding="async" class="footer-logo">
+      <p>{{footer.tagline}}</p>
+      <p>{{footer.license}}</p>
+    </div>
+    <nav class="footer-nav" aria-label="Footer">
+      <ul>
+        <li><a href="{{repo}}">{{footer.link_github}}</a></li>
+        <li><a href="{{releases}}">{{footer.link_releases}}</a></li>
+        <li><a href="{{repo}}/issues">{{footer.link_issues}}</a></li>
+        <li><a href="{{license_url}}">{{footer.link_license}}</a></li>
+        <li><a href="{{alt_href}}" hreflang="{{alt_lang}}" lang="{{alt_lang}}" data-set-lang="{{alt_lang}}">{{nav.lang}}</a></li>
+      </ul>
+    </nav>
+  </div>
+  <div class="container">
+    <hr class="beam beam-footer">
+    <p class="trademark">{{footer.trademark}}</p>
+  </div>
+</footer>
+</body>
+</html>

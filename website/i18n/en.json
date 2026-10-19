@@ -1,0 +1,203 @@
+{
+  "lang": "en",
+  "locale": "en_US",
+  "version": "1.2.0-beta",
+  "meta": {
+    "title": "KizamuBeam – Free laser engraving & cutting software",
+    "description": "Free, open-source laser software for macOS, Windows and Linux. Design, engrave photos, generate boxes and gears, and send jobs straight to FluidNC, GRBL, grblHAL, Marlin and Smoothieware lasers.",
+    "og_title": "KizamuBeam – Design, engrave, cut. Free.",
+    "og_image_alt": "KizamuBeam logo with a laser beam on a dark background"
+  },
+  "ui": {
+    "skip": "Skip to content",
+    "nav_label": "Main navigation",
+    "home_label": "KizamuBeam – home",
+    "lang_label": "Choose language",
+    "lang_current": "English",
+    "github_label": "KizamuBeam on GitHub",
+    "recommended": "For your system",
+    "more_formats": "More formats",
+    "back_top": "Back to top"
+  },
+  "nav": {
+    "features": "Features",
+    "hardware": "Hardware",
+    "download": "Download",
+    "faq": "FAQ",
+    "github": "GitHub",
+    "lang": "Deutsch",
+    "lang_short": "DE"
+  },
+  "hero": {
+    "badge": "New: version 1.2.0-beta",
+    "title": "Your laser. Your software. Free.",
+    "subtitle": "KizamuBeam is open-source software to design, engrave and cut – made for diode lasers running FluidNC, GRBL and friends. Free on macOS, Windows and Linux.",
+    "cta_primary": "Download for free",
+    "cta_secondary": "View on GitHub",
+    "meta_line": "GPL-3.0 · macOS · Windows · Linux · Beta",
+    "name_note": "Kizamu (刻む) is Japanese for “to carve, to engrave, to cut finely”."
+  },
+  "why": {
+    "label": "Why KizamuBeam",
+    "items": [
+      { "icon": "free", "title": "Costs nothing", "text": "No subscription, no license keys, no account. Install and start." },
+      { "icon": "open", "title": "Open for good", "text": "GPL-3.0-or-later. The code is on GitHub – contributions welcome." },
+      { "icon": "build", "title": "More than engraving", "text": "Boxes, drawers, gears and hinges, generated parametrically – with proper fit and a 3D preview." },
+      { "icon": "safe", "title": "Safe at the machine", "text": "Setup wizard, work-area check before every job and alarms in plain language." }
+    ]
+  },
+  "feat": {
+    "eyebrow": "Features",
+    "title": "Everything from idea to finished part",
+    "subtitle": "One app for design, image work, part generation and machine control.",
+    "design": {
+      "title": "Design & edit",
+      "lead": "Draw, combine, fine-tune – in a layout that feels familiar from the first click.",
+      "b": [
+        "Lines, Bézier curves, rounded rectangles, ellipses, polygons, stars and multi-line text",
+        "Boolean operations, offset, node editing, trimming, and snapping to nodes, midpoints and intersections",
+        "Text on a path, welded letters and true outlines from your system fonts",
+        "Grid and circular arrays with live preview, multi-page projects and a history you can jump back through",
+        "Import SVG, DXF and images – colors map straight to the matching layer",
+        "Dockable windows, customizable toolbars, light and dark theme"
+      ]
+    },
+    "image": {
+      "title": "Images & engraving",
+      "lead": "Get photos, logos and artwork onto material the way you pictured them.",
+      "b": [
+        "Ten image modes, including Floyd-Steinberg, Jarvis, Stucki, halftone, newsprint, sketch and grayscale",
+        "Brightness, contrast, gamma, sharpening and denoise with before/after compare and a 1:1 view",
+        "The workspace shows the rasterized result at laser resolution",
+        "Crop and mask images, trace them into clean Bézier paths",
+        "Fill engraving with scan angle, cross-hatch, overscan and bidirectional mode",
+        "Camera overlay: calibrate a USB or head-mounted camera and see your material on the workspace"
+      ]
+    },
+    "machine": {
+      "title": "Machine & output",
+      "lead": "Connect, check, frame, burn – no second program needed.",
+      "b": [
+        "Five-step laser setup: connect, detect firmware, check settings, test the axes, run a safe test job",
+        "USB, Telnet or WebSocket – with live position and plain-language alarms",
+        "Preview with time estimate and scrubber; “Start Here” resumes an interrupted job",
+        "Work-area check before every job and frame, including the reported work offset",
+        "Material test grid, rotary support (roller or chuck), custom G-code scripts per device",
+        "Save G-code or stream it directly – streaming runs in the Rust core"
+      ]
+    },
+    "gen": {
+      "title": "Generators & 3D",
+      "lead": "Enter dimensions, get parts. Double-click, change, everything recalculates.",
+      "b": [
+        "Finger-jointed boxes, drawers, compartment inserts and slot-together shelves as complete assemblies",
+        "Involute spur gears, gear pairs, racks, GT2/HTD timing pulleys and cams",
+        "Joint tool: finger joints, tab-and-slot, cross-lap, snap-fit and hook joints, wedge tenons, T-slots, lid hinge",
+        "Living hinges in seven patterns",
+        "3D view with explode slider – collisions show up in red before you waste material",
+        "Design check and fit calibration: find and fix thin bridges, open outlines and too-tight slots"
+      ]
+    },
+    "prod": {
+      "title": "Production",
+      "lead": "From one-off to small batch – name tags, key fobs, labels.",
+      "b": [
+        "Automatic nesting by true outlines, parts inside holes, overflow onto new pages, scrap pieces as sheets",
+        "Templates with project parameters and formulas – key fob, name tag and labelled box included",
+        "Series from a table or CSV: every row becomes a finished copy, edit the table right in the dialog",
+        "QR codes (link, Wi-Fi, vCard) and variable text with serial numbers, dates and CSV columns",
+        "Material library for cut and image settings; LightBurn libraries (.clb) can be imported"
+      ]
+    },
+    "open": {
+      "title": "Open & extensible",
+      "lead": "Free software that grows with you – and talks to your tools.",
+      "b": [
+        "MCP server for AI agents: read, design, generate parts. Local only, off by default, token-protected",
+        "Machine actions from agents only start after you confirm – pause and stop always work",
+        "Interface in English and German; new languages are easy to add",
+        "GPL-3.0-or-later, open JSON file formats, built with Tauri 2, TypeScript and Rust",
+        "Formerly “Laserwerk”: settings, devices and materials carry over, old projects still open"
+      ]
+    }
+  },
+  "gallery": {
+    "title": "A look inside",
+    "gearpair": "Gear pair generator with live preview: 14 and 28 teeth, module 3, 63 mm center distance",
+    "check": "Design check: errors and warnings with one-click fixes"
+  },
+  "alt": {
+    "logo": "KizamuBeam logo",
+    "hero": "KizamuBeam main window with the workspace, layer list on the right and tools on the left",
+    "gen": "Drawer generator in the 3D view: finger-jointed parts pulled apart, no collisions",
+    "prod": "Nesting dialog over the selected parts of a box on the workspace",
+    "gearpair": "Create Gear Pair dialog with input fields and a preview of both gears",
+    "check": "Check panel on the right with one error and several warnings, each with a fix button"
+  },
+  "hw": {
+    "eyebrow": "Hardware",
+    "title": "Works with your laser",
+    "lead": "KizamuBeam talks to the controllers found in most hobby diode and CNC lasers.",
+    "firmware_label": "Firmware",
+    "firmware": ["FluidNC", "GRBL 1.1", "grblHAL", "Marlin", "Smoothieware"],
+    "conn_label": "Connection",
+    "conn": ["USB (serial)", "Wi-Fi via Telnet", "Wi-Fi via WebSocket"],
+    "presets_label": "Device presets",
+    "presets_text": "Presets for popular machines from Swiitol, Ortur, Atomstack, Sculpfun, xTool, Creality Falcon, Two Trees, Longer and Comgrow – or generic per controller.",
+    "tested": "Tested day to day on a Swiitol E6 Pro running FluidNC.",
+    "not_supported": "Not supported: galvo lasers and Ruida/DSP controllers.",
+    "disclaimer": "Manufacturer names only identify compatible machines; no affiliation with the manufacturers."
+  },
+  "dl": {
+    "eyebrow": "Download",
+    "title": "Download KizamuBeam",
+    "lead": "Current version: {version}. Free, no sign-up.",
+    "mac_title": "macOS",
+    "mac_detail": "Universal (Apple Silicon & Intel) · .dmg",
+    "win_title": "Windows",
+    "win_detail": "Installer (.exe)",
+    "linux_title": "Linux",
+    "linux_detail": "AppImage · .deb · .rpm",
+    "button": "Download",
+    "button_mac": "Download for macOS",
+    "button_win": "Download for Windows",
+    "button_linux": "Download for Linux",
+    "all_releases": "All releases on GitHub",
+    "source": "Prefer to build it yourself? See the README."
+  },
+  "beta": {
+    "title": "Honest heads-up: this is a beta",
+    "text": "Most features have been tested on real hardware. A few new ones haven’t yet: rotary, the lid-hinge generator, fit calibration and the setup wizard on GRBL. Back up your projects and please report anything odd on GitHub.",
+    "unsigned_title": "Warning on first launch",
+    "unsigned_text": "The installers aren’t code-signed yet, so macOS (Gatekeeper) and Windows (SmartScreen) show a warning the first time.",
+    "unsigned_mac": "macOS: right-click the app → Open → confirm.",
+    "unsigned_win": "Windows: “More info” → “Run anyway”.",
+    "safety": "Lasers are not toys: wear eye protection, run your exhaust and stay with the machine."
+  },
+  "faq": {
+    "title": "Frequently asked questions",
+    "items": [
+      { "q": "Is KizamuBeam really free?", "a": "Yes. KizamuBeam is licensed GPL-3.0-or-later: no license fee, no subscription, no account – commercial use included." },
+      { "q": "Will it work with my laser?", "a": "If it runs FluidNC, GRBL, grblHAL, Marlin or Smoothieware, very likely – that covers most diode lasers. Galvo lasers and Ruida/DSP controllers are not supported." },
+      { "q": "Why does my computer warn me when I install it?", "a": "The installers aren’t code-signed yet, which is common for young open-source projects. On macOS: right-click → Open; on Windows: “More info” → “Run anyway”." },
+      { "q": "Can I bring my existing material settings?", "a": "Yes. LightBurn material libraries (.clb) can be imported where fields have an equivalent. Laserwerk projects and libraries open directly, and SVG and DXF import as usual." },
+      { "q": "Is the beta stable enough for real projects?", "a": "For most work, yes – it’s used on real hardware every day. A few new features are still untested (see the note above). Back up important projects and check new jobs with preview and frame." },
+      { "q": "What’s the MCP server about?", "a": "It lets AI agents read and edit your designs. It’s off by default, local only and token-protected, and nothing reaches your machine without your confirmation in KizamuBeam." },
+      { "q": "How can I help?", "a": "Try the beta on your laser, report bugs and ideas on GitHub, translate the interface into your language, or send a pull request." }
+    ]
+  },
+  "footer": {
+    "tagline": "KizamuBeam – free laser software. 刻む: to engrave, to cut finely.",
+    "license": "Free software under GPL-3.0-or-later.",
+    "link_github": "GitHub",
+    "link_releases": "Releases",
+    "link_issues": "Report an issue",
+    "link_license": "License",
+    "trademark": "LightBurn is a trademark of LightBurn Software, LLC. KizamuBeam is an independent project and is not affiliated with or endorsed by LightBurn Software. All other trademarks belong to their respective owners."
+  },
+  "notfound": {
+    "title": "Page not found",
+    "text": "This page doesn’t exist (anymore).",
+    "home": "Go to the home page"
+  }
+}
