@@ -157,7 +157,7 @@
     "win_title": "Windows",
     "win_detail": "Installer (.exe)",
     "linux_title": "Linux",
-    "linux_detail": "AppImage · .deb · .rpm",
+    "linux_detail": "AppImage · .deb",
     "button": "Herunterladen",
     "button_mac": "Für macOS herunterladen",
     "button_win": "Für Windows herunterladen",
