@@ -295,7 +295,7 @@
         <h3 id="unsigned-title"><svg class="icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6Z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>Warnung beim ersten Start</h3>
         <p>Die Installer sind noch nicht signiert. macOS (Gatekeeper) und Windows (SmartScreen) warnen deshalb beim ersten Öffnen.</p>
         <ul>
-          <li>macOS: Rechtsklick auf die App → „Öffnen“ → bestätigen.</li>
+          <li>macOS: App in den Ordner „Programme“ ziehen und öffnen. In der Meldung „Fertig“ klicken (nicht „In den Papierkorb legen“), dann Systemeinstellungen → Datenschutz &amp; Sicherheit → ganz unten „Dennoch öffnen“ → mit Passwort bestätigen. Alternativ im Terminal: xattr -cr /Applications/KizamuBeam.app</li>
           <li>Windows: „Weitere Informationen“ → „Trotzdem ausführen“.</li>
         </ul>
       </aside>
@@ -323,7 +323,7 @@
       
       <details class="faq-item">
         <summary><span>Warum warnt mein Rechner bei der Installation?</span><svg class="icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg></summary>
-        <p>Die Installer sind noch nicht code-signiert. Das ist bei jungen Open-Source-Projekten üblich. Auf macOS: Rechtsklick → „Öffnen“; auf Windows: „Weitere Informationen“ → „Trotzdem ausführen“.</p>
+        <p>Die Installer sind noch nicht code-signiert. Das ist bei jungen Open-Source-Projekten üblich. Auf macOS: Systemeinstellungen → Datenschutz &amp; Sicherheit → „Dennoch öffnen“; auf Windows: „Weitere Informationen“ → „Trotzdem ausführen“.</p>
       </details>
       
       <details class="faq-item">
