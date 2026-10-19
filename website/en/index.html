@@ -295,7 +295,7 @@
         <h3 id="unsigned-title"><svg class="icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6Z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>Warning on first launch</h3>
         <p>The installers aren’t code-signed yet, so macOS (Gatekeeper) and Windows (SmartScreen) show a warning the first time.</p>
         <ul>
-          <li>macOS: right-click the app → Open → confirm.</li>
+          <li>macOS: drag the app to the Applications folder and open it. In the dialog click “Done” (not “Move to Trash”), then System Settings → Privacy &amp; Security → scroll down → “Open Anyway” → confirm with your password. Or in Terminal: xattr -cr /Applications/KizamuBeam.app</li>
           <li>Windows: “More info” → “Run anyway”.</li>
         </ul>
       </aside>
@@ -323,7 +323,7 @@
       
       <details class="faq-item">
         <summary><span>Why does my computer warn me when I install it?</span><svg class="icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg></summary>
-        <p>The installers aren’t code-signed yet, which is common for young open-source projects. On macOS: right-click → Open; on Windows: “More info” → “Run anyway”.</p>
+        <p>The installers aren’t code-signed yet, which is common for young open-source projects. On macOS: System Settings → Privacy &amp; Security → “Open Anyway”; on Windows: “More info” → “Run anyway”.</p>
       </details>
       
       <details class="faq-item">
