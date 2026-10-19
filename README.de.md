@@ -32,6 +32,8 @@ npm run tauri build    # Installationspaket
 
 Unter Windows baut `npm run tauri build` nur den NSIS-Installer (`.exe`, siehe `src-tauri/tauri.windows.conf.json`): Der MSI-Installer akzeptiert keine Vorabversionen wie `1.0.0-alpha`.
 
+Releases: Ein Tag `v*` (oder ein auf GitHub neu angelegtes Release mit neuem Tag) startet `.github/workflows/release.yml`. Der Workflow baut die Installer für macOS (universal, Apple Silicon und Intel), Windows (NSIS) und Linux (AppImage, .deb, .rpm) und hängt sie an einen Release-Entwurf. Die Builds sind noch nicht signiert, macOS und Windows zeigen beim ersten Start deshalb eine Warnung.
+
 ## Was KizamuBeam kann
 
 - Vertrautes Layout: Menü, Symbolleiste, Zahlenleiste oben, Werkzeuge links, Schnitte/Layer und Laser rechts, Farbpalette 00–29 plus T1/T2 unten, Statusleiste.
