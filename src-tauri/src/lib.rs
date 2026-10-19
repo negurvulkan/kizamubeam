@@ -3,6 +3,7 @@ mod machine;
 mod native;
 mod stream;
 mod templates;
+mod updater;
 mod ws;
 
 use std::sync::OnceLock;
@@ -170,6 +171,7 @@ fn decode_base64(s: &str) -> Option<Vec<u8>> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         // Kamera für das Kamerabild auf der Arbeitsfläche ohne zusätzliche Rückfrage der Webansicht freigeben;
         // die Freigabe des Betriebssystems (macOS: Datenschutz › Kamera) bleibt davon unberührt.
         .on_permission_request(|_, kind| match kind {
@@ -178,6 +180,7 @@ pub fn run() {
         })
         .manage(machine::Machine::default())
         .manage(agent::Agent::default())
+        .manage(updater::Pending::default())
         .manage(std::sync::Arc::new(native::Native::default()))
         .setup(|app| {
             use tauri::Manager;
@@ -217,7 +220,10 @@ pub fn run() {
             templates::template_read,
             templates::template_write,
             templates::template_delete,
-            templates::template_open_folder
+            templates::template_open_folder,
+            updater::update_supported,
+            updater::update_check,
+            updater::update_install
         ])
         .run(tauri::generate_context!())
         .expect("Fehler beim Start der Anwendung");

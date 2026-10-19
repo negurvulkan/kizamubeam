@@ -2837,3 +2837,28 @@ input.bound {
   width: 4.5em;
   min-width: 0;
 }
+.update-dialog {
+  width: 440px;
+}
+.update-dialog label.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 6px 0;
+}
+.update-dialog .update-notes {
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font: inherit;
+}
+.update-dialog progress {
+  width: 100%;
+}
+.update-dialog .note {
+  user-select: text;
+}
