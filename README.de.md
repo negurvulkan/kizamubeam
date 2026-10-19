@@ -7,7 +7,7 @@
 
 # KizamuBeam
 
-[English](README.md) · Deutsch
+[English](README.md) · Deutsch · [Website](https://negurvulkan.github.io/kizamubeam/)
 
 Freie Laser-Software zum Entwerfen, Bilder bearbeiten und direkt an den Laser senden. Die Bedienung orientiert sich an LightBurn, damit sich Umsteiger sofort zurechtfinden.
 Stack: Tauri 2, TypeScript (Oberfläche, Editor, G-Code), Rust (Desktop-Hülle, Maschinenanbindung, MCP-Server). Lizenz: GPL-3.0-or-later (siehe `LICENSE`). Version: 1.2.0-beta.
