@@ -17,6 +17,7 @@ import { openQrDialog, openVarTextDialog } from './qrDialog';
 import { askGenConvert, openGenDialog } from './generators/dialog';
 import { genLabel, getGenerator } from './generators';
 import { maybeOfferSetup, openSetupWizard } from './setupWizard';
+import { maybeCheckForUpdates, openUpdateDialog } from './updateDialog';
 import { buildLaser, frameJob, openDeviceDialog, openDevicesDialog, openPreview, openRotaryDialog, saveGCode, startJob } from './laser';
 import { openLayerDialog } from './layerdialog';
 import { openMaterialTestDialog } from './materialtest';
@@ -116,6 +117,7 @@ export function buildUI(ed: Editor) {
   buildView3dPanel(ed);
   buildLaser(ed);
   setTimeout(() => maybeOfferSetup(ed), 300);
+  setTimeout(() => maybeCheckForUpdates(), 5000);
   initDock();
   buildMenu(ed);
   buildPalette(ed);
@@ -348,7 +350,7 @@ function buildMenu(ed: Editor) {
       'sep',
       [t('Fenster und Leisten zurücksetzen'), '', () => (resetLayout(), showAllBars())],
     ]],
-    [t('Hilfe'), [[t('Tastenkürzel'), 'F1', () => showHelp()], 'sep', [t('Über KizamuBeam …'), '', () => showAbout()]]],
+    [t('Hilfe'), [[t('Tastenkürzel'), 'F1', () => showHelp()], 'sep', [t('Nach Updates suchen …'), '', () => openUpdateDialog()], [t('Über KizamuBeam …'), '', () => showAbout()]]],
   ];
   const bar = $('#menubar');
   const brand = h('img', { class: 'menubar-brand', alt: 'KizamuBeam', title: 'KizamuBeam', onclick: () => showAbout() }) as HTMLImageElement;

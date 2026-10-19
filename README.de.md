@@ -32,7 +32,9 @@ npm run tauri build    # Installationspaket
 
 Unter Windows baut `npm run tauri build` nur den NSIS-Installer (`.exe`, siehe `src-tauri/tauri.windows.conf.json`): Der MSI-Installer akzeptiert keine Vorabversionen wie `1.2.0-beta`.
 
-Releases: Ein Tag `v*` (oder ein auf GitHub neu angelegtes Release mit neuem Tag) startet `.github/workflows/release.yml`. Der Workflow baut die Installer für macOS (universal, Apple Silicon und Intel), Windows (NSIS) und Linux (AppImage, .deb, .rpm) und hängt sie an einen Release-Entwurf. Die Builds sind noch nicht signiert, macOS und Windows zeigen beim ersten Start deshalb eine Warnung.
+Releases: Ein auf GitHub veröffentlichter Release (Releases → Draft a new release → neuer Tag → Publish release) startet `.github/workflows/release.yml`. Der Workflow baut die Installer für macOS (universal, Apple Silicon und Intel), Windows (NSIS) und Linux (AppImage, .deb, .rpm) und hängt sie an diesen Release. Einen schon veröffentlichten Release baut Actions → Release → Run workflow. Die Builds sind noch nicht signiert, macOS und Windows zeigen beim ersten Start deshalb eine Warnung.
+
+Updates: Hilfe → Nach Updates suchen findet einen neueren Release auf GitHub (Kanal Stabil oder Beta mit Vorabversionen; standardmäßig einmal am Tag beim Start), prüft seine Signatur und installiert ihn. Dafür braucht es ein Schlüsselpaar (`npx tauri signer generate -w ~/.tauri/kizamubeam.key`): den privaten Schlüssel als Repository-Secret `TAURI_SIGNING_PRIVATE_KEY` (sein Passwort als `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`), den öffentlichen als Repository-Variable `TAURI_UPDATER_PUBKEY`. Builds ohne Schlüssel können sich nicht selbst aktualisieren. Unter Linux aktualisiert sich das AppImage.
 
 ## Was KizamuBeam kann
 

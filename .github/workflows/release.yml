@@ -1,18 +1,30 @@
-# Baut die Installer für macOS, Windows und Linux, sobald ein Tag v* gepusht
-# wird (z. B. über GitHub → Releases → Draft a new release → neuen Tag anlegen),
-# und hängt sie an einen Release-Entwurf. Manuell startbar über Actions → Release.
+# Baut die Installer für macOS, Windows und Linux, sobald ein Release veröffentlicht wird
+# (GitHub → Releases → Draft a new release → neuen Tag anlegen → Publish release), und hängt sie an diesen Release.
+# Für einen schon veröffentlichten Release: Actions → Release → Run workflow mit dem Tag.
+#
+# Updates: Ist das Secret TAURI_SIGNING_PRIVATE_KEY (und ggf. TAURI_SIGNING_PRIVATE_KEY_PASSWORD) hinterlegt und die
+# Variable TAURI_UPDATER_PUBKEY gesetzt, werden die Pakete signiert, eine latest.json angehängt und der öffentliche
+# Schlüssel in die App gebaut; dann findet „Hilfe → Nach Updates suchen“ diesen Release. Ohne Schlüssel entstehen
+# nur die Installer.
 name: Release
 
 on:
-  push:
-    tags: ['v*']
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag eines veröffentlichten Releases, z. B. v1.2.0-beta'
+        required: true
 
 permissions:
   contents: write
 
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -30,6 +42,8 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
 
       - name: Linux-Abhängigkeiten
         if: matrix.platform == 'ubuntu-22.04'
@@ -52,21 +66,33 @@ jobs:
 
       - run: npm ci
 
-      # Versionen mit Bindestrich (1.0.0-alpha) werden als Vorabversion markiert.
-      - name: Version lesen
+      # Versionen mit Bindestrich (1.2.0-beta) werden als Vorabversion markiert.
+      # Mit Update-Schlüssel zusätzlich signierte Update-Pakete bauen.
+      - name: Version und Update-Signatur
         id: version
         shell: bash
+        env:
+          HAS_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' && vars.TAURI_UPDATER_PUBKEY != '' }}
         run: |
           v=$(node -p "require('./src-tauri/tauri.conf.json').version")
           echo "prerelease=$([[ $v == *-* ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          if [[ "$HAS_KEY" == "true" ]]; then
+            node -e "const f='src-tauri/tauri.conf.json',fs=require('fs'),c=JSON.parse(fs.readFileSync(f));c.bundle.createUpdaterArtifacts=true;fs.writeFileSync(f,JSON.stringify(c,null,2))"
+            echo "Update-Pakete werden signiert."
+          else
+            echo "::warning::Kein Update-Schlüssel hinterlegt: Installer ohne Update-Funktion."
+          fi
 
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          KIZAMUBEAM_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
         with:
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
-          releaseName: KizamuBeam ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
+          tagName: ${{ env.TAG }}
+          releaseName: KizamuBeam ${{ env.TAG }}
           releaseBody: 'Installer für macOS (Apple Silicon und Intel), Windows und Linux stehen unten unter „Assets“.'
-          releaseDraft: true
+          releaseDraft: false
           prerelease: ${{ steps.version.outputs.prerelease }}
           args: ${{ matrix.args }}
