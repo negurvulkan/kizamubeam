@@ -30,9 +30,9 @@ npm run dev            # UI only, in the browser: http://localhost:1420
 npm run tauri build    # installer package
 ```
 
-On Windows, `npm run tauri build` only builds the NSIS installer (`.exe`, see `src-tauri/tauri.windows.conf.json`), because the MSI installer does not accept pre-release versions such as `1.2.1-beta`.
+On Windows, `npm run tauri build` only builds the NSIS installer (`.exe`, see `src-tauri/tauri.windows.conf.json`), because the MSI installer does not accept pre-release versions such as `1.2.1-beta`. On Linux it builds AppImage and .deb; RPM does not accept a hyphen in the version (see `src-tauri/tauri.linux.conf.json`).
 
-Releases: publishing a release on GitHub (Releases → Draft a new release → new tag → Publish release) runs `.github/workflows/release.yml`, which builds the installers for macOS (universal, Apple Silicon and Intel), Windows (NSIS) and Linux (AppImage, .deb, .rpm) and attaches them to that release. An already published release can be built with Actions → Release → Run workflow. The builds are not code-signed yet, so macOS and Windows show a warning on first launch.
+Releases: publishing a release on GitHub (Releases → Draft a new release → new tag → Publish release) runs `.github/workflows/release.yml`, which builds the installers for macOS (universal, Apple Silicon and Intel), Windows (NSIS) and Linux (AppImage, .deb) and attaches them to that release. An already published release can be built with Actions → Release → Run workflow. The builds are not code-signed yet, so macOS and Windows show a warning on first launch.
 
 Updates: Help → Check for Updates looks for a newer release on GitHub (channel Stable, or Beta including pre-releases; by default once a day at startup), verifies its signature and installs it. This needs an updater key pair (`npx tauri signer generate -w ~/.tauri/kizamubeam.key`): the private key as repository secret `TAURI_SIGNING_PRIVATE_KEY` (and its password as `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`), the public key as repository variable `TAURI_UPDATER_PUBKEY`. Builds without the key cannot update themselves. On Linux, updating works for the AppImage.
 
