@@ -10,7 +10,7 @@
 English · [Deutsch](README.de.md)
 
 Free laser software for designing, editing images and sending jobs straight to the laser. The workflow follows LightBurn, so people switching over find their way around right away.
-Stack: Tauri 2, TypeScript (UI, editor, G-code), Rust (desktop shell, machine connection, MCP server). License: GPL-3.0-or-later (see `LICENSE`). Version: 1.0.0-alpha.
+Stack: Tauri 2, TypeScript (UI, editor, G-code), Rust (desktop shell, machine connection, MCP server). License: GPL-3.0-or-later (see `LICENSE`). Version: 1.2.0-beta.
 
 “Kizamu” (刻む) is Japanese for to carve, to engrave, to cut finely. Up to version 1.0.0-alpha the project was called Laserwerk; settings, devices and material libraries carry over on the first start, and old `.lwk` projects and `.lwm` libraries still open.
 
@@ -30,7 +30,7 @@ npm run dev            # UI only, in the browser: http://localhost:1420
 npm run tauri build    # installer package
 ```
 
-On Windows, `npm run tauri build` only builds the NSIS installer (`.exe`, see `src-tauri/tauri.windows.conf.json`), because the MSI installer does not accept pre-release versions such as `1.0.0-alpha`.
+On Windows, `npm run tauri build` only builds the NSIS installer (`.exe`, see `src-tauri/tauri.windows.conf.json`), because the MSI installer does not accept pre-release versions such as `1.2.0-beta`.
 
 Releases: pushing a tag `v*` (or creating a release with a new tag on GitHub) runs `.github/workflows/release.yml`, which builds the installers for macOS (universal, Apple Silicon and Intel), Windows (NSIS) and Linux (AppImage, .deb, .rpm) and attaches them to a draft release. The builds are not code-signed yet, so macOS and Windows show a warning on first launch.
 

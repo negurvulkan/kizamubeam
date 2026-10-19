@@ -10,7 +10,7 @@
 [English](README.md) · Deutsch
 
 Freie Laser-Software zum Entwerfen, Bilder bearbeiten und direkt an den Laser senden. Die Bedienung orientiert sich an LightBurn, damit sich Umsteiger sofort zurechtfinden.
-Stack: Tauri 2, TypeScript (Oberfläche, Editor, G-Code), Rust (Desktop-Hülle, Maschinenanbindung, MCP-Server). Lizenz: GPL-3.0-or-later (siehe `LICENSE`). Version: 1.0.0-alpha.
+Stack: Tauri 2, TypeScript (Oberfläche, Editor, G-Code), Rust (Desktop-Hülle, Maschinenanbindung, MCP-Server). Lizenz: GPL-3.0-or-later (siehe `LICENSE`). Version: 1.2.0-beta.
 
 „Kizamu“ (刻む) ist japanisch und heißt einritzen, gravieren, fein schneiden. Bis Version 1.0.0-alpha hieß das Projekt Laserwerk; Einstellungen, Geräte und Materialbibliotheken werden beim ersten Start übernommen, alte `.lwk`-Projekte und `.lwm`-Bibliotheken lassen sich weiter öffnen.
 
@@ -30,7 +30,7 @@ npm run dev            # nur die Oberfläche im Browser: http://localhost:1420
 npm run tauri build    # Installationspaket
 ```
 
-Unter Windows baut `npm run tauri build` nur den NSIS-Installer (`.exe`, siehe `src-tauri/tauri.windows.conf.json`): Der MSI-Installer akzeptiert keine Vorabversionen wie `1.0.0-alpha`.
+Unter Windows baut `npm run tauri build` nur den NSIS-Installer (`.exe`, siehe `src-tauri/tauri.windows.conf.json`): Der MSI-Installer akzeptiert keine Vorabversionen wie `1.2.0-beta`.
 
 Releases: Ein Tag `v*` (oder ein auf GitHub neu angelegtes Release mit neuem Tag) startet `.github/workflows/release.yml`. Der Workflow baut die Installer für macOS (universal, Apple Silicon und Intel), Windows (NSIS) und Linux (AppImage, .deb, .rpm) und hängt sie an einen Release-Entwurf. Die Builds sind noch nicht signiert, macOS und Windows zeigen beim ersten Start deshalb eine Warnung.
 
