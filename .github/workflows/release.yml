@@ -73,11 +73,15 @@ jobs:
         shell: bash
         env:
           HAS_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' && vars.TAURI_UPDATER_PUBKEY != '' }}
+          PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
         run: |
           v=$(node -p "require('./src-tauri/tauri.conf.json').version")
           echo "prerelease=$([[ $v == *-* ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           if [[ "$HAS_KEY" == "true" ]]; then
-            node -e "const f='src-tauri/tauri.conf.json',fs=require('fs'),c=JSON.parse(fs.readFileSync(f));c.bundle.createUpdaterArtifacts=true;fs.writeFileSync(f,JSON.stringify(c,null,2))"
+            # Die Tauri-CLI prüft die neue Signatur gegen den öffentlichen Schlüssel aus der Konfiguration.
+            node -e "const f='src-tauri/tauri.conf.json',fs=require('fs'),c=JSON.parse(fs.readFileSync(f));c.bundle.createUpdaterArtifacts=true;c.plugins.updater.pubkey=process.env.PUBKEY.trim().replace(/%$/,'');fs.writeFileSync(f,JSON.stringify(c,null,2))"
+            # derselbe Schlüssel wird in die App gebaut (src-tauri/src/updater.rs)
+            echo "KIZAMUBEAM_UPDATER_PUBKEY=$(node -p "require('./src-tauri/tauri.conf.json').plugins.updater.pubkey")" >> "$GITHUB_ENV"
             echo "Update-Pakete werden signiert."
           else
             echo "::warning::Kein Update-Schlüssel hinterlegt: Installer ohne Update-Funktion."
@@ -88,7 +92,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          KIZAMUBEAM_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
         with:
           tagName: ${{ env.TAG }}
           releaseName: KizamuBeam ${{ env.TAG }}
