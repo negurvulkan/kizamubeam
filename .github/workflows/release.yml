@@ -37,8 +37,10 @@ jobs:
             args: --target universal-apple-darwin
           - platform: windows-latest
             args: ''
+          # RPM lehnt Vorabversionen ab; steht auch in src-tauri/tauri.linux.conf.json,
+          # hier zusätzlich, damit ältere Tags mit diesem Workflow gebaut werden können.
           - platform: ubuntu-22.04
-            args: ''
+            args: --bundles deb,appimage
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
