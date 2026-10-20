@@ -12,9 +12,9 @@ export const CATALOG_URL = 'https://negurvulkan.github.io/kizamubeam/catalog/cat
 export const CATALOG_FORMAT = 'kizamubeam-catalog';
 /**
  * Öffentlicher Schlüssel (Ed25519, hex) zum Prüfen von catalog.json.sig; erzeugen mit scripts/catalog-keygen.mjs.
- * Leer = Katalog noch nicht eingerichtet; das Fenster Erweiterungen meldet das statt einer Liste.
+ * Leer = Katalog nicht eingerichtet; das Fenster Erweiterungen meldet das statt einer Liste.
  */
-export const CATALOG_PUBKEY = '';
+export const CATALOG_PUBKEY = '97302ac6a427ea28ce54058421152cbe1992f6985e09c6210d6efa47672b11f6';
 
 export interface CatalogEntry {
   id: string;
