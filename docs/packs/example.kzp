@@ -1,0 +1,84 @@
+{
+  "format": "kizamubeam-pack",
+  "formatVersion": 1,
+  "id": "org.kizamubeam.example",
+  "version": "1.0.0",
+  "minApp": "1.2.1-beta",
+  "name": { "en": "Example pack", "de": "Beispielpaket" },
+  "description": {
+    "en": "Shows every kind of content a pack can hold. The values are examples, not measured settings.",
+    "de": "Zeigt alle Inhalte, die ein Paket haben kann. Die Werte sind Beispiele, keine gemessenen Einstellungen."
+  },
+  "author": "KizamuBeam",
+  "homepage": "https://github.com/negurvulkan/kizamubeam/blob/main/docs/packs.md",
+  "devices": [
+    {
+      "name": { "en": "Example: GRBL laser 300 × 200", "de": "Beispiel: GRBL-Laser 300 × 200" },
+      "fw": "grbl",
+      "bedW": 300,
+      "bedH": 200,
+      "baud": 115200,
+      "source": "Example values, not a real machine"
+    }
+  ],
+  "materials": [
+    {
+      "id": "poplar-3-cut",
+      "material": "Example poplar plywood",
+      "thickness": 3,
+      "title": "Cut",
+      "desc": "Example values, test before use",
+      "settings": { "mode": "line", "speed": 400, "power": 90, "passes": 1 }
+    },
+    {
+      "id": "poplar-3-engrave",
+      "material": "Example poplar plywood",
+      "thickness": 3,
+      "title": "Engrave",
+      "desc": "Example values, test before use",
+      "settings": { "mode": "fill", "speed": 3000, "power": 30, "interval": 0.1 }
+    }
+  ],
+  "templates": [
+    {
+      "version": 2,
+      "bed": { "w": 400, "h": 400 },
+      "page": 0,
+      "layers": {},
+      "pages": [
+        {
+          "name": "Coaster",
+          "objs": [
+            {
+              "id": 1,
+              "m": [1, 0, 0, 1, 60, 340],
+              "layer": 1,
+              "shape": { "kind": "ellipse", "rx": 50, "ry": 50 },
+              "bind": { "w": "Diameter", "h": "Diameter", "x": "10 + Diameter / 2", "y": "10 + Diameter / 2", "anchor": [0.5, 0.5] }
+            },
+            {
+              "id": 2,
+              "m": [1, 0, 0, 1, 60, 340],
+              "layer": 0,
+              "shape": {
+                "kind": "text", "text": "{Text}", "font": "Arial", "size": 12, "bold": true, "italic": false, "upper": false,
+                "align": "center", "hSpace": 0, "vSpace": 0, "fit": "shrink", "maxW": 70
+              },
+              "bind": { "size": "Diameter * 0.14", "maxW": "Diameter * 0.7", "x": "10 + Diameter / 2", "y": "10 + Diameter / 2", "anchor": [0.5, 0.5] }
+            }
+          ]
+        }
+      ],
+      "params": [
+        { "name": "Text", "type": "text", "value": "Cheers" },
+        { "name": "Diameter", "type": "number", "value": 100, "min": 60, "max": 140, "step": 1, "unit": "mm" }
+      ],
+      "template": {
+        "title": { "en": "Round coaster", "de": "Runder Untersetzer" },
+        "description": { "en": "Round coaster with a line of text", "de": "Runder Untersetzer mit einer Textzeile" },
+        "fields": [{ "name": "Text" }, { "name": "Diameter", "slider": true }],
+        "preview": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 110 110\"><circle cx=\"55\" cy=\"55\" r=\"50\" fill=\"none\" stroke=\"#0000ff\" stroke-width=\"1.5\"/><text x=\"55\" y=\"60\" font-family=\"Arial\" font-weight=\"bold\" font-size=\"14\" text-anchor=\"middle\">Cheers</text></svg>"
+      }
+    }
+  ]
+}

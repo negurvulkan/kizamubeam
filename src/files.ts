@@ -274,6 +274,9 @@ export function installDropAndPaste(ed: Editor, stage: HTMLElement) {
       if (/\.kzt$/i.test(f.name)) {
         const { useTemplateFile } = await import('./templateDialogs');
         await useTemplateFile(ed, f.name, await f.text());
+      } else if (/\.kzp$/i.test(f.name)) {
+        const { installPackFile } = await import('./packsDialog');
+        await installPackFile(f.name, await f.text());
       } else await importBytes(ed, f.name, new Uint8Array(await f.arrayBuffer()));
     }
   });

@@ -18,6 +18,7 @@ import { askGenConvert, openGenDialog } from './generators/dialog';
 import { genLabel, getGenerator } from './generators';
 import { maybeOfferSetup, openSetupWizard } from './setupWizard';
 import { maybeCheckForUpdates, openUpdateDialog } from './updateDialog';
+import { openPacksDialog } from './packsDialog';
 import { buildLaser, frameJob, openDeviceDialog, openDevicesDialog, openPreview, openRotaryDialog, saveGCode, startJob } from './laser';
 import { openLayerDialog } from './layerdialog';
 import { openMaterialTestDialog } from './materialtest';
@@ -181,6 +182,7 @@ function buildMenu(ed: Editor) {
       [t('Als SVG exportieren …'), '', () => exportSvg(ed)],
       [t('Bearbeitetes Bild speichern …'), '', () => saveProcessedBitmap(ed)],
       'sep',
+      [t('Erweiterungen …'), '', () => openPacksDialog()],
       [t('KI-Agenten (MCP) …'), '', () => openAgentDialog(ed)],
     ]],
     [t('Bearbeiten'), [

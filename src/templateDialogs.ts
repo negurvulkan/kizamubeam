@@ -6,6 +6,7 @@ import { t } from './i18n';
 import { buildSvg, openText, saveText } from './files';
 import { loadDoc } from './model';
 import { BuiltinTemplate, builtinTemplates } from './builtinTemplates';
+import { ensurePacks, packTemplates } from './packs';
 import { parseCsv } from './vartext';
 import type { ProjectParam } from './params';
 import { paramControl } from './paramsPanel';
@@ -180,6 +181,16 @@ export async function openTemplateLibrary(ed: Editor) {
       ),
     );
   const builtins = h('div', { class: 'tpl-grid' }, ...builtinTemplates().map(builtin));
+  await ensurePacks();
+  const fromPacks = packTemplates();
+  const packCard = (p: ReturnType<typeof packTemplates>[number]) =>
+    h('div', { class: 'tpl-card', title: p.pack },
+      h('button', { class: 'tpl-pick', onclick: () => (dlg.close(), startFromTemplate(ed, p.json)) },
+        p.info.preview ? h('img', { src: svgUrl(p.info.preview), alt: '' }) : h('div', { class: 'tpl-noimg' }, '?'),
+        h('b', {}, p.info.title),
+        h('span', { class: 'muted' }, p.info.description ? `${p.info.description} · ${p.pack}` : p.pack),
+      ),
+    );
   const refresh = async () => {
     try {
       const all = await listTemplates();
@@ -202,6 +213,8 @@ export async function openTemplateLibrary(ed: Editor) {
     grid,
     h('h4', {}, t('Mitgeliefert')),
     builtins,
+    fromPacks.length ? h('h4', {}, t('Aus Erweiterungen')) : null,
+    fromPacks.length ? h('div', { class: 'tpl-grid' }, ...fromPacks.map(packCard)) : null,
     err,
     h('div', { class: 'dialog-buttons' },
       hasTemplateFolder() ? h('button', { class: 'btn', onclick: () => openTemplateFolder().catch((e) => (err.textContent = errText(e))) }, t('Ordner zeigen')) : null,

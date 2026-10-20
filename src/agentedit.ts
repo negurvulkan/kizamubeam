@@ -20,6 +20,7 @@ import type { Generator, Params } from './generators';
 import { coerce, ParamType, ProjectParam } from './params';
 import { genLeaves } from './editor/generators';
 import { builtinTemplates } from './builtinTemplates';
+import { packTemplates } from './packs';
 import { defaultTemplate, guessColumns, tableRows, listTemplates, readTemplate, templateFields, templateFileName, templateJson, writeTemplate } from './templates';
 import { DEFAULT_NEST_SETTINGS, NestSettings } from './editor/nest';
 import { Args, describe, findObj, flip, machineBox, pageList, r3, Tier, ToolDef, ToolError } from './agentutil';
@@ -546,6 +547,7 @@ export const EDIT_TOOLS: ToolDef[] = [
               library: [
                 ...(await listTemplates()).map((e) => ({ file: e.file, title: e.info.title, description: e.info.description })),
                 ...builtinTemplates().map((b) => ({ file: `builtin:${b.id}`, title: b.info.title, description: b.info.description, builtin: true })),
+                ...packTemplates().map((p) => ({ file: `pack:${p.key}`, title: p.info.title, description: p.info.description, extension: p.pack })),
               ],
             }
           : {}),
@@ -556,7 +558,7 @@ export const EDIT_TOOLS: ToolDef[] = [
     name: 'new_from_template',
     title: 'Neu aus Vorlage',
     description:
-      'Legt aus einer Vorlage im Vorlagen-Ordner oder einer mitgelieferten (file, z. B. „builtin:keyfob“, siehe template mit list) ein neues Projekt an und ersetzt das aktuelle (rückgängig machbar mit undo). values setzt Parameter nach Name, z. B. {"Name": "Anna", "Breite": 80}.',
+      'Legt aus einer Vorlage im Vorlagen-Ordner, einer mitgelieferten (file, z. B. „builtin:keyfob“) oder einer aus einer Erweiterung („pack:…“, siehe template mit list) ein neues Projekt an und ersetzt das aktuelle (rückgängig machbar mit undo). values setzt Parameter nach Name, z. B. {"Name": "Anna", "Breite": 80}.',
     tier: Tier.Edit,
     ownUndo: true,
     inputSchema: obj({ file: { type: 'string' }, values: { type: 'object' } }, ['file']),
@@ -567,7 +569,9 @@ export const EDIT_TOOLS: ToolDef[] = [
       try {
         const b = file.startsWith('builtin:') ? builtinTemplates().find((x) => `builtin:${x.id}` === file) : undefined;
         if (file.startsWith('builtin:') && !b) throw new Error(`Keine mitgelieferte Vorlage „${file}“`);
-        json = b ? b.json() : await readTemplate(file);
+        const pk = file.startsWith('pack:') ? packTemplates().find((x) => `pack:${x.key}` === file) : undefined;
+        if (file.startsWith('pack:') && !pk) throw new Error(`Keine Vorlage „${file}“ in den installierten Erweiterungen`);
+        json = b ? b.json() : pk ? pk.json : await readTemplate(file);
       } catch (e) {
         throw new ToolError(e instanceof Error ? e.message : String(e));
       }
