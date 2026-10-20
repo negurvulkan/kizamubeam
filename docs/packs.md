@@ -2,7 +2,7 @@
 
 An extension pack adds device presets, templates and material library entries to KizamuBeam without installing a new version of the app. A pack is a single JSON file. It contains data only, never program code, and KizamuBeam checks every entry before it installs anything.
 
-Install a pack with File → Extensions … → Install …, or drag the `.kzp` file onto the workspace. The same window lists installed packs and removes them. A complete example is [`packs/example.kzp`](packs/example.kzp).
+Install a pack with File → Extensions … → Install …, or drag the `.kzp` file onto the workspace. The same window lists installed packs and removes them. A complete example is [`packs/org.kizamubeam.example.kzp`](../packs/org.kizamubeam.example.kzp).
 
 ## Where packs are stored
 
@@ -76,6 +76,16 @@ Templates appear under “From extensions” in File → New from template …. 
 Entries in the format of a material library (`.kzm`): `material`, `thickness` (mm or `null`), `title`, `desc`, `settings` (layer settings; at least `mode` `line` or `fill`, other values fall back to defaults) and optionally `img` and `fit`. Give each entry a short `id` that stays the same between versions of the pack.
 
 Materials are copied into the material library when the pack is installed. When the pack is updated, its entries are replaced; an entry that was changed in KizamuBeam belongs to you from then on and is kept. Removing the pack removes its unchanged entries.
+
+## Official catalogue
+
+File → Extensions … also shows the official catalogue. It lists the packs in the [`packs/`](../packs) folder of this repository and is published with the website at `https://negurvulkan.github.io/kizamubeam/catalog/catalog.json`. Installing or updating from there needs no file download by hand, and the app shows which installed packs have a newer version.
+
+The catalogue is protected twice: `catalog.json` is signed with an Ed25519 key of its own (not the app updater's key), and it names the SHA-256 checksum of every pack file. KizamuBeam ignores a catalogue whose signature does not match the public key built into the app (`CATALOG_PUBKEY` in `src/catalog.ts`) and refuses a pack whose checksum differs.
+
+To add or update a pack in the catalogue, open a pull request that puts the file into `packs/` as `<id>.kzp` (raise `version` for an update). `npm run test:catalog` checks every pack there. When the pull request is merged, the Pages workflow builds the catalogue (`scripts/build-catalog.ts`), signs it with the repository secret `PACKS_SIGNING_KEY` (`scripts/sign-catalog.mjs`) and publishes it.
+
+A new key pair comes from `node scripts/catalog-keygen.mjs`: the secret part goes into the repository secret `PACKS_SIGNING_KEY`, the public part into `CATALOG_PUBKEY`. App versions with the old public key stop using the catalogue until they are updated.
 
 ## Safety
 

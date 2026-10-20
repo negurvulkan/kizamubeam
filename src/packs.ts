@@ -173,11 +173,13 @@ export function parsePack(text: string, appVersion: string = APP_VERSION): Pack 
 }
 
 /** Kurzbeschreibung des Inhalts, z. B. „3 Gerätevorlagen · 1 Vorlage“ */
-export function packSummary(p: Pack): string {
+export const packSummary = (p: Pack) => countSummary(p.devices.length, p.templates.length, p.materials.length);
+
+export function countSummary(devices: number, templates: number, materials: number): string {
   const parts: string[] = [];
-  if (p.devices.length) parts.push(p.devices.length === 1 ? t('1 Gerätevorlage') : t('{n} Gerätevorlagen', { n: p.devices.length }));
-  if (p.templates.length) parts.push(p.templates.length === 1 ? t('1 Vorlage') : t('{n} Vorlagen', { n: p.templates.length }));
-  if (p.materials.length) parts.push(p.materials.length === 1 ? t('1 Material') : t('{n} Materialien', { n: p.materials.length }));
+  if (devices) parts.push(devices === 1 ? t('1 Gerätevorlage') : t('{n} Gerätevorlagen', { n: devices }));
+  if (templates) parts.push(templates === 1 ? t('1 Vorlage') : t('{n} Vorlagen', { n: templates }));
+  if (materials) parts.push(materials === 1 ? t('1 Material') : t('{n} Materialien', { n: materials }));
   return parts.join(' · ');
 }
 

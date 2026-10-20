@@ -1,6 +1,9 @@
-# Deploys the static product website in website/ to GitHub Pages.
+# Deploys the static product website in website/ to GitHub Pages, together
+# with the signed catalogue of extension packs (packs/*.kzp → catalog/).
 # The generated HTML is committed, so no build is needed to deploy; the
 # check step only makes sure it matches template.html + i18n/*.json.
+# The catalogue is built and signed here with the secret PACKS_SIGNING_KEY
+# (see scripts/catalog-keygen.mjs); without it the app ignores the catalogue.
 name: Pages
 
 on:
@@ -8,6 +11,11 @@ on:
     branches: [main]
     paths:
       - 'website/**'
+      - 'packs/**'
+      - 'src/packs.ts'
+      - 'src/catalog.ts'
+      - 'scripts/build-catalog.ts'
+      - 'scripts/sign-catalog.mjs'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -41,6 +49,14 @@ jobs:
             git --no-pager diff --stat -- website
             exit 1
           fi
+
+      - name: Build and sign the extension catalogue
+        env:
+          PACKS_SIGNING_KEY: ${{ secrets.PACKS_SIGNING_KEY }}
+        run: |
+          npm ci
+          node scripts/run-ts.mjs scripts/build-catalog.ts website/catalog
+          node scripts/sign-catalog.mjs website/catalog/catalog.json
 
       - uses: actions/configure-pages@v5
 

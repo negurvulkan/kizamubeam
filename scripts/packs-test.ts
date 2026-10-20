@@ -145,8 +145,8 @@ await test('Kaputte Datei im Speicher erscheint als fehlerhaft, nicht als Abstur
   assert.equal(P.brokenPacks().length, 0);
 });
 
-await test('Beispielpaket in docs/packs ist gültig', () => {
-  const p = P.parsePack(readFileSync(new URL('../docs/packs/example.kzp', import.meta.url), 'utf8'));
+await test('Beispielpaket in packs/ ist gültig', () => {
+  const p = P.parsePack(readFileSync(new URL('../packs/org.kizamubeam.example.kzp', import.meta.url), 'utf8'));
   assert.ok(p.devices.length && p.materials.length && p.templates.length);
 });
 
