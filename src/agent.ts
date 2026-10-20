@@ -5,6 +5,7 @@ import type { Editor } from './editor';
 import { boundsOf, Box } from './geom';
 import { IDENT } from './model';
 import { library } from './materials';
+import { brokenPacks, ensurePacks, installedPacks } from './packs';
 import { systemFonts } from './fonts';
 import { isTauri, machine } from './machine';
 import { bedCheck, deviceList, jobInfo } from './laser';
@@ -84,6 +85,25 @@ const READ_TOOLS: ToolDef[] = [
     run: (_ed, a) => {
       const q = typeof a.material === 'string' ? a.material.toLowerCase() : '';
       return json(library.entries.filter((e) => !q || e.material.toLowerCase().includes(q)));
+    },
+  },
+  {
+    name: 'list_extensions',
+    title: 'Erweiterungen auflisten',
+    description: 'Installierte Erweiterungen (Inhaltspakete .kzp): Kennung, Version, Name und Inhalt (Gerätevorlagen, Vorlagen mit Datei „pack:…“ für new_from_template, Material-Einträge). Installieren und Entfernen geht nur in der App (Datei → Erweiterungen …).',
+    tier: Tier.Read,
+    inputSchema: { type: 'object', properties: {} },
+    run: async () => {
+      await ensurePacks();
+      return json({
+        extensions: installedPacks().map(({ pack: p }) => ({
+          id: p.id, version: p.version, name: p.name, description: p.description, author: p.author,
+          devicePresets: p.devices.map((d) => ({ ...d.preset, source: d.source })),
+          templates: p.templates.map((tp, i) => ({ file: `pack:${p.id}/${i + 1}`, title: tp.info.title })),
+          materials: p.materials.map((m) => m.id),
+        })),
+        broken: brokenPacks(),
+      });
     },
   },
   {

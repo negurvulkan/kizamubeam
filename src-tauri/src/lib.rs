@@ -1,6 +1,7 @@
 pub mod agent;
 mod machine;
 mod native;
+mod packs;
 mod stream;
 mod templates;
 mod updater;
@@ -221,6 +222,10 @@ pub fn run() {
             templates::template_write,
             templates::template_delete,
             templates::template_open_folder,
+            packs::pack_list,
+            packs::pack_write,
+            packs::pack_delete,
+            packs::pack_open_folder,
             updater::update_supported,
             updater::update_check,
             updater::update_install

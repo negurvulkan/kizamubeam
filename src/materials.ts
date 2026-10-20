@@ -19,6 +19,8 @@ export interface MaterialEntry {
   img?: ImageLayer;
   /** Ergebnis des Kalibrierassistenten für Schnittfuge und Steckspiel */
   fit?: MaterialFit;
+  /** Kennung der Erweiterung, aus der der Eintrag stammt; fällt weg, sobald er hier geändert wird */
+  pack?: string;
 }
 
 /**
@@ -68,8 +70,12 @@ function sanitize(e: Partial<MaterialEntry>): MaterialEntry | null {
     settings,
     img: e.img ? { ...defaultImageLayer(), ...e.img } : undefined,
     fit: sanitizeFit(e.fit),
+    ...(typeof e.pack === 'string' && e.pack ? { pack: e.pack } : {}),
   };
 }
+
+/** Eintrag aus einer Datei oder Erweiterung prüfen und ergänzen; null, wenn die Einstellungen fehlen */
+export const sanitizeEntry = (e: unknown) => sanitize(e as Partial<MaterialEntry>);
 
 class Library {
   entries: MaterialEntry[] = [];
@@ -110,6 +116,8 @@ class Library {
     const e = this.get(id);
     if (!e) return;
     Object.assign(e, structuredClone(patch));
+    // Geändert gehört der Eintrag der Person; ein Update der Erweiterung überschreibt ihn nicht mehr
+    delete e.pack;
     this.changed();
   }
   remove(id: string) {
@@ -133,6 +141,20 @@ class Library {
     }
     this.changed();
     return { added, replaced };
+  }
+  /**
+   * Einträge einer Erweiterung übernehmen: eigene unveränderte Einträge werden ersetzt oder entfernt, wenn
+   * die Erweiterung sie nicht mehr hat; hier geänderte (ohne pack) bleiben, wie sie sind.
+   */
+  syncPack(pack: string, list: MaterialEntry[]) {
+    const ids = new Set(list.map((e) => e.id));
+    this.entries = this.entries.filter((e) => e.pack !== pack || ids.has(e.id));
+    for (const n of list) {
+      const i = this.entries.findIndex((e) => e.id === n.id);
+      if (i < 0) this.entries.push({ ...structuredClone(n), pack });
+      else if (this.entries[i].pack === pack) this.entries[i] = { ...structuredClone(n), pack };
+    }
+    this.changed();
   }
   serialize(): string {
     return JSON.stringify({ format: FORMAT, version: 1, entries: this.entries }, null, 1);

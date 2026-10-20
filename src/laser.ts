@@ -5,7 +5,7 @@ import { ICONS } from './icons';
 import { saveText } from './files';
 import { native } from './native';
 import {
-  anchorOf, BedCheck, Box, buildJob, burns, checkBed, DEFAULT_ROTARY, Device, estimate, Firmware, FIRMWARES, formatDuration, frameGCode, Job, jogLines, loadDevices, Moves, newDevice, PRESETS,
+  anchorOf, BedCheck, Box, buildJob, burns, checkBed, DEFAULT_ROTARY, Device, estimate, Firmware, FIRMWARES, formatDuration, frameGCode, Job, jogLines, loadDevices, Moves, newDevice,
   prepareGCode, Rotary, RotaryAxis, rotaryCirc, rotaryOn, rotaryTestLines, sameMoves, saveDevices, StartFrom, startHere,
 } from './gcode';
 import { isTauri, machine, PortInfo } from './machine';
@@ -15,6 +15,8 @@ import { cameraTab } from './cameraui';
 import { dockWindow, windowBody } from './dock';
 import { loadCheckSettings } from './check';
 import { openCheck } from './checkPanel';
+import { presetList } from './packs';
+import { presetOption } from './packsDialog';
 import { dec, locale, t, tBackend, tn } from './i18n';
 
 const store = loadDevices();
@@ -885,11 +887,10 @@ export function openDevicesDialog(ed: Editor) {
       ));
     }
   };
-  const presetSel = h('select', {},
-    ...PRESETS.map((p, i) => h('option', { value: String(i) }, `${p.name} · ${FIRMWARES[p.fw].label}`)),
-  ) as HTMLSelectElement;
+  const presets = presetList();
+  const presetSel = h('select', {}, ...presets.map((p, i) => presetOption(p, i))) as HTMLSelectElement;
   const add = () => {
-    const d = newDevice(PRESETS[Number(presetSel.value)]);
+    const d = newDevice(presets[Number(presetSel.value)].preset);
     store.devices.push(d);
     deviceChanged();
     fill();

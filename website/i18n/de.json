@@ -115,6 +115,7 @@
       "b": [
         "MCP-Server für KI-Agenten: lesen, entwerfen, Teile erzeugen. Nur lokal, standardmäßig aus, mit Token",
         "Maschinenaktionen von Agenten starten erst nach deiner Bestätigung – Pause und Stopp funktionieren immer",
+        "Erweiterungen (.kzp) bringen Gerätevorlagen, Vorlagen und Materialien – ohne App-Update, nur Daten, kein Code",
         "Oberfläche auf Deutsch und Englisch; neue Sprachen lassen sich einfach ergänzen",
         "GPL-3.0-or-later, offene JSON-Dateiformate, gebaut mit Tauri 2, TypeScript und Rust",
         "Früher „Laserwerk“: Einstellungen, Geräte und Materialien werden übernommen, alte Projekte öffnen weiter"
