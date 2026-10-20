@@ -3,9 +3,11 @@ import { h } from './dom';
 import { openText } from './files';
 import { entryLabel } from './materials';
 import { FIRMWARES } from './gcode';
-import { t } from './i18n';
+import { Catalog, CatalogEntry, catalogState, fetchCatalog, fetchCatalogPack } from './catalog';
+import { version as APP_VERSION } from '../package.json';
+import { t, tn } from './i18n';
 import {
-  brokenPacks, ensurePacks, hasPackFolder, installedPacks, installKind, installPack, openPackFolder, Pack, PACK_EXT, packSummary, parsePack, presetList, removePack,
+  brokenPacks, countSummary, ensurePacks, hasPackFolder, installedPacks, installKind, installPack, localText, openPackFolder, Pack, PACK_EXT, packSummary, parsePack, presetList, removePack,
 } from './packs';
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -37,7 +39,7 @@ function contentList(p: Pack): HTMLElement {
  * Paketdatei prüfen, Inhalt zeigen und nach Rückfrage installieren. Gibt das installierte Paket zurück oder null
  * (abgebrochen oder fehlerhaft; Fehler erscheinen als Meldung).
  */
-export async function installPackFile(name: string, text: string): Promise<Pack | null> {
+export async function installPackFile(name: string, text: string, fromCatalog = false): Promise<Pack | null> {
   await ensurePacks();
   let p: Pack;
   try {
@@ -73,7 +75,9 @@ export async function installPackFile(name: string, text: string): Promise<Pack 
       p.description ? h('p', { class: 'muted' }, p.description) : null,
       contentList(p),
       status ? h('p', { class: kind === 'downgrade' ? 'warn' : 'note' }, status) : null,
-      h('p', { class: 'note' }, t('Erweiterungen enthalten nur Daten, keinen Programmcode. Diese Datei ist nicht signiert: Installiere sie nur, wenn du der Quelle vertraust, und prüfe Maße und Laserwerte vor dem ersten Job.')),
+      h('p', { class: 'note' }, fromCatalog
+        ? t('Aus dem signierten KizamuBeam-Katalog. Erweiterungen enthalten nur Daten, keinen Programmcode. Prüfe Maße und Laserwerte trotzdem vor dem ersten Job.')
+        : t('Erweiterungen enthalten nur Daten, keinen Programmcode. Diese Datei ist nicht signiert: Installiere sie nur, wenn du der Quelle vertraust, und prüfe Maße und Laserwerte vor dem ersten Job.')),
       err,
       h('div', { class: 'dialog-buttons' }, ok, h('button', { class: 'btn', onclick: () => dlg.close() }, t('Abbrechen'))),
     ) as HTMLDialogElement;
@@ -119,11 +123,69 @@ export async function openPacksDialog() {
   const install = async () => {
     const r = await openText(t('KizamuBeam-Erweiterung'), [PACK_EXT]);
     if (!r) return;
-    if (await installPackFile(r[0], r[1])) fill();
+    if (await installPackFile(r[0], r[1])) (fill(), fillCatalog());
+  };
+
+  // ---------- Katalog ----------
+  const catList = h('div', { class: 'pack-list' });
+  const catStatus = h('p', { class: 'note' });
+  let catalog: Catalog | null = null;
+  const fromCatalog = async (e: CatalogEntry, btn: HTMLButtonElement) => {
+    btn.disabled = true;
+    try {
+      const text = await fetchCatalogPack(e);
+      if (await installPackFile(e.file, text, true)) fill();
+    } catch (x) {
+      err.textContent = errText(x);
+    }
+    fillCatalog();
+  };
+  const fillCatalog = () => {
+    catList.replaceChildren();
+    if (!catalog) return;
+    const have = new Map(installedPacks().map(({ pack }) => [pack.id, pack]));
+    for (const e of catalog.packs) {
+      const st = catalogState(e, have.get(e.id), APP_VERSION);
+      const label = {
+        install: t('Installieren'),
+        update: t('Auf {version} aktualisieren', { version: e.version }),
+        installed: t('Installiert'),
+        'newer-installed': t('Neuere Version installiert'),
+        'needs-app': t('Braucht KizamuBeam {version}', { version: e.minApp ?? '' }),
+      }[st];
+      const btn = h('button', { class: 'btn small' + (st === 'install' || st === 'update' ? ' primary' : ''), disabled: st !== 'install' && st !== 'update' }, label) as HTMLButtonElement;
+      btn.onclick = () => fromCatalog(e, btn);
+      const desc = localText(e.description);
+      catList.append(h('div', { class: 'pack-card' },
+        h('div', { class: 'pack-text' },
+          h('div', {}, h('b', {}, localText(e.name)), ` ${e.version}`, e.author ? h('span', { class: 'muted' }, ` · ${e.author}`) : null),
+          h('div', { class: 'muted' }, countSummary(e.devices, e.templates, e.materials)),
+          desc ? h('div', {}, desc) : null,
+        ),
+        btn,
+      ));
+    }
+    if (!catalog.packs.length) catList.append(h('p', { class: 'note' }, t('Der Katalog enthält noch keine Pakete.')));
+  };
+  const loadCatalog = async () => {
+    catStatus.textContent = t('Katalog wird geladen …');
+    try {
+      catalog = await fetchCatalog();
+      const updates = catalog.packs.filter((e) => catalogState(e, installedPacks().find((x) => x.pack.id === e.id)?.pack, APP_VERSION) === 'update').length;
+      catStatus.textContent = updates ? tn('{n} Aktualisierung verfügbar.', '{n} Aktualisierungen verfügbar.', updates) : t('Signatur geprüft.');
+    } catch (e) {
+      catalog = null;
+      catStatus.textContent = t('Katalog nicht verfügbar: {message}', { message: errText(e) });
+    }
+    fillCatalog();
   };
   const dlg = h('dialog', { class: 'packs-dialog' },
     h('h3', {}, t('Erweiterungen')),
+    h('h4', {}, t('Installiert')),
     list,
+    h('h4', {}, t('Katalog'), ' ', h('button', { class: 'btn small', onclick: loadCatalog }, t('Neu laden'))),
+    catStatus,
+    catList,
     err,
     h('div', { class: 'dialog-buttons' },
       hasPackFolder() ? h('button', { class: 'btn', onclick: () => openPackFolder().catch((e) => (err.textContent = errText(e))) }, t('Ordner zeigen')) : null,
@@ -134,4 +196,5 @@ export async function openPacksDialog() {
   ) as HTMLDialogElement;
   fill();
   showDialog(dlg);
+  void loadCatalog();
 }
