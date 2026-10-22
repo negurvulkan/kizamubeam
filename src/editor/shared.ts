@@ -38,6 +38,8 @@ export type Drag =
   | { type: 'marquee'; start: Pt; end: Pt; base: Obj[]; mode: 'set' | 'add' | 'toggle' | 'remove' }
   | { type: 'create'; start: Pt; obj: Obj | null; snapSet: SnapSet }
   | { type: 'linenode'; node: Node }
+  /** Textwerkzeug: Klicken setzt einen Text, Ziehen einen Textrahmen */
+  | { type: 'textframe'; start: Pt; end: Pt }
   /** Hilfslinie aus dem Lineal ziehen: 'y' = waagrecht (oberes Lineal), 'x' = senkrecht (linkes Lineal) */
   | { type: 'guide'; axis: 'x' | 'y'; obj: Obj | null; snapSet: SnapSet }
   | {
@@ -91,7 +93,7 @@ export const TOOL_HINTS: Record<Tool, string> = {
   rect: t('Ziehen zum Zeichnen. Shift: Quadrat, Ctrl: von der Mitte.'),
   ellipse: t('Ziehen zum Zeichnen. Shift: Kreis, Ctrl: von der Mitte.'),
   polygon: t('Von der Mitte aus ziehen. Shift: nicht drehen.'),
-  text: t('Klicken, um Text zu setzen, oder vorhandenen Text anklicken.'),
+  text: t('Klicken, um Text zu setzen, Ziehen für einen Textrahmen mit Zeilenumbruch, oder vorhandenen Text anklicken.'),
   joint: t('Verbindung: erste gerade Kante anklicken (Zinken, Zapfen oder Schlitze). Esc hebt die Wahl auf.'),
   trim: t('Trimmen: Abschnitt bis zu den nächsten Schnittpunkten anklicken (rot) zum Entfernen. Shift: Stück auf aktuellem Layer behalten, Ctrl: nicht verbinden.'),
   start: t('Startpunkt: Knoten anklicken, dort beginnt der Schnitt. Shift+Klick: Richtung umkehren, Ctrl+Klick: zurücksetzen (Optimierung wählt).'),
