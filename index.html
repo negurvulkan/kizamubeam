@@ -14,13 +14,16 @@
       <main id="main">
         <aside id="tools"></aside>
         <aside id="dock-left" class="dock"></aside>
-        <section id="stage">
-          <canvas id="canvas"></canvas>
-          <div id="texteditor" hidden>
-            <textarea spellcheck="false" placeholder="Text eingeben …"></textarea>
-            <div class="hint">Enter: neue Zeile · Ctrl+Enter oder Esc: fertig</div>
-          </div>
-        </section>
+        <div id="center">
+          <div id="tabbar" role="tablist"></div>
+          <section id="stage">
+            <canvas id="canvas"></canvas>
+            <div id="texteditor" hidden>
+              <textarea spellcheck="false" placeholder="Text eingeben …"></textarea>
+              <div class="hint">Enter: neue Zeile · Ctrl+Enter oder Esc: fertig</div>
+            </div>
+          </section>
+        </div>
         <aside id="dock-right" class="dock"></aside>
       </main>
       <div id="palette"></div>

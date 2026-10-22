@@ -2,7 +2,7 @@
 // Bearbeitet wird eine Kopie; „Übernehmen“ schreibt alles als einen Undo-Schritt zurück.
 import type { Editor } from './editor';
 import { h, numInput } from './dom';
-import { CutSettings, cutSettings, defaultCutSettings, LayerMode, layerLabel, PALETTE } from './model';
+import { CutSettings, cutSettings, defaultCutSettings, FillStyle, LayerMode, layerLabel, PALETTE } from './model';
 import { t } from './i18n';
 
 export function openLayerDialog(ed: Editor, i: number) {
@@ -80,17 +80,31 @@ export function openLayerDialog(ed: Editor, i: number) {
   const fillSection = () => {
     const interval = num(() => c.interval, (v) => ((c.interval = v), (lpi.value = String(Math.round(25.4 / v)))), 0.01, 5, false, t('Abstand der Füllzeilen in mm'));
     const lpi = num(() => Math.round(25.4 / c.interval), (v) => ((c.interval = Math.round((25.4 / v) * 10000) / 10000), (interval.value = String(c.interval))), 5, 2540, false, t('Zeilen pro Zoll'));
+    const style = h('select', {
+      onchange: (e: Event) => {
+        c.fillStyle = (e.target as HTMLSelectElement).value as FillStyle;
+        render();
+      },
+    },
+      h('option', { value: 'scan', selected: c.fillStyle !== 'offset' }, t('Zeilenweise')),
+      h('option', { value: 'offset', selected: c.fillStyle === 'offset' }, t('Kontur folgend')),
+    );
     return h('div', {},
       h('div', { class: 'form-title' }, t('Füllen')),
       h('div', { class: 'form' },
+        ...row(t('Füllart'), style, t('Zeilenweise: Fläche Zeile für Zeile abtasten. Kontur folgend: Ringe, die dem Umriss nach innen folgen (gut für schmale Rahmen, Schrift und Ornamente).')),
         ...row(t('Zeilenabstand (mm)'), interval),
         ...row(t('Zeilen pro Zoll'), lpi),
-        ...row(t('Scanwinkel (°)'), num(() => c.angle, (v) => (c.angle = v), -180, 180, false, t('0° = waagerechte Zeilen, 90° = senkrechte'))),
-        ...row(t('Überfahrweg (%)'), num(() => c.overscan, (v) => (c.overscan = v), 0, 50, false, t('Anlauf- und Auslaufweg in % der Geschwindigkeit, damit der Rand gleichmäßig wird'))),
-        h('span', { class: 'checks' },
-          check(t('Bidirektional'), () => c.bidirectional, (v) => (c.bidirectional = v), t('In beide Richtungen lasern (schneller)')),
-          check(t('Kreuzschraffur'), () => c.crossHatch, (v) => (c.crossHatch = v), t('Zweiter Durchgang um 90° gedreht')),
-        ),
+        ...(c.fillStyle === 'offset'
+          ? []
+          : [
+              ...row(t('Scanwinkel (°)'), num(() => c.angle, (v) => (c.angle = v), -180, 180, false, t('0° = waagerechte Zeilen, 90° = senkrechte'))),
+              ...row(t('Überfahrweg (%)'), num(() => c.overscan, (v) => (c.overscan = v), 0, 50, false, t('Anlauf- und Auslaufweg in % der Geschwindigkeit, damit der Rand gleichmäßig wird'))),
+              h('span', { class: 'checks' },
+                check(t('Bidirektional'), () => c.bidirectional, (v) => (c.bidirectional = v), t('In beide Richtungen lasern (schneller)')),
+                check(t('Kreuzschraffur'), () => c.crossHatch, (v) => (c.crossHatch = v), t('Zweiter Durchgang um 90° gedreht')),
+              ),
+            ]),
       ),
     );
   };

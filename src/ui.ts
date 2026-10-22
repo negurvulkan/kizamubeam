@@ -14,6 +14,7 @@ import { openCircularArrayDialog, openGridArrayDialog } from './arrayDialogs';
 import { openNestDialog } from './nestDialog';
 import { openJointDialog } from './jointDialog';
 import { openHingeDialog } from './hingeDialog';
+import { openWarpDialog } from './warpDialog';
 import { openQrDialog, openVarTextDialog } from './qrDialog';
 import { askGenConvert, openGenDialog } from './generators/dialog';
 import { genLabel, getGenerator } from './generators';
@@ -27,6 +28,7 @@ import { BoolBase } from './ops';
 import { agentStatus, openAgentDialog } from './agentui';
 import { startAgentBridge } from './agent';
 import { buildObjectsPanel } from './objectsPanel';
+import { buildTabBar, closeTabAsk } from './tabsBar';
 import { buildHistoryPanel } from './historyPanel';
 import { buildCheckPanel, openCheck } from './checkPanel';
 import { openCalibrateDialog } from './calibrateDialog';
@@ -135,6 +137,7 @@ export function buildUI(ed: Editor) {
   ed.onGenGuard = askGenConvert;
   ed.onJointDialog = () => openJointDialog(ed);
   installDropAndPaste(ed, $('#stage'));
+  buildTabBar(ed);
   window.addEventListener('keydown', (e) => {
     const el = e.target as HTMLElement;
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')) return;
@@ -172,10 +175,11 @@ type MenuItem = [label: string, key: string, action: () => void, checked?: () =>
 function buildMenu(ed: Editor) {
   const menus: [string, MenuItem[]][] = [
     [t('Datei'), [
-      [t('Neu'), '', () => ed.newDocument()],
+      [t('Neu'), 'Ctrl+N', () => ed.newTab()],
       [t('Neu aus Vorlage …'), '', () => openTemplateLibrary(ed)],
-      [t('Öffnen …'), '', () => openProject(ed)],
-      [t('Speichern …'), '', () => saveProject(ed)],
+      [t('Öffnen …'), 'Ctrl+O', () => openProject(ed)],
+      [t('Speichern …'), 'Ctrl+S', () => saveProject(ed)],
+      [t('Tab schließen'), '', () => closeTabAsk(ed)],
       'sep',
       [t('Als Vorlage speichern …'), '', () => openSaveTemplateDialog(ed)],
       [t('Vorlage ausfüllen …'), '', () => openFillDialog(ed)],
@@ -236,6 +240,7 @@ function buildMenu(ed: Editor) {
         [t('Boolesche Optionen …'), '', () => openBooleanDialog(ed)],
       ] },
       [t('Offset …'), 'Alt+O', () => openOffsetDialog(ed)],
+      [t('Verformen …'), '', () => openWarpDialog(ed)],
       { sub: t('Pfad'), items: [
         [t('Pfad schließen'), '', () => ed.closeSel()],
         [t('Pfade mit Toleranz schließen …'), '', () => openCloseDialog(ed)],
@@ -656,16 +661,18 @@ function buildNumbar(ed: Editor) {
   const fVtOff = numInput('small', (v) => ed.updateTexts({ vt: { offset: Math.round(v) } }), t('Versatz: wird zur aktuellen Nummer addiert'));
   const bVtDlg = h('button', { class: 'toggle', title: t('Nummer, CSV-Datei und Platzhalter'), onclick: () => openVarTextDialog(ed) }, '…');
   const vtProps = h('span', { class: 'field' }, h('label', {}, t('Versatz|Variabler Text'), fVtOff), bVtDlg);
-  const fMaxW = numInput('small', plain(['maxW'], (v) => ed.updateTexts({ maxW: Math.max(0, v) })), t('Höchstbreite (mm): breitere Zeilen werden gestaucht (oder mit „Verkleinern“ verkleinert), 0 = aus'), formula('maxW'));
+  const fMaxW = numInput('small', plain(['maxW'], (v) => ed.updateTexts({ maxW: Math.max(0, v) })), t('Höchstbreite (mm): breitere Zeilen werden gestaucht (mit „Verkleinern“ verkleinert, mit „Umbrechen“ umbrochen), 0 = aus'), formula('maxW'));
   const fMaxH = numInput('small', plain(['maxH'], (v) => ed.updateTexts({ maxH: Math.max(0, v) })), t('Höchsthöhe (mm): ein höherer Textblock wird gleichmäßig verkleinert, 0 = aus'), formula('maxH'));
   const bShrink = h('button', { class: 'toggle', title: t('Text in Rahmen einpassen: zu breiten Text gleichmäßig verkleinern statt stauchen') }, t('Verkleinern|Text einpassen'));
   bShrink.addEventListener('click', () => ed.updateTexts({ fit: bShrink.classList.contains('on') ? undefined : 'shrink' }));
+  const bWrap = h('button', { class: 'toggle', title: t('Textrahmen: Zeilen an der Max. Breite umbrechen, die Höhe wächst mit (Rahmen auch mit dem Textwerkzeug aufziehen)') }, t('Umbrechen|Textrahmen'));
+  bWrap.addEventListener('click', () => ed.toggleTextWrap());
   const pathProps = h('span', { class: 'field' }, h('label', {}, t('Versatz'), fPOff), h('label', {}, t('Abstand|Text auf Pfad'), fPDist), bPFlip, bPOff);
   const textProps = h(
     'div',
     { class: 'field' },
     h('label', {}, t('Schrift'), fontSel), h('label', {}, t('Höhe'), fSize),
-    h('label', {}, t('Abst. H'), fHs), h('label', {}, 'V', fVs), h('label', {}, t('Max. Breite'), fMaxW), h('label', {}, t('Max. Höhe'), fMaxH), bShrink, ...alignBtns, bBold, bItal, bUp, bWeld, bOnPath, pathProps, bVar, vtProps,
+    h('label', {}, t('Abst. H'), fHs), h('label', {}, 'V', fVs), h('label', {}, t('Max. Breite'), fMaxW), h('label', {}, t('Max. Höhe'), fMaxH), bShrink, bWrap, ...alignBtns, bBold, bItal, bUp, bWeld, bOnPath, pathProps, bVar, vtProps,
   );
 
   // Knotenbearbeitung
@@ -795,6 +802,7 @@ function buildNumbar(ed: Editor) {
     bindField(fMaxW, 'maxW', f2(ts.length ? (ts[0].shape as TextShape).maxW ?? 0 : 0), (o) => o.shape.kind === 'text');
     bindField(fMaxH, 'maxH', f2(ts.length ? (ts[0].shape as TextShape).maxH ?? 0 : 0), (o) => o.shape.kind === 'text');
     bShrink.classList.toggle('on', ts.length > 0 && (ts[0].shape as TextShape).fit === 'shrink');
+    bWrap.classList.toggle('on', ts.length > 0 && (ts[0].shape as TextShape).fit === 'wrap');
     bOnPath.hidden = !ed.canApplyPathToText();
     const tp = ts.length ? (ts[0].shape as TextShape).path : undefined;
     pathProps.hidden = !tp;
@@ -826,7 +834,7 @@ function buildBars(ed: Editor) {
     L = t('Laser');
   const tool = (id: Tool, icon: string, label: string): Action => ({ id: `tool:${id}`, cat: W, icon, label, run: () => ed.setTool(id), on: () => ed.tool === id });
   const list: Action[] = [
-    { id: 'new', cat: F, icon: 'new', label: t('Neu (rückgängig machbar)'), run: () => ed.newDocument() },
+    { id: 'new', cat: F, icon: 'new', label: t('Neues Projekt in neuem Tab (Ctrl+N)'), run: () => ed.newTab() },
     { id: 'open', cat: F, icon: 'open', label: t('Öffnen'), run: () => openProject(ed) },
     { id: 'save', cat: F, icon: 'save', label: t('Speichern'), run: () => saveProject(ed) },
     { id: 'import', cat: F, icon: 'import', label: t('Importieren: Bilder, SVG, DXF (Ctrl+I)'), run: () => importFile(ed) },
@@ -906,6 +914,7 @@ function buildBars(ed: Editor) {
     { id: 'intersect', cat: M, icon: 'intersect', label: t('Schnittmenge (Alt+*): nur die gemeinsame Fläche behalten'), run: () => ed.booleanSel('intersect'), enabled: sel2 },
     { id: 'boolopts', cat: M, icon: 'settings', small: true, label: t('Boolesche Optionen: Basis und Originale behalten'), run: () => openBooleanDialog(ed) },
     { id: 'offset', cat: M, icon: 'offset', label: t('Offset (Alt+O)'), run: () => openOffsetDialog(ed), enabled: sel1 },
+    { id: 'warp', cat: M, icon: 'warp', label: t('Verformen: Formen, Text und Bilder biegen, wölben oder perspektivisch verzerren'), run: () => openWarpDialog(ed), enabled: sel1 },
     { id: 'gridarray', cat: M, icon: 'gridArray', label: t('Rasterarray: Auswahl in Spalten und Zeilen kopieren (Ctrl+Shift+A)'), run: () => openGridArrayDialog(ed), enabled: sel1 },
     { id: 'circarray', cat: M, icon: 'circArray', label: t('Kreisarray: Auswahl im Kreis um einen Mittelpunkt kopieren'), run: () => openCircularArrayDialog(ed), enabled: sel1 },
     { id: 'nest', cat: M, icon: 'nest', label: t('Verschachteln: Auswahl mit ihren echten Konturen platzsparend auf Bett, Material oder Reststück legen'), run: () => openNestDialog(ed), enabled: sel1 },
@@ -946,7 +955,7 @@ function buildBars(ed: Editor) {
       ],
       tools: [
         'tool:select', 'tool:node', SEP, 'tool:line', 'tool:rect', 'tool:ellipse', 'tool:polygon', 'tool:text', 'qr', 'grp:gen', SEP,
-        'grp:bool', 'offset', 'grp:path', 'grp:array', 'nest', 'tool:joint', 'lidhinge', 'hinge',
+        'grp:bool', 'offset', 'warp', 'grp:path', 'grp:array', 'nest', 'tool:joint', 'lidhinge', 'hinge',
       ],
     },
     // Gespeicherte Leisten von vor den Knopfgruppen: die alten Standardfolgen durch die Gruppe ersetzen
@@ -1357,7 +1366,8 @@ function layerSummary(L: Layer): string {
   const parts: string[] = [];
   if (L.kerf) parts.push(t('Kerf {kerf} mm', { kerf: fmtNum(L.kerf) }));
   if (L.mode === 'line' && L.tabs.enabled) parts.push(L.tabs.useCount ? t('{count} Stege je Form', { count: L.tabs.count }) : t('Stege alle {spacing} mm', { spacing: fmtNum(L.tabs.spacing) }));
-  if (L.mode === 'fill') {
+  if (L.mode === 'fill' && L.fillStyle === 'offset') parts.push(t('Kontur folgend'));
+  else if (L.mode === 'fill') {
     if (L.angle) parts.push(t('Winkel {angle}°', { angle: fmtNum(L.angle) }));
     if (L.crossHatch) parts.push(t('Kreuzschraffur'));
     if (!L.bidirectional) parts.push(t('nur eine Richtung'));

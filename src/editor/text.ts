@@ -1,10 +1,10 @@
 // Editor: QR-Codes, variabler Text, Text und Text auf Pfad.
-import { allObjs, clone, inv, leaves, Mat, mul, newId, Obj, Shape, SubPath, TextPath, TextShape, translate, BarcodeShape, VarText } from '../model';
+import { allObjs, clone, inv, leaves, Mat, mul, newId, Obj, Pt, Shape, SubPath, TextPath, TextShape, translate, BarcodeShape, VarText } from '../model';
 import { advanceVarText, expand, parseCsv, shownText } from '../vartext';
 import { barcodeData } from '../barcode';
 import { ArcLength } from '../textpath';
 import { transformSubs } from '../importers';
-import { shapeSubs } from '../geom';
+import { shapeSubs, textLayout } from '../geom';
 import { t } from '../i18n';
 import type { Editor } from '../editor';
 import { RULER } from './shared';
@@ -128,6 +128,43 @@ export class EditorText {
 
   selTexts(this: Editor): Obj[] {
     return this.sel.filter((o) => o.shape.kind === 'text');
+  }
+  /**
+   * Neuen Text anlegen und zum Tippen öffnen. Mit Rahmenbreite (aufgezogen) als Textrahmen: Zeilen brechen
+   * an der Breite um, die Höhe wächst mit dem Text; at ist dann die linke obere Ecke des Rahmens.
+   */
+  createText(this: Editor, at: Pt, frameW = 0) {
+    this.snapshot(frameW ? t('Textrahmen erstellen') : t('Text erstellen'));
+    const shape: TextShape = { kind: 'text', text: '', ...this.textDefaults };
+    let p = at;
+    if (frameW) {
+      Object.assign(shape, { fit: 'wrap', maxW: frameW });
+      const dx = shape.align === 'left' ? 0 : shape.align === 'center' ? frameW / 2 : frameW;
+      p = { x: at.x + dx, y: at.y + shape.size * 0.8 }; // Grundlinie der ersten Zeile unter der Oberkante
+    }
+    const txt: Obj = { id: newId(), m: translate(p.x, p.y), layer: this.currentLayer, shape };
+    this.doc.objs.push(txt);
+    this.setSel([txt]);
+    this.emit('doc');
+    this.textEditor?.(txt, true);
+  }
+  /** Textrahmen an/aus: an ohne Breite nimmt die jetzige Breite des Texts */
+  toggleTextWrap(this: Editor) {
+    const ts = this.selTexts();
+    if (!ts.length) return;
+    const on = (ts[0].shape as TextShape).fit !== 'wrap';
+    this.snapshot(t('Text-Eigenschaften'));
+    for (const o of ts) {
+      const s = o.shape as TextShape;
+      if (!on) delete s.fit;
+      else {
+        if (!s.maxW) s.maxW = Math.max(1, Math.round(textLayout(s).box.w * 10) / 10);
+        s.fit = 'wrap';
+      }
+      this.touch(s);
+    }
+    this.emit('doc');
+    this.emit('sel');
   }
   updateTexts(this: Editor, patch: Partial<TextShape>) {
     Object.assign(this.textDefaults, Object.fromEntries(Object.entries(patch).filter(([k]) => k !== 'text' && k !== 'path' && k !== 'vt' && k !== 'maxW' && k !== 'maxH' && k !== 'fit')));
