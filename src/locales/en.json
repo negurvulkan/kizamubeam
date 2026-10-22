@@ -2543,5 +2543,13 @@
   "Senkrecht (um 90° gedreht)": "Vertical (rotated by 90°)",
   "Orange gestrichelt: Vorschau. Formen und Texte werden zu Bézierpfaden, Bilder werden neu berechnet.": "Dashed orange: preview. Shapes and text become Bézier paths, images are recalculated.",
   "Text lässt sich danach nicht mehr als Text bearbeiten.": "Text can no longer be edited as text afterwards.",
-  "Parametrische Bauteile werden dabei zu einfachen Pfaden.": "Parametric parts become plain paths."
+  "Parametrische Bauteile werden dabei zu einfachen Pfaden.": "Parametric parts become plain paths.",
+  "Aufbau": "Setup",
+  "Bearbeitung": "Processing",
+  "Notiz „{name}“ ändern": "Edit note “{name}”",
+  "z. B. 3 mm Pappel-Sperrholz, Baumarkt, Schutzfolie oben": "e.g. 3 mm poplar plywood, hardware store, protective film on top",
+  "z. B. Fokus 2 mm tiefer, Wabenbett, Ursprung links unten, mit Magneten fixiert": "e.g. focus 2 mm lower, honeycomb bed, origin bottom left, held with magnets",
+  "z. B. Reihenfolge, zweiter Durchgang nötig, Kanten nachschleifen, was beim nächsten Mal anders": "e.g. order, second pass needed, sand the edges, what to change next time",
+  "Notizen": "Notes",
+  "Die Notizen werden mit dem Projekt gespeichert.": "Notes are saved with the project."
 }
