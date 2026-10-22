@@ -12,6 +12,7 @@ import { systemFonts } from './fonts';
 import { $, evalExpr, f2, h, iconBtn, numInput, sep, setVal } from './dom';
 import { openCircularArrayDialog, openGridArrayDialog } from './arrayDialogs';
 import { openNestDialog } from './nestDialog';
+import { openBackgroundDialog } from './bgDialog';
 import { openJointDialog } from './jointDialog';
 import { openHingeDialog } from './hingeDialog';
 import { openSlotDialog } from './slotDialog';
@@ -272,6 +273,7 @@ function buildMenu(ed: Editor) {
       { sub: t('Bild'), items: [
         [t('Bild anpassen …'), '', () => openAdjustDialog(ed)],
         [t('Bild nachzeichnen …'), 'Alt+T', () => openTraceDialog(ed)],
+        [t('Hintergrund entfernen …'), '', () => openBackgroundDialog(ed)],
         [t('Bild zuschneiden'), '', () => ed.cropImageSel(false)],
         [t('Maske auf Bild anwenden'), '', () => ed.cropImageSel(true)],
       ] },
@@ -701,6 +703,7 @@ function buildNumbar(ed: Editor) {
     h('span', { html: ICONS.image, class: 'muted icon-inline' }), imgInfo,
     h('button', { class: 'toggle', title: t('Helligkeit, Kontrast, Gamma, Schärfen, Bildmodus'), onclick: () => openAdjustDialog(ed) }, t('Anpassen …')),
     h('button', { class: 'toggle', title: t('Bild in Vektoren umwandeln (Alt+T)'), onclick: () => openTraceDialog(ed) }, t('Nachzeichnen …')),
+    h('button', { class: 'toggle', title: t('Hintergrund freistellen: ähnliche Farben werden transparent und nicht gelasert'), onclick: () => openBackgroundDialog(ed) }, t('Freistellen …')),
   );
   // Zuschneiden und Maske: nur sichtbar, wenn neben einem Bild auch Formen gewählt sind
   const cropBtns = [

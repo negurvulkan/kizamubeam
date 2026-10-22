@@ -70,6 +70,8 @@
         "Ten image modes, including Floyd-Steinberg, Jarvis, Stucki, halftone, newsprint, sketch and grayscale",
         "Brightness, contrast, gamma, sharpening and denoise with before/after compare and a 1:1 view",
         "The workspace shows the rasterized result at laser resolution",
+        "Crop, mask and remove backgrounds locally, trace images into clean Bézier paths",
+        "Fill engraving with scan angle, cross-hatch, overscan and bidirectional mode",
         "Crop and mask images, trace them into clean Bézier paths",
         "Fill engraving with scan angle, cross-hatch, overscan and bidirectional mode, or offset fill in rings",
         "Camera overlay: calibrate a USB or head-mounted camera and see your material on the workspace"
