@@ -2526,5 +2526,13 @@
   "Durchmesser am rechten Rand (mm)": "Diameter at right edge (mm)",
   "Durchmesser des Objekts dort, wo der Job links beginnt (kleinstes X); mit dem Rahmen anfahren und messen": "Object diameter where the job starts on the left (smallest X); run the frame there and measure",
   "Durchmesser des Objekts dort, wo der Job rechts endet (größtes X)": "Object diameter where the job ends on the right (largest X)",
-  "Konisch: Das Objekt so unterlegen, dass seine Oberseite waagerecht liegt. Die Mitte des Jobs in Y bleibt eine gerade Linie, nach oben und unten wird zum dünnen Ende hin stärker gedreht. Bei Walzen wird angenommen, dass das Objekt am dickeren Ende aufliegt. Ändert sich der Job, die Durchmesser an den neuen Rändern messen.": "Tapered: shim the object so that its top surface is level. The middle of the job in Y stays a straight line; above and below it, the object turns further towards the thin end. With rollers, the object is assumed to rest on its thicker end. If the job changes, measure the diameters at the new edges."
+  "Konisch: Das Objekt so unterlegen, dass seine Oberseite waagerecht liegt. Die Mitte des Jobs in Y bleibt eine gerade Linie, nach oben und unten wird zum dünnen Ende hin stärker gedreht. Bei Walzen wird angenommen, dass das Objekt am dickeren Ende aufliegt. Ändert sich der Job, die Durchmesser an den neuen Rändern messen.": "Tapered: shim the object so that its top surface is level. The middle of the job in Y stays a straight line; above and below it, the object turns further towards the thin end. With rollers, the object is assumed to rest on its thicker end. If the job changes, measure the diameters at the new edges.",
+  "Aufbau": "Setup",
+  "Bearbeitung": "Processing",
+  "Notiz „{name}“ ändern": "Edit note “{name}”",
+  "z. B. 3 mm Pappel-Sperrholz, Baumarkt, Schutzfolie oben": "e.g. 3 mm poplar plywood, hardware store, protective film on top",
+  "z. B. Fokus 2 mm tiefer, Wabenbett, Ursprung links unten, mit Magneten fixiert": "e.g. focus 2 mm lower, honeycomb bed, origin bottom left, held with magnets",
+  "z. B. Reihenfolge, zweiter Durchgang nötig, Kanten nachschleifen, was beim nächsten Mal anders": "e.g. order, second pass needed, sand the edges, what to change next time",
+  "Notizen": "Notes",
+  "Die Notizen werden mit dem Projekt gespeichert.": "Notes are saved with the project."
 }
