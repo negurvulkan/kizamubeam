@@ -2223,6 +2223,23 @@ body.dock-resizing #canvas {
   color: #d32f2f;
 }
 
+/* Fenster „Notizen“ */
+.note-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+.note-text {
+  font: inherit;
+  resize: vertical;
+  min-height: 3em;
+}
+.note-hint {
+  margin: 0;
+  font-size: 0.9em;
+}
+
 /* Fenster „Parameter“ */
 .param-list {
   display: flex;

@@ -63,7 +63,7 @@ function defaultLayout(): Layout {
   return {
     v: 1,
     left: [],
-    right: [g(['cuts'], 220), g(['objects', 'history', 'params'], 260), g(['laser', 'move', 'console', 'material', 'camera'], 400)],
+    right: [g(['cuts'], 220), g(['objects', 'history', 'params', 'notes'], 260), g(['laser', 'move', 'console', 'material', 'camera'], 400)],
     leftW: 280,
     rightW: 310,
     floats: [],
