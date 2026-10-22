@@ -27,6 +27,7 @@ import { openPacksDialog } from './packsDialog';
 import { buildLaser, frameJob, openDeviceDialog, openDevicesDialog, openPreview, openRotaryDialog, saveGCode, startJob } from './laser';
 import { openLayerDialog } from './layerdialog';
 import { openMaterialTestDialog } from './materialtest';
+import { openTestPhotoDialog } from './testphotoDialog';
 import { BoolBase } from './ops';
 import { agentStatus, openAgentDialog } from './agentui';
 import { startAgentBridge } from './agent';
@@ -328,6 +329,7 @@ function buildMenu(ed: Editor) {
       [t('Kontur-Rahmen'), '', () => frameJob(ed, true)],
       'sep',
       [t('Materialtest …'), '', () => openMaterialTestDialog(ed)],
+      [t('Materialtest auswerten …'), '', () => openTestPhotoDialog(ed)],
       [t('Passung kalibrieren …'), '', () => openCalibrateDialog(ed)],
       'sep',
       [t('Laser einrichten …'), '', () => openSetupWizard(ed)],
@@ -939,6 +941,7 @@ function buildBars(ed: Editor) {
     { id: 'gcode', cat: L, icon: 'gcode', label: t('G-Code speichern'), run: () => saveGCode(ed) },
     { id: 'setup', cat: L, short: t('Einrichten'), label: t('Laser einrichten: Schritt für Schritt von der Verbindung bis zum ersten Testauftrag'), run: () => openSetupWizard(ed) },
     { id: 'materialtest', cat: L, short: t('Test'), label: t('Materialtest …'), run: () => openMaterialTestDialog(ed) },
+    { id: 'testphoto', cat: L, short: t('Auswerten'), label: t('Materialtest auswerten: Foto des gelaserten Tests laden und die beste Zelle anklicken'), run: () => openTestPhotoDialog(ed) },
     { id: 'calibrate', cat: L, short: t('Passung'), label: t('Passung kalibrieren: Schnittfuge und Steckspiel für ein Material ermitteln'), run: () => openCalibrateDialog(ed) },
     { id: 'devsettings', cat: L, icon: 'settings', label: t('Geräteeinstellungen'), run: () => openDeviceDialog(ed) },
     { id: 'devices', cat: L, short: t('Geräte'), label: t('Geräte …'), run: () => openDevicesDialog(ed) },

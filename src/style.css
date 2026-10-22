@@ -1373,6 +1373,48 @@ table.layers input[type='checkbox'] {
 .mt-left .form {
   grid-template-columns: 1fr 180px;
 }
+.tp-dialog {
+  width: min(1180px, 96vw);
+}
+.tp-body {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 16px;
+}
+.tp-left {
+  min-width: 0;
+}
+.tp-wrap {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+.tp-canvas {
+  display: block;
+  touch-action: none;
+  border-radius: 4px;
+  cursor: crosshair;
+}
+.tp-empty {
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--muted, inherit);
+}
+.tp-right {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tp-step {
+  font-weight: 600;
+}
+@media (max-width: 860px) {
+  .tp-body {
+    grid-template-columns: 1fr;
+  }
+}
 /* Lange Layernamen (z. B. aus der Material-Bibliothek) nicht umbrechen */
 table.layers td:nth-child(2) {
   max-width: 120px;
