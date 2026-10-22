@@ -71,7 +71,7 @@
         "Arbeitsfläche zeigt das gerasterte Ergebnis in Laser-Auflösung",
         "Bilder zuschneiden und maskieren, Vektorisieren (Trace) zu sauberen Bézierpfaden",
         "Füllgravur mit Scanwinkel, Kreuzschraffur, Overscan und bidirektional",
-        "Kamera-Overlay: USB- oder Kopfkamera kalibrieren und Material direkt auf der Arbeitsfläche sehen"
+        "Kamera-Overlay: USB- oder Kopfkamera kalibrieren, Material direkt auf der Arbeitsfläche sehen und ein Design automatisch auf alle erkannten Werkstücke legen"
       ]
     },
     "machine": {

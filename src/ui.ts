@@ -11,6 +11,7 @@ import { systemFonts } from './fonts';
 import { $, evalExpr, f2, h, iconBtn, numInput, sep, setVal } from './dom';
 import { openCircularArrayDialog, openGridArrayDialog } from './arrayDialogs';
 import { openNestDialog } from './nestDialog';
+import { openWorkpieceDialog } from './workpieceDialog';
 import { openJointDialog } from './jointDialog';
 import { openHingeDialog } from './hingeDialog';
 import { openQrDialog, openVarTextDialog } from './qrDialog';
@@ -289,6 +290,7 @@ function buildMenu(ed: Editor) {
       ] },
       'sep',
       [t('Verschachteln …'), '', () => openNestDialog(ed)],
+      [t('Auf Werkstücke übertragen (Kamera) …'), '', () => openWorkpieceDialog(ed)],
     ]],
     [t('Seiten'), [
       [t('Neue Seite'), '', () => ed.addPage()],
