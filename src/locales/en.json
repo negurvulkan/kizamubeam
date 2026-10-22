@@ -1241,7 +1241,6 @@
   "variabel": "variable",
   "{n} Knoten": "{n} nodes",
   "Formen ändern": "Modify shapes",
-  "Neu (rückgängig machbar)": "New (can be undone)",
   "Öffnen": "Open",
   "Importieren: Bilder, SVG, DXF (Ctrl+I)": "Import: images, SVG, DXF (Ctrl+I)",
   "Als SVG exportieren": "Export as SVG",
@@ -2526,5 +2525,11 @@
   "z. B. Fokus 2 mm tiefer, Wabenbett, Ursprung links unten, mit Magneten fixiert": "e.g. focus 2 mm lower, honeycomb bed, origin bottom left, held with magnets",
   "z. B. Reihenfolge, zweiter Durchgang nötig, Kanten nachschleifen, was beim nächsten Mal anders": "e.g. order, second pass needed, sand the edges, what to change next time",
   "Notizen": "Notes",
-  "Die Notizen werden mit dem Projekt gespeichert.": "Notes are saved with the project."
+  "Die Notizen werden mit dem Projekt gespeichert.": "Notes are saved with the project.",
+  "Unbenannt": "Untitled",
+  "projekt": "project",
+  "„{name}“ hat ungespeicherte Änderungen. Trotzdem schließen?": "“{name}” has unsaved changes. Close anyway?",
+  "{name} (ungespeicherte Änderungen)": "{name} (unsaved changes)",
+  "Tab schließen": "Close tab",
+  "Neues Projekt in neuem Tab (Ctrl+N)": "New project in a new tab (Ctrl+N)"
 }

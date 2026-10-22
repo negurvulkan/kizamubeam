@@ -26,6 +26,7 @@ import { BoolBase } from './ops';
 import { agentStatus, openAgentDialog } from './agentui';
 import { startAgentBridge } from './agent';
 import { buildObjectsPanel } from './objectsPanel';
+import { buildTabBar, closeTabAsk } from './tabsBar';
 import { buildHistoryPanel } from './historyPanel';
 import { buildCheckPanel, openCheck } from './checkPanel';
 import { openCalibrateDialog } from './calibrateDialog';
@@ -134,6 +135,7 @@ export function buildUI(ed: Editor) {
   ed.onGenGuard = askGenConvert;
   ed.onJointDialog = () => openJointDialog(ed);
   installDropAndPaste(ed, $('#stage'));
+  buildTabBar(ed);
   window.addEventListener('keydown', (e) => {
     const el = e.target as HTMLElement;
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')) return;
@@ -171,10 +173,11 @@ type MenuItem = [label: string, key: string, action: () => void, checked?: () =>
 function buildMenu(ed: Editor) {
   const menus: [string, MenuItem[]][] = [
     [t('Datei'), [
-      [t('Neu'), '', () => ed.newDocument()],
+      [t('Neu'), 'Ctrl+N', () => ed.newTab()],
       [t('Neu aus Vorlage …'), '', () => openTemplateLibrary(ed)],
-      [t('Öffnen …'), '', () => openProject(ed)],
-      [t('Speichern …'), '', () => saveProject(ed)],
+      [t('Öffnen …'), 'Ctrl+O', () => openProject(ed)],
+      [t('Speichern …'), 'Ctrl+S', () => saveProject(ed)],
+      [t('Tab schließen'), '', () => closeTabAsk(ed)],
       'sep',
       [t('Als Vorlage speichern …'), '', () => openSaveTemplateDialog(ed)],
       [t('Vorlage ausfüllen …'), '', () => openFillDialog(ed)],
@@ -823,7 +826,7 @@ function buildBars(ed: Editor) {
     L = t('Laser');
   const tool = (id: Tool, icon: string, label: string): Action => ({ id: `tool:${id}`, cat: W, icon, label, run: () => ed.setTool(id), on: () => ed.tool === id });
   const list: Action[] = [
-    { id: 'new', cat: F, icon: 'new', label: t('Neu (rückgängig machbar)'), run: () => ed.newDocument() },
+    { id: 'new', cat: F, icon: 'new', label: t('Neues Projekt in neuem Tab (Ctrl+N)'), run: () => ed.newTab() },
     { id: 'open', cat: F, icon: 'open', label: t('Öffnen'), run: () => openProject(ed) },
     { id: 'save', cat: F, icon: 'save', label: t('Speichern'), run: () => saveProject(ed) },
     { id: 'import', cat: F, icon: 'import', label: t('Importieren: Bilder, SVG, DXF (Ctrl+I)'), run: () => importFile(ed) },

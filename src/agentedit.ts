@@ -23,6 +23,7 @@ import { builtinTemplates } from './builtinTemplates';
 import { packTemplates } from './packs';
 import { defaultTemplate, guessColumns, tableRows, listTemplates, readTemplate, templateFields, templateFileName, templateJson, writeTemplate } from './templates';
 import { DEFAULT_NEST_SETTINGS, NestSettings } from './editor/nest';
+import { tabNameFromPath } from './editor/tabs';
 import { Args, describe, findObj, flip, machineBox, pageList, r3, Tier, ToolDef, ToolError } from './agentutil';
 import { CheckIssue, fixLabel, loadCheckSettings } from './check';
 
@@ -1430,6 +1431,7 @@ export const EDIT_TOOLS: ToolDef[] = [
       }
       try {
         ed.openDoc(new TextDecoder().decode(buf));
+        ed.markSaved(tabNameFromPath(path));
       } catch (e) {
         throw new ToolError((e as Error).message);
       }
@@ -1451,6 +1453,7 @@ export const EDIT_TOOLS: ToolDef[] = [
       const { invoke } = await import('@tauri-apps/api/core');
       try {
         await invoke('agent_write_file', { path, contents: svg ? buildSvg(ed) : ed.serialize(), overwrite: bool(a, 'overwrite', false) });
+        if (!svg) ed.markSaved(tabNameFromPath(path));
       } catch (e) {
         throw new ToolError(String(e));
       }
