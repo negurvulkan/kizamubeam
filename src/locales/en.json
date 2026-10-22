@@ -2694,7 +2694,7 @@
   "Striche werden auf ihre Mitte ausgedünnt und als offene Pfade nachgezeichnet, z. B. für Handschrift oder Strichzeichnungen. Kurze Seitenäste werden entfernt.": "Strokes are thinned to their center and traced as open paths, e.g. for handwriting or line drawings. Short side branches are removed.",
   "Umrisse": "Outlines",
   "Mittellinien": "Centerlines",
-  "{lines} Linien, {nodes} Knoten ({ms} ms). Orange gestrichelt: Vorschau.": "{lines} lines, {nodes} nodes ({ms} ms). Dashed orange: preview."
+  "{lines} Linien, {nodes} Knoten ({ms} ms). Orange gestrichelt: Vorschau.": "{lines} lines, {nodes} nodes ({ms} ms). Dashed orange: preview.",
   "Füllart": "Fill style",
   "Kontur folgend": "Offset fill",
   "Zeilenweise: Fläche Zeile für Zeile abtasten. Kontur folgend: Ringe, die dem Umriss nach innen folgen (gut für schmale Rahmen, Schrift und Ornamente).": "Line by line: scan the area line by line. Offset fill: rings that follow the outline inwards (good for narrow frames, lettering and ornaments).",
@@ -2735,7 +2735,7 @@
   "Name, Art und Stichwörter ändern": "Change name, type and tags",
   "Ändern …": "Change …",
   "Als .kza-Datei speichern (z. B. zum Weitergeben)": "Save as .kza file (e.g. to share)",
-  "Export …": "Export …"
+  "Export …": "Export …",
   "Schlitze anpassen": "Resize slots",
   "Erkannte Schlitzbreiten: {list}": "Detected slot widths: {list}",
   "Keine Schlitze erkannt. Gesucht werden Durchbrüche und Kerben mit zwei parallelen Seiten, die tiefer als breit sind.": "No slots detected. The search looks for cut-outs and notches with two parallel sides that are deeper than they are wide.",
@@ -2761,7 +2761,7 @@
   ", {n} übersprungen.": ", {n} skipped.",
   "Nichts angepasst.": "Nothing changed.",
   "Schlitze an Materialdicke anpassen …": "Resize slots to material thickness …",
-  " (Spiel {p} mm)": " (play {p} mm)"
+  " (Spiel {p} mm)": " (play {p} mm)",
   "Erst Eckknoten auswählen (Klick, Shift+Klick oder Rahmen).": "Select corner nodes first (click, Shift+click or marquee).",
   "Keine Ecken in der Auswahl: Pfade oder Formen mit Ecken auswählen.": "No corners in the selection: select paths or shapes with corners.",
   "Ecken runden": "Round corners",
@@ -2786,7 +2786,7 @@
   "Radius (mm)": "Radius (mm)",
   "Runden": "Round",
   "Innen runden (Bogen um die Ecke)": "Inverse round (arc around the corner)",
-  "Fasen": "Chamfer"
+  "Fasen": "Chamfer",
   "Unbenannt": "Untitled",
   "projekt": "project",
   "„{name}“ hat ungespeicherte Änderungen. Trotzdem schließen?": "“{name}” has unsaved changes. Close anyway?",
