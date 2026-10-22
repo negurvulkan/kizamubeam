@@ -33,7 +33,9 @@ import { EditorNest } from './editor/nest';
 import { EditorSeries } from './editor/series';
 import { EditorCheck } from './editor/check';
 import { EditorLibrary } from './editor/library';
+import { EditorWarp } from './editor/warp';
 import { EditorNotes } from './editor/notes';
+import { EditorTabs, ProjectTab } from './editor/tabs';
 import { t } from './i18n';
 
 export type { Tool } from './editor/shared';
@@ -79,7 +81,16 @@ export class Editor {
   hint = '';
 
   /** Rückgängig-Verlauf mit benannten Schritten (Verlaufsfenster, höchstens 200) */
-  readonly history = new History();
+  history = new History();
+
+  // Mehrere Projekte als Tabs (src/editor/tabs.ts); der aktive Tab liegt in doc, history und view
+  tabs: ProjectTab[] = [];
+  tabIndex = 0;
+  /** Tabs haben sich geändert (Liste, aktiver Tab, Name, ungespeichert); von der Oberfläche gesetzt */
+  onTabsChange: (() => void) | null = null;
+  get tab(): ProjectTab {
+    return this.tabs[this.tabIndex];
+  }
   clipboard: Obj[] = [];
   drag: Drag | null = null;
   space = false;
@@ -430,8 +441,10 @@ export interface Editor
     EditorSeries,
     EditorCheck,
     EditorLibrary,
+    EditorWarp,
     EditorNotes,
     EditorImages,
+    EditorTabs,
     EditorRender {}
 
 const PARTS = [
@@ -453,8 +466,10 @@ const PARTS = [
   EditorSeries,
   EditorCheck,
   EditorLibrary,
+  EditorWarp,
   EditorNotes,
   EditorImages,
+  EditorTabs,
   EditorRender,
 ];
 for (const part of PARTS) {

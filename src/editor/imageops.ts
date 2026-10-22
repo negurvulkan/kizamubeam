@@ -3,6 +3,8 @@ import { DEFAULT_ADJUST, IDENT, ImageAdjust, ImageLayer, ImageShape, inv, leaves
 import { addAsset, adjustedGray, assetImage, sourceSize } from '../images';
 import { ImportResult, transformSubs } from '../importers';
 import { traceGray, TraceOptions } from '../trace';
+import { backgroundAlpha, BgOptions, opaqueBounds } from '../bgremove';
+import { centerlineGray } from '../centerline';
 import { bezierPt, boundsOf, segments, shapeSubs, subsToPath2D, textOutline } from '../geom';
 import { dec, t, tn } from '../i18n';
 import type { Editor } from '../editor';
@@ -98,6 +100,64 @@ export class EditorImages {
     this.hint = mask
       ? t('Maske angewendet: {w} × {h} Pixel bleiben, die Masken-Formen wurden entfernt (Ctrl+Z macht es rückgängig).', { w: c.width, h: c.height })
       : t('Bild zugeschnitten auf {w} × {h} Pixel, die Form wurde entfernt (Ctrl+Z macht es rückgängig).', { w: c.width, h: c.height });
+    this.emit('doc');
+  }
+
+  /** RGBA-Daten eines Bildes, höchstens maxPx Bildpunkte (sonst verkleinert); null = noch nicht geladen */
+  imagePixels(this: Editor, o: Obj, maxPx = Infinity): { rgba: Uint8ClampedArray<ArrayBuffer>; w: number; h: number; scale: number } | null {
+    if (o.shape.kind !== 'image') return null;
+    const img = assetImage(o.shape.asset),
+      src = sourceSize(o.shape.asset);
+    if (!img || !src) return null;
+    const scale = Math.min(1, Math.sqrt(maxPx / (src.w * src.h)));
+    const w = Math.max(1, Math.round(src.w * scale)),
+      h = Math.max(1, Math.round(src.h * scale));
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext('2d', { willReadFrequently: true })!;
+    ctx.drawImage(img, 0, 0, w, h);
+    return { rgba: ctx.getImageData(0, 0, w, h).data, w, h, scale };
+  }
+
+  /**
+   * Hintergrund eines Bildes entfernen (lokal, ohne Cloud): passende Bildpunkte werden transparent und damit nicht
+   * gelasert. Das Bild bekommt neue Bilddaten in Originalauflösung; mit trim wird es auf das Motiv zugeschnitten.
+   * Ein Undo-Schritt.
+   */
+  async removeBackground(this: Editor, o: Obj, opt: BgOptions, trim: boolean) {
+    const px = this.imagePixels(o);
+    if (!px || o.shape.kind !== 'image') {
+      this.hint = t('Das Bild ist noch nicht geladen.');
+      this.emit('tool');
+      return;
+    }
+    const s = o.shape;
+    const { rgba, w, h } = px;
+    const alpha = backgroundAlpha(rgba, w, h, opt);
+    const box = trim ? opaqueBounds(alpha, w, h) : { x: 0, y: 0, w, h };
+    if (!box) {
+      this.hint = t('Mit diesen Einstellungen bliebe vom Bild nichts übrig. Toleranz verringern.');
+      this.emit('tool');
+      return;
+    }
+    let removed = 0;
+    for (let p = 0; p < alpha.length; p++) {
+      if (alpha[p] < 128) removed++;
+      rgba[p * 4 + 3] = Math.min(rgba[p * 4 + 3], alpha[p]);
+    }
+    const c = document.createElement('canvas');
+    c.width = box.w;
+    c.height = box.h;
+    c.getContext('2d')!.putImageData(new ImageData(rgba, w, h), -box.x, -box.y);
+    const a = await addAsset(c.toDataURL('image/png'));
+    this.snapshot(t('Hintergrund entfernen'));
+    const kx = s.w / w,
+      ky = s.h / h;
+    o.m = mul(o.m, translate(box.x * kx, box.y * ky));
+    o.shape = { ...s, asset: a.id, w: box.w * kx, h: box.h * ky, pxW: a.w, pxH: a.h };
+    this.setSel([o]);
+    this.hint = t('Hintergrund entfernt: {pct} % des Bildes sind jetzt transparent und werden nicht gelasert (Ctrl+Z macht es rückgängig).', { pct: Math.round((removed / alpha.length) * 100) });
     this.emit('doc');
   }
 
@@ -198,7 +258,7 @@ export class EditorImages {
     const g = adjustedGray(s, cols, rows);
     if (!g) return [];
     // Bildpunkte → lokale mm → Welt
-    const subs = traceGray(g, cols, rows, opt);
+    const subs = (opt.centerline ? centerlineGray : traceGray)(g, cols, rows, opt);
     return transformSubs(subs, mul(o.m, [s.w / cols, 0, 0, s.h / rows, 0, 0]));
   }
   /** Vorschau-Konturen (orange gestrichelt) setzen oder entfernen */
@@ -207,14 +267,16 @@ export class EditorImages {
     this.redraw();
   }
   /** Nachgezeichnete Konturen als neues Objekt über dem Bild einfügen */
-  commitTrace(this: Editor, o: Obj, subs: SubPath[], deleteImage: boolean) {
+  commitTrace(this: Editor, o: Obj, subs: SubPath[], deleteImage: boolean, centerline = false) {
     if (!subs.length) return;
-    this.snapshot(t('Bild nachzeichnen'));
+    this.snapshot(centerline ? t('Mittellinien nachzeichnen') : t('Bild nachzeichnen'));
     const res: Obj = { id: newId(), m: IDENT, layer: o.layer, shape: { kind: 'path', subs } };
     if (deleteImage) this.doc.objs = this.doc.objs.filter((x) => x !== o);
     this.doc.objs.push(res);
     this.setSel([res]);
-    this.hint = tn('{n} Kontur nachgezeichnet.', '{n} Konturen nachgezeichnet.', subs.length);
+    this.hint = centerline
+      ? tn('{n} Mittellinie nachgezeichnet.', '{n} Mittellinien nachgezeichnet.', subs.length)
+      : tn('{n} Kontur nachgezeichnet.', '{n} Konturen nachgezeichnet.', subs.length);
     this.emit('doc');
   }
 }

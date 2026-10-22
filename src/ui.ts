@@ -1,5 +1,6 @@
 // Oberfläche: Menü, Leisten, Panels, Palette, Statusleiste.
 import { Editor, Tool } from './editor';
+import type { CornerMode } from './corners';
 import { ICONS } from './icons';
 import { DITHER_MODES, DitherMode, ImageAdjust, ImageLayer, ImageShape, isCellMode, Layer, layerLabel, Obj, ObjBindKey, pageName, PALETTE, SubPath, TextShape, BarcodeShape, GenShape } from './model';
 import { evaluate, formatNumber, namesIn } from './params';
@@ -11,8 +12,12 @@ import { systemFonts } from './fonts';
 import { $, evalExpr, f2, h, iconBtn, numInput, sep, setVal } from './dom';
 import { openCircularArrayDialog, openGridArrayDialog } from './arrayDialogs';
 import { openNestDialog } from './nestDialog';
+import { openWorkpieceDialog } from './workpieceDialog';
+import { openBackgroundDialog } from './bgDialog';
 import { openJointDialog } from './jointDialog';
 import { openHingeDialog } from './hingeDialog';
+import { openSlotDialog } from './slotDialog';
+import { openWarpDialog } from './warpDialog';
 import { openQrDialog, openVarTextDialog } from './qrDialog';
 import { askGenConvert, openGenDialog } from './generators/dialog';
 import { genLabel, getGenerator } from './generators';
@@ -22,10 +27,12 @@ import { openPacksDialog } from './packsDialog';
 import { buildLaser, frameJob, openDeviceDialog, openDevicesDialog, openPreview, openRotaryDialog, saveGCode, startJob } from './laser';
 import { openLayerDialog } from './layerdialog';
 import { openMaterialTestDialog } from './materialtest';
+import { openTestPhotoDialog } from './testphotoDialog';
 import { BoolBase } from './ops';
 import { agentStatus, openAgentDialog } from './agentui';
 import { startAgentBridge } from './agent';
 import { buildObjectsPanel } from './objectsPanel';
+import { buildTabBar, closeTabAsk } from './tabsBar';
 import { buildHistoryPanel } from './historyPanel';
 import { buildLibraryPanel, openAddSelectionDialog } from './libraryPanel';
 import { buildCheckPanel, openCheck } from './checkPanel';
@@ -136,6 +143,7 @@ export function buildUI(ed: Editor) {
   ed.onGenGuard = askGenConvert;
   ed.onJointDialog = () => openJointDialog(ed);
   installDropAndPaste(ed, $('#stage'));
+  buildTabBar(ed);
   window.addEventListener('keydown', (e) => {
     const el = e.target as HTMLElement;
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')) return;
@@ -173,10 +181,11 @@ type MenuItem = [label: string, key: string, action: () => void, checked?: () =>
 function buildMenu(ed: Editor) {
   const menus: [string, MenuItem[]][] = [
     [t('Datei'), [
-      [t('Neu'), '', () => ed.newDocument()],
+      [t('Neu'), 'Ctrl+N', () => ed.newTab()],
       [t('Neu aus Vorlage …'), '', () => openTemplateLibrary(ed)],
-      [t('Öffnen …'), '', () => openProject(ed)],
-      [t('Speichern …'), '', () => saveProject(ed)],
+      [t('Öffnen …'), 'Ctrl+O', () => openProject(ed)],
+      [t('Speichern …'), 'Ctrl+S', () => saveProject(ed)],
+      [t('Tab schließen'), '', () => closeTabAsk(ed)],
       'sep',
       [t('Als Vorlage speichern …'), '', () => openSaveTemplateDialog(ed)],
       [t('Vorlage ausfüllen …'), '', () => openFillDialog(ed)],
@@ -238,12 +247,14 @@ function buildMenu(ed: Editor) {
         [t('Boolesche Optionen …'), '', () => openBooleanDialog(ed)],
       ] },
       [t('Offset …'), 'Alt+O', () => openOffsetDialog(ed)],
+      [t('Verformen …'), '', () => openWarpDialog(ed)],
       { sub: t('Pfad'), items: [
         [t('Pfad schließen'), '', () => ed.closeSel()],
         [t('Pfade mit Toleranz schließen …'), '', () => openCloseDialog(ed)],
         [t('Ausgewählte Formen verbinden'), 'Alt+J', () => ed.joinSel()],
         [t('Zerlegen'), 'Alt+B', () => ed.breakApartSel()],
         [t('Richtung umkehren'), '', () => ed.reverseSel()],
+        [t('Ecken runden oder fasen …'), '', () => openCornerDialog(ed)],
         'sep',
         [t('Formen trimmen'), 'Ctrl+K', () => ed.setTool('trim')],
         [t('Startpunkt setzen'), '', () => ed.setTool('start')],
@@ -255,6 +266,7 @@ function buildMenu(ed: Editor) {
       [t('Verbindungen (Zinken, Zapfen, Keil, T-Slot) …'), '', () => ed.setTool('joint')],
       [t('Scharnier für Deckel …'), '', () => ed.startHingeTool()],
       [t('Biegeschnitte (Living Hinge) …'), '', () => openHingeDialog(ed)],
+      [t('Schlitze an Materialdicke anpassen …'), '', () => openSlotDialog(ed)],
       'sep',
       { sub: t('Textfunktionen'), items: [
         [t('Text auf Pfad'), '', () => ed.applyPathToText()],
@@ -266,6 +278,7 @@ function buildMenu(ed: Editor) {
       { sub: t('Bild'), items: [
         [t('Bild anpassen …'), '', () => openAdjustDialog(ed)],
         [t('Bild nachzeichnen …'), 'Alt+T', () => openTraceDialog(ed)],
+        [t('Hintergrund entfernen …'), '', () => openBackgroundDialog(ed)],
         [t('Bild zuschneiden'), '', () => ed.cropImageSel(false)],
         [t('Maske auf Bild anwenden'), '', () => ed.cropImageSel(true)],
       ] },
@@ -294,6 +307,7 @@ function buildMenu(ed: Editor) {
       ] },
       'sep',
       [t('Verschachteln …'), '', () => openNestDialog(ed)],
+      [t('Auf Werkstücke übertragen (Kamera) …'), '', () => openWorkpieceDialog(ed)],
     ]],
     [t('Seiten'), [
       [t('Neue Seite'), '', () => ed.addPage()],
@@ -318,6 +332,7 @@ function buildMenu(ed: Editor) {
       [t('Kontur-Rahmen'), '', () => frameJob(ed, true)],
       'sep',
       [t('Materialtest …'), '', () => openMaterialTestDialog(ed)],
+      [t('Materialtest auswerten …'), '', () => openTestPhotoDialog(ed)],
       [t('Passung kalibrieren …'), '', () => openCalibrateDialog(ed)],
       'sep',
       [t('Laser einrichten …'), '', () => openSetupWizard(ed)],
@@ -657,16 +672,18 @@ function buildNumbar(ed: Editor) {
   const fVtOff = numInput('small', (v) => ed.updateTexts({ vt: { offset: Math.round(v) } }), t('Versatz: wird zur aktuellen Nummer addiert'));
   const bVtDlg = h('button', { class: 'toggle', title: t('Nummer, CSV-Datei und Platzhalter'), onclick: () => openVarTextDialog(ed) }, '…');
   const vtProps = h('span', { class: 'field' }, h('label', {}, t('Versatz|Variabler Text'), fVtOff), bVtDlg);
-  const fMaxW = numInput('small', plain(['maxW'], (v) => ed.updateTexts({ maxW: Math.max(0, v) })), t('Höchstbreite (mm): breitere Zeilen werden gestaucht (oder mit „Verkleinern“ verkleinert), 0 = aus'), formula('maxW'));
+  const fMaxW = numInput('small', plain(['maxW'], (v) => ed.updateTexts({ maxW: Math.max(0, v) })), t('Höchstbreite (mm): breitere Zeilen werden gestaucht (mit „Verkleinern“ verkleinert, mit „Umbrechen“ umbrochen), 0 = aus'), formula('maxW'));
   const fMaxH = numInput('small', plain(['maxH'], (v) => ed.updateTexts({ maxH: Math.max(0, v) })), t('Höchsthöhe (mm): ein höherer Textblock wird gleichmäßig verkleinert, 0 = aus'), formula('maxH'));
   const bShrink = h('button', { class: 'toggle', title: t('Text in Rahmen einpassen: zu breiten Text gleichmäßig verkleinern statt stauchen') }, t('Verkleinern|Text einpassen'));
   bShrink.addEventListener('click', () => ed.updateTexts({ fit: bShrink.classList.contains('on') ? undefined : 'shrink' }));
+  const bWrap = h('button', { class: 'toggle', title: t('Textrahmen: Zeilen an der Max. Breite umbrechen, die Höhe wächst mit (Rahmen auch mit dem Textwerkzeug aufziehen)') }, t('Umbrechen|Textrahmen'));
+  bWrap.addEventListener('click', () => ed.toggleTextWrap());
   const pathProps = h('span', { class: 'field' }, h('label', {}, t('Versatz'), fPOff), h('label', {}, t('Abstand|Text auf Pfad'), fPDist), bPFlip, bPOff);
   const textProps = h(
     'div',
     { class: 'field' },
     h('label', {}, t('Schrift'), fontSel), h('label', {}, t('Höhe'), fSize),
-    h('label', {}, t('Abst. H'), fHs), h('label', {}, 'V', fVs), h('label', {}, t('Max. Breite'), fMaxW), h('label', {}, t('Max. Höhe'), fMaxH), bShrink, ...alignBtns, bBold, bItal, bUp, bWeld, bOnPath, pathProps, bVar, vtProps,
+    h('label', {}, t('Abst. H'), fHs), h('label', {}, 'V', fVs), h('label', {}, t('Max. Breite'), fMaxW), h('label', {}, t('Max. Höhe'), fMaxH), bShrink, bWrap, ...alignBtns, bBold, bItal, bUp, bWeld, bOnPath, pathProps, bVar, vtProps,
   );
 
   // Knotenbearbeitung
@@ -681,6 +698,7 @@ function buildNumbar(ed: Editor) {
     nodeBtn(t('Ecke'), t('Ausgewählte Knoten zu Ecken machen, Anfasser entfernen (E)'), () => ed.setNodeType(false)),
     nodeBtn(t('Glatt'), t('Ausgewählte Knoten glätten (S)'), () => ed.setNodeType(true)),
     nodeBtn(t('Löschen'), t('Ausgewählte Knoten löschen (Entf)'), () => ed.deleteNodes()),
+    nodeBtn(t('Ecken …'), t('Ausgewählte Ecken runden, innen runden oder fasen'), () => openCornerDialog(ed)),
   );
   const sepNode = sep();
 
@@ -692,6 +710,7 @@ function buildNumbar(ed: Editor) {
     h('span', { html: ICONS.image, class: 'muted icon-inline' }), imgInfo,
     h('button', { class: 'toggle', title: t('Helligkeit, Kontrast, Gamma, Schärfen, Bildmodus'), onclick: () => openAdjustDialog(ed) }, t('Anpassen …')),
     h('button', { class: 'toggle', title: t('Bild in Vektoren umwandeln (Alt+T)'), onclick: () => openTraceDialog(ed) }, t('Nachzeichnen …')),
+    h('button', { class: 'toggle', title: t('Hintergrund freistellen: ähnliche Farben werden transparent und nicht gelasert'), onclick: () => openBackgroundDialog(ed) }, t('Freistellen …')),
   );
   // Zuschneiden und Maske: nur sichtbar, wenn neben einem Bild auch Formen gewählt sind
   const cropBtns = [
@@ -795,6 +814,7 @@ function buildNumbar(ed: Editor) {
     bindField(fMaxW, 'maxW', f2(ts.length ? (ts[0].shape as TextShape).maxW ?? 0 : 0), (o) => o.shape.kind === 'text');
     bindField(fMaxH, 'maxH', f2(ts.length ? (ts[0].shape as TextShape).maxH ?? 0 : 0), (o) => o.shape.kind === 'text');
     bShrink.classList.toggle('on', ts.length > 0 && (ts[0].shape as TextShape).fit === 'shrink');
+    bWrap.classList.toggle('on', ts.length > 0 && (ts[0].shape as TextShape).fit === 'wrap');
     bOnPath.hidden = !ed.canApplyPathToText();
     const tp = ts.length ? (ts[0].shape as TextShape).path : undefined;
     pathProps.hidden = !tp;
@@ -826,7 +846,7 @@ function buildBars(ed: Editor) {
     L = t('Laser');
   const tool = (id: Tool, icon: string, label: string): Action => ({ id: `tool:${id}`, cat: W, icon, label, run: () => ed.setTool(id), on: () => ed.tool === id });
   const list: Action[] = [
-    { id: 'new', cat: F, icon: 'new', label: t('Neu (rückgängig machbar)'), run: () => ed.newDocument() },
+    { id: 'new', cat: F, icon: 'new', label: t('Neues Projekt in neuem Tab (Ctrl+N)'), run: () => ed.newTab() },
     { id: 'open', cat: F, icon: 'open', label: t('Öffnen'), run: () => openProject(ed) },
     { id: 'save', cat: F, icon: 'save', label: t('Speichern'), run: () => saveProject(ed) },
     { id: 'import', cat: F, icon: 'import', label: t('Importieren: Bilder, SVG, DXF (Ctrl+I)'), run: () => importFile(ed) },
@@ -844,6 +864,7 @@ function buildBars(ed: Editor) {
     { id: 'join', cat: M, short: t('Verbinden|Pfade'), label: t('Ausgewählte Formen verbinden (Alt+J)'), run: () => ed.joinSel(), enabled: sel2 },
     { id: 'breakapart', cat: M, short: t('Zerlegen'), label: t('Zerlegen (Alt+B)'), run: () => ed.breakApartSel(), enabled: sel1 },
     { id: 'reverse', cat: M, short: t('Umkehren'), label: t('Richtung umkehren'), run: () => ed.reverseSel(), enabled: sel1 },
+    { id: 'corners', cat: M, short: t('Ecken'), label: t('Ecken runden oder fasen …'), run: () => openCornerDialog(ed), enabled: sel1 },
     { id: 'zoomin', cat: V, icon: 'zoomin', label: t('Vergrößern (+)'), run: () => ed.zoomAt(1.25) },
     { id: 'zoomout', cat: V, icon: 'zoomout', label: t('Verkleinern (-)'), run: () => ed.zoomAt(0.8) },
     { id: 'zoompage', cat: V, icon: 'zoompage', label: t('Ganze Seite (Ctrl+0)'), run: () => ed.zoomPage() },
@@ -905,6 +926,7 @@ function buildBars(ed: Editor) {
     { id: 'intersect', cat: M, icon: 'intersect', label: t('Schnittmenge (Alt+*): nur die gemeinsame Fläche behalten'), run: () => ed.booleanSel('intersect'), enabled: sel2 },
     { id: 'boolopts', cat: M, icon: 'settings', small: true, label: t('Boolesche Optionen: Basis und Originale behalten'), run: () => openBooleanDialog(ed) },
     { id: 'offset', cat: M, icon: 'offset', label: t('Offset (Alt+O)'), run: () => openOffsetDialog(ed), enabled: sel1 },
+    { id: 'warp', cat: M, icon: 'warp', label: t('Verformen: Formen, Text und Bilder biegen, wölben oder perspektivisch verzerren'), run: () => openWarpDialog(ed), enabled: sel1 },
     { id: 'gridarray', cat: M, icon: 'gridArray', label: t('Rasterarray: Auswahl in Spalten und Zeilen kopieren (Ctrl+Shift+A)'), run: () => openGridArrayDialog(ed), enabled: sel1 },
     { id: 'circarray', cat: M, icon: 'circArray', label: t('Kreisarray: Auswahl im Kreis um einen Mittelpunkt kopieren'), run: () => openCircularArrayDialog(ed), enabled: sel1 },
     { id: 'nest', cat: M, icon: 'nest', label: t('Verschachteln: Auswahl mit ihren echten Konturen platzsparend auf Bett, Material oder Reststück legen'), run: () => openNestDialog(ed), enabled: sel1 },
@@ -922,6 +944,7 @@ function buildBars(ed: Editor) {
     { id: 'gcode', cat: L, icon: 'gcode', label: t('G-Code speichern'), run: () => saveGCode(ed) },
     { id: 'setup', cat: L, short: t('Einrichten'), label: t('Laser einrichten: Schritt für Schritt von der Verbindung bis zum ersten Testauftrag'), run: () => openSetupWizard(ed) },
     { id: 'materialtest', cat: L, short: t('Test'), label: t('Materialtest …'), run: () => openMaterialTestDialog(ed) },
+    { id: 'testphoto', cat: L, short: t('Auswerten'), label: t('Materialtest auswerten: Foto des gelaserten Tests laden und die beste Zelle anklicken'), run: () => openTestPhotoDialog(ed) },
     { id: 'calibrate', cat: L, short: t('Passung'), label: t('Passung kalibrieren: Schnittfuge und Steckspiel für ein Material ermitteln'), run: () => openCalibrateDialog(ed) },
     { id: 'devsettings', cat: L, icon: 'settings', label: t('Geräteeinstellungen'), run: () => openDeviceDialog(ed) },
     { id: 'devices', cat: L, short: t('Geräte'), label: t('Geräte …'), run: () => openDevicesDialog(ed) },
@@ -933,7 +956,7 @@ function buildBars(ed: Editor) {
     { id: 'grp:bool', cat: M, label: t('Boolesche Operationen (Gruppe)'), items: ['union', 'subtract', 'intersect', 'boolopts'], run: () => {} },
     { id: 'grp:gen', cat: W, label: t('Generatoren (Gruppe)'), items: ['gear', 'rack', 'pulley', 'cam', 'gearpair', 'box', 'drawer', 'insert', 'shelf'], run: () => {} },
     { id: 'grp:array', cat: M, label: t('Arrays (Gruppe)'), items: ['gridarray', 'circarray'], run: () => {} },
-    { id: 'grp:path', cat: M, label: t('Pfad-Werkzeuge (Gruppe)'), items: ['tool:trim', 'tool:start', 'closepath', 'join', 'breakapart', 'reverse'], run: () => {} },
+    { id: 'grp:path', cat: M, label: t('Pfad-Werkzeuge (Gruppe)'), items: ['tool:trim', 'tool:start', 'closepath', 'join', 'breakapart', 'reverse', 'corners'], run: () => {} },
   ];
   initToolbars(
     list,
@@ -945,7 +968,7 @@ function buildBars(ed: Editor) {
       ],
       tools: [
         'tool:select', 'tool:node', SEP, 'tool:line', 'tool:rect', 'tool:ellipse', 'tool:polygon', 'tool:text', 'qr', 'grp:gen', SEP,
-        'grp:bool', 'offset', 'grp:path', 'grp:array', 'nest', 'tool:joint', 'lidhinge', 'hinge',
+        'grp:bool', 'offset', 'warp', 'grp:path', 'grp:array', 'nest', 'tool:joint', 'lidhinge', 'hinge',
       ],
     },
     // Gespeicherte Leisten von vor den Knopfgruppen: die alten Standardfolgen durch die Gruppe ersetzen
@@ -1091,6 +1114,68 @@ function openCloseDialog(ed: Editor) {
   document.body.append(dlg);
   dlg.showModal();
   update();
+}
+
+// ---------- Ecken runden oder fasen ----------
+
+let cornerState = { mode: 'round' as CornerMode, r: 3 };
+
+function openCornerDialog(ed: Editor) {
+  if (!ed.sel.length) return;
+  const st = { ...cornerState };
+  const n = ed.cornerCount();
+  const info = h('div', { class: 'note' });
+  info.textContent = n
+    ? ed.tool === 'node'
+      ? tn('{n} ausgewählte Ecke wird bearbeitet.', '{n} ausgewählte Ecken werden bearbeitet.', n)
+      : tn('{n} Ecke in der Auswahl wird bearbeitet.', '{n} Ecken in der Auswahl werden bearbeitet.', n)
+    : ed.tool === 'node'
+      ? t('Erst Eckknoten auswählen (Klick, Shift+Klick oder Rahmen).')
+      : t('Keine Ecken in der Auswahl: Pfade oder Formen mit Ecken auswählen.');
+  const rLabel = h('label', { for: 'corner-r' });
+  const setLabel = () => (rLabel.textContent = st.mode === 'chamfer' ? t('Abstand von der Ecke (mm)') : t('Radius (mm)'));
+  setLabel();
+  const val = h('input', { type: 'text', id: 'corner-r', value: dec(String(st.r)), style: 'width: 64px' }) as HTMLInputElement;
+  val.onchange = () => {
+    const v = evalExpr(val.value);
+    if (v && v > 0) st.r = v;
+    val.value = dec(String(st.r));
+  };
+  const radio = (value: CornerMode, label: string) =>
+    h('label', {}, h('input', { type: 'radio', name: 'corner-mode', value, checked: st.mode === value, onchange: () => ((st.mode = value), setLabel()) }), label);
+  const dlg = h(
+    'dialog',
+    { class: 'offset-dialog corner-dialog' },
+    h('h3', {}, t('Ecken runden oder fasen')),
+    h(
+      'div',
+      { class: 'form' },
+      h('label', {}, t('Ecke')),
+      h('div', { class: 'radios column' }, radio('round', t('Runden')), radio('inverse', t('Innen runden (Bogen um die Ecke)')), radio('chamfer', t('Fasen'))),
+      rLabel, h('div', { class: 'radios' }, val),
+    ),
+    info,
+    h(
+      'div',
+      { class: 'dialog-buttons' },
+      h('button', { class: 'btn', onclick: () => dlg.close() }, t('Abbrechen')),
+      h('button', {
+        class: 'btn primary',
+        disabled: !n,
+        onclick: () => {
+          val.onchange!(new Event('change'));
+          cornerState = st;
+          dlg.close();
+          ed.cornerSel(st.mode, st.r);
+        },
+      }, t('Übernehmen')),
+    ),
+  );
+  dlg.addEventListener('close', () => dlg.remove());
+  dlg.addEventListener('keydown', (e) => e.stopPropagation());
+  document.body.append(dlg);
+  dlg.showModal();
+  val.select();
 }
 
 // ---------- Offset-Dialog ----------
@@ -1294,7 +1379,8 @@ function layerSummary(L: Layer): string {
   const parts: string[] = [];
   if (L.kerf) parts.push(t('Kerf {kerf} mm', { kerf: fmtNum(L.kerf) }));
   if (L.mode === 'line' && L.tabs.enabled) parts.push(L.tabs.useCount ? t('{count} Stege je Form', { count: L.tabs.count }) : t('Stege alle {spacing} mm', { spacing: fmtNum(L.tabs.spacing) }));
-  if (L.mode === 'fill') {
+  if (L.mode === 'fill' && L.fillStyle === 'offset') parts.push(t('Kontur folgend'));
+  else if (L.mode === 'fill') {
     if (L.angle) parts.push(t('Winkel {angle}°', { angle: fmtNum(L.angle) }));
     if (L.crossHatch) parts.push(t('Kreuzschraffur'));
     if (!L.bidirectional) parts.push(t('nur eine Richtung'));
@@ -1577,7 +1663,7 @@ function assetImageOf(s: ImageShape): HTMLImageElement | null {
 
 // ---------- Bild nachzeichnen ----------
 
-let traceState = { threshold: 128, ignoreLess: 10, smooth: 0.3, deleteImage: false };
+let traceState = { threshold: 128, ignoreLess: 10, smooth: 0.3, deleteImage: false, centerline: false };
 
 function openTraceDialog(ed: Editor) {
   const o = ed.selImages()[0];
@@ -1598,20 +1684,34 @@ function openTraceDialog(ed: Editor) {
       subs = ed.traceImage(o, st);
       ed.setPreview(subs);
       const nodes = subs.reduce((n, sp) => n + sp.nodes.length, 0);
-      info.textContent = t('{contours} Konturen, {nodes} Knoten ({ms} ms). Orange gestrichelt: Vorschau.', { contours: subs.length, nodes, ms: Math.round(performance.now() - t0) });
+      info.textContent = st.centerline
+        ? t('{lines} Linien, {nodes} Knoten ({ms} ms). Orange gestrichelt: Vorschau.', { lines: subs.length, nodes, ms: Math.round(performance.now() - t0) })
+        : t('{contours} Konturen, {nodes} Knoten ({ms} ms). Orange gestrichelt: Vorschau.', { contours: subs.length, nodes, ms: Math.round(performance.now() - t0) });
     }, 120);
   };
   const sT = slider(t('Schwellwert'), 0, 255, 1, st.threshold, (v) => ((st.threshold = v), preview()));
   const sI = slider(t('Kleines ignorieren (px²)'), 0, 500, 1, st.ignoreLess, (v) => ((st.ignoreLess = v), preview()));
   const sS = slider(t('Glättung'), 0, 1, 0.05, st.smooth, (v) => ((st.smooth = v), preview()));
   const del = h('input', { type: 'checkbox', checked: st.deleteImage, onchange: (e: Event) => (st.deleteImage = (e.target as HTMLInputElement).checked) });
+  const note = h('div', { class: 'note' });
+  const showNote = () =>
+    (note.textContent = st.centerline
+      ? t('Striche werden auf ihre Mitte ausgedünnt und als offene Pfade nachgezeichnet, z. B. für Handschrift oder Strichzeichnungen. Kurze Seitenäste werden entfernt.')
+      : t('Dunkler als der Schwellwert wird zur Fläche. Helligkeit, Kontrast und Gamma aus „Bild anpassen“ wirken mit.'));
+  showNote();
+  const mode = h('select', {
+    onchange: (e: Event) => ((st.centerline = (e.target as HTMLSelectElement).value === 'center'), showNote(), preview()),
+  },
+    h('option', { value: 'outline', selected: !st.centerline }, t('Umrisse')),
+    h('option', { value: 'center', selected: st.centerline }, t('Mittellinien')),
+  ) as HTMLSelectElement;
   let applied = false;
   const dlg = h(
     'dialog',
     { class: 'offset-dialog trace-dialog' },
     h('h3', {}, t('Bild nachzeichnen')),
-    h('div', { class: 'form' }, ...sT.el, ...sI.el, ...sS.el, h('span', { class: 'checks' }, h('label', { class: 'check' }, del, t('Bild danach löschen')))),
-    h('div', { class: 'note' }, t('Dunkler als der Schwellwert wird zur Fläche. Helligkeit, Kontrast und Gamma aus „Bild anpassen“ wirken mit.')),
+    h('div', { class: 'form' }, h('label', {}, t('Art')), mode, ...sT.el, ...sI.el, ...sS.el, h('span', { class: 'checks' }, h('label', { class: 'check' }, del, t('Bild danach löschen')))),
+    note,
     info,
     h(
       'div',
@@ -1626,7 +1726,7 @@ function openTraceDialog(ed: Editor) {
     if (applied) {
       traceState = st;
       subs = ed.traceImage(o, st);
-      ed.commitTrace(o, subs, st.deleteImage);
+      ed.commitTrace(o, subs, st.deleteImage, st.centerline);
     }
     dlg.remove();
   });

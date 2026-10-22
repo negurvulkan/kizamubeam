@@ -252,17 +252,30 @@ export async function useTemplateFile(ed: Editor, name: string, json: string) {
   startFromTemplate(ed, json);
 }
 
-/** Vorlage als neues Projekt öffnen und den Ausfüll-Dialog zeigen; Abbrechen stellt das alte Projekt wieder her */
+/**
+ * Vorlage als neues Projekt öffnen (im aktiven Tab, wenn er leer ist, sonst in einem neuen) und den
+ * Ausfüll-Dialog zeigen; Abbrechen stellt den alten Stand wieder her bzw. schließt den neuen Tab.
+ */
 export function startFromTemplate(ed: Editor, json: string) {
+  const prev = ed.tabIndex;
+  const tab = ed.tabIsBlank() ? null : ed.newTab();
+  const close = () => {
+    const i = tab ? ed.tabs.indexOf(tab) : -1;
+    if (i < 0) return false;
+    ed.closeTab(i);
+    if (prev < ed.tabs.length) ed.switchTab(prev);
+    return true;
+  };
   const before = ed.state();
   const redo = ed.history.saveRedo();
   try {
     ed.openTemplate(json);
   } catch (e) {
+    close();
     alert(t('Datei konnte nicht geöffnet werden: {message}', { message: errText(e) }));
     return;
   }
-  openFillDialog(ed, { before, redo });
+  openFillDialog(ed, { before, redo, close });
 }
 
 // ---------- Ausfüllen ----------
@@ -271,7 +284,10 @@ export function startFromTemplate(ed: Editor, json: string) {
  * Ausfüll-Dialog: die Parameter der Vorlage mit Vorschau. fresh: gerade aus einer Vorlage angelegt
  * (Abbrechen stellt den Stand davor wieder her); sonst wird das aktuelle Projekt ausgefüllt.
  */
-export function openFillDialog(ed: Editor, fresh?: { before: string; redo: ReturnType<Editor['history']['saveRedo']> }) {
+export function openFillDialog(
+  ed: Editor,
+  fresh?: { before: string; redo: ReturnType<Editor['history']['saveRedo']>; close?: () => boolean },
+) {
   const fields = templateFields(ed.doc);
   if (!fields.length) {
     hint(ed, fresh ? t('Die Vorlage hat keine Werte zum Ausfüllen.') : t('Das Projekt hat keine Werte zum Ausfüllen. Parameter legst du im Fenster „Parameter“ an.'));
@@ -344,7 +360,8 @@ export function openFillDialog(ed: Editor, fresh?: { before: string; redo: Retur
   showDialog(dlg, () => {
     ed.off(listen);
     if (done) return;
-    // Abbrechen: Stand von vorher, ohne Spur im Verlauf
+    // Abbrechen: eigens geöffneten Tab schließen, sonst Stand von vorher, ohne Spur im Verlauf
+    if (fresh?.close?.()) return;
     ed.clearPageState();
     ed.load(before);
     ed.touchVarText();

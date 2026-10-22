@@ -57,6 +57,7 @@
         "Lines, Bézier curves, rounded rectangles, ellipses, polygons, stars and multi-line text",
         "Boolean operations, offset, node editing, trimming, and snapping to nodes, midpoints and intersections",
         "Text on a path, welded letters and true outlines from your system fonts",
+        "Warp text, shapes and images into an arc, bulge, flag or perspective, as clean Bézier curves",
         "Grid and circular arrays with live preview, multi-page projects and a history you can jump back through",
         "Import SVG, DXF and images – colors map straight to the matching layer",
         "Dockable windows, customizable toolbars, light and dark theme"
@@ -69,8 +70,11 @@
         "Ten image modes, including Floyd-Steinberg, Jarvis, Stucki, halftone, newsprint, sketch and grayscale",
         "Brightness, contrast, gamma, sharpening and denoise with before/after compare and a 1:1 view",
         "The workspace shows the rasterized result at laser resolution",
-        "Crop and mask images, trace them into clean Bézier paths",
+        "Crop, mask and remove backgrounds locally, trace images into clean Bézier paths",
         "Fill engraving with scan angle, cross-hatch, overscan and bidirectional mode",
+        "Camera overlay: calibrate a USB or head-mounted camera, see your material on the workspace and place a design on every detected workpiece automatically"
+        "Crop and mask images, trace them into clean Bézier paths",
+        "Fill engraving with scan angle, cross-hatch, overscan and bidirectional mode, or offset fill in rings",
         "Camera overlay: calibrate a USB or head-mounted camera and see your material on the workspace"
       ]
     },
@@ -82,7 +86,7 @@
         "USB, Telnet or WebSocket – with live position and plain-language alarms",
         "Preview with time estimate and scrubber; “Start Here” resumes an interrupted job",
         "Work-area check before every job and frame, including the reported work offset",
-        "Material test grid, rotary support (roller or chuck), custom G-code scripts per device",
+        "Material test grid with photo evaluation, rotary support (roller or chuck), custom G-code scripts per device",
         "Save G-code or stream it directly – streaming runs in the Rust core",
         "Adjust power and speed during a job; FluidNC: upload jobs to SD card or flash and run them there, edit config.yaml with backups, find the controller on Wi-Fi"
       ]

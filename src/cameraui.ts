@@ -16,6 +16,7 @@ import {
   Rect, Remap, warp,
 } from './camera';
 import { dec, t, tn } from './i18n';
+import { openWorkpieceDialog } from './workpieceDialog';
 
 // ---------- Einstellungen je Gerät ----------
 
@@ -119,6 +120,8 @@ class CamUnit {
   private liveTimer = 0;
   /** Laufendes Abfahren eines Bereichs */
   scan: { stop: boolean } | null = null;
+  /** Foto vom leeren Bett (wie overlay) als Hintergrund für die Werkstückerkennung, nur im Speicher */
+  empty: HTMLCanvasElement | null = null;
 
   constructor(public s: CameraSettings) {}
 
@@ -332,6 +335,65 @@ function dropOtherDevices(ed: Editor) {
       u.disconnect(ed);
       units.delete(id);
     }
+}
+
+/**
+ * Kamerabild für die Auswertung eines Materialtests, von der gewählten Kamera zuerst. Kalibrierte Kameras liefern
+ * das entzerrte Bettbild samt gezeigtem Bereich (Dokument-mm), andere das Rohbild (view = null).
+ * null, wenn keine Kamera verbunden ist.
+ */
+export function cameraPhoto(ed: Editor): { url: string; view: { x: number; y: number; w: number; h: number } | null } | null {
+  const d = devCams();
+  const order = [d.cams[d.cur], ...d.cams.filter((_, i) => i !== d.cur)];
+  for (const s of order) {
+    const u = units.get(s.id);
+    if (!u?.stream.open) continue;
+    const snap = u.calib() ? u.snapshot(ed) : null;
+    if (snap) return { url: snap.url, view: { x: snap.x, y: snap.y, w: snap.w, h: snap.h } };
+    const g = u.stream.grab();
+    if (g) return { url: g.toDataURL('image/png'), view: null };
+  }
+  return null;
+/** Kamerabild auf dem Bett für die Werkstückerkennung */
+export interface CameraView {
+  id: string;
+  name: string;
+  head: boolean;
+  /** Entzerrtes Bild in Bettgröße (Welt 0 … Bettbreite/-höhe), durchsichtig außerhalb des Kamerabilds */
+  image: HTMLCanvasElement | null;
+  /** Neues Bild holen (Kopfkamera: an der aktuellen Kopfposition ins Mosaik) */
+  refresh(): boolean;
+  empty: HTMLCanvasElement | null;
+  /** Aktuelles Bild als Foto vom leeren Bett merken (null = vergessen) */
+  setEmpty(keep: boolean): void;
+}
+
+/** Verbundene oder schon aufgenommene, kalibrierte Kameras des aktuellen Geräts */
+export function cameraViews(ed: Editor): CameraView[] {
+  return devCams().cams.flatMap((s) => {
+    const u = units.get(s.id);
+    if (!u || !s.calib || (!u.ready && !u.stream.open)) return [];
+    return [{
+      id: s.id,
+      name: s.name,
+      head: u.head,
+      get image() {
+        return u.ready ? u.overlay : null;
+      },
+      refresh: () => u.update(ed),
+      get empty() {
+        return u.empty;
+      },
+      setEmpty(keep: boolean) {
+        if (!keep || !u.ready) return void (u.empty = null);
+        const c = document.createElement('canvas');
+        c.width = u.overlay.width;
+        c.height = u.overlay.height;
+        c.getContext('2d')!.drawImage(u.overlay, 0, 0);
+        u.empty = c;
+      },
+    }];
+  });
 }
 
 // ---------- Tab im Laser-Panel ----------
@@ -625,6 +687,7 @@ export function cameraTab(ed: Editor): HTMLElement {
       liveLbl,
     ),
     h('div', { class: 'conn-row' }, updBtn, insBtn),
+    h('div', { class: 'conn-row' }, h('button', { class: 'btn', title: t('Gleichartige Werkstücke im Kamerabild erkennen und die Auswahl auf alle übertragen'), onclick: () => openWorkpieceDialog(ed) }, t('Auf Werkstücke übertragen …'))),
     headRow,
     msg,
   );

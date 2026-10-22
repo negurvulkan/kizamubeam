@@ -451,6 +451,16 @@ export class EditorRender {
       ctx.strokeRect(a.x + 0.5, a.y + 0.5, c.x - a.x, c.y - a.y);
       ctx.setLineDash([]);
     }
+    // Textrahmen im Entstehen
+    if (d && d.type === 'textframe' && d.end !== d.start) {
+      const a = this.toScreen(d.start),
+        c = this.toScreen(d.end);
+      ctx.strokeStyle = T.sel;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(a.x + 0.5, a.y + 0.5, c.x - a.x, c.y - a.y);
+      ctx.setLineDash([]);
+    }
     if (d && d.type === 'nodebox') {
       const a = this.toScreen(d.start),
         c = this.toScreen(d.end);

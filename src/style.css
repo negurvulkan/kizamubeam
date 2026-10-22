@@ -732,10 +732,12 @@ dialog kbd {
   width: auto;
   justify-self: start;
 }
-.close-dialog .form {
+.close-dialog .form,
+.corner-dialog .form {
   grid-template-columns: 120px 260px;
 }
-.close-dialog .form .radios input[type='radio'] {
+.close-dialog .form .radios input[type='radio'],
+.corner-dialog .form .radios input[type='radio'] {
   width: auto;
 }
 .radios label {
@@ -1371,6 +1373,48 @@ table.layers input[type='checkbox'] {
 .mt-left .form {
   grid-template-columns: 1fr 180px;
 }
+.tp-dialog {
+  width: min(1180px, 96vw);
+}
+.tp-body {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 16px;
+}
+.tp-left {
+  min-width: 0;
+}
+.tp-wrap {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+.tp-canvas {
+  display: block;
+  touch-action: none;
+  border-radius: 4px;
+  cursor: crosshair;
+}
+.tp-empty {
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--muted, inherit);
+}
+.tp-right {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tp-step {
+  font-weight: 600;
+}
+@media (max-width: 860px) {
+  .tp-body {
+    grid-template-columns: 1fr;
+  }
+}
 /* Lange Layernamen (z. B. aus der Material-Bibliothek) nicht umbrechen */
 table.layers td:nth-child(2) {
   max-width: 120px;
@@ -1609,8 +1653,15 @@ table.layers td:nth-child(2) {
   grid-column: 2;
   border-right: 1px solid var(--line);
 }
-#stage {
+#center {
   grid-column: 3;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+#center > #stage {
+  flex: 1;
 }
 #dock-right {
   grid-column: 4;
@@ -3158,4 +3209,138 @@ input.bound {
 }
 .lib-dialog .tpl-head .form {
   grid-template-columns: 90px 1fr;
+/* Auf Werkstücke übertragen */
+.offset-dialog.wp-dialog {
+  margin: 60px 330px auto auto;
+  max-width: 500px;
+}
+.wp-dialog .form {
+  grid-template-columns: 140px 320px;
+}
+.wp-preview {
+  display: block;
+  width: 460px;
+  max-width: 100%;
+  margin: 8px 0;
+  border: 1px solid var(--border, #888);
+  cursor: pointer;
+}
+.wp-list {
+  max-height: 170px;
+  overflow-y: auto;
+}
+.wp-row {
+  display: grid;
+  grid-template-columns: 52px 50px 56px auto 1fr;
+  gap: 6px;
+  align-items: center;
+  padding: 2px 0;
+}
+.wp-btns {
+  display: flex;
+  gap: 3px;
+}
+.wp-row .btn.small {
+  padding: 1px 6px;
+  font-size: 11px;
+.bg-dialog {
+  max-width: 420px;
+}
+.bg-checker {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 8px;
+  background: repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%) 0 0 / 16px 16px;
+  border: 1px solid var(--line);
+}
+.bg-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 300px;
+  cursor: crosshair;
+}
+.bg-colors {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.bg-swatches {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+}
+.bg-swatch {
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+/* ---------- Projekte als Tabs (tabsBar.ts) ---------- */
+#tabbar {
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  height: 28px;
+  flex: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.ptab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
+  padding: 0 4px 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-right: 1px solid var(--line);
+  cursor: default;
+  user-select: none;
+}
+.ptab:hover {
+  color: var(--text);
+}
+.ptab.active {
+  color: var(--text);
+  background: var(--panel);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.ptab-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ptab.changed .ptab-name::after {
+  content: ' •';
+  color: var(--accent);
+}
+.ptab-close,
+.ptab-new {
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.ptab-close {
+  visibility: hidden;
+}
+.ptab.active .ptab-close,
+.ptab:hover .ptab-close {
+  visibility: visible;
+}
+.ptab-close:hover,
+.ptab-new:hover {
+  background: var(--accent-soft);
+}
+.ptab-new {
+  padding: 0 10px;
+  color: var(--muted);
 }

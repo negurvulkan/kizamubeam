@@ -8,6 +8,7 @@ import {
   differsFrom, entryFromLayer, entryLabel, layerPatch, fitSummary, library, MaterialEntry, parseLibrary, settingsSummary, thicknessLabel,
 } from './materials';
 import { openMaterialTestDialog } from './materialtest';
+import { openTestPhotoDialog } from './testphotoDialog';
 import { openCalibrateDialog } from './calibrateDialog';
 import { dec, t } from './i18n';
 
@@ -190,6 +191,7 @@ export function materialTab(ed: Editor): HTMLElement {
         btn(t('Importieren …'), t('Einträge aus einer .kzm-, .lwm- oder LightBurn-.clb-Datei hinzufügen'), doImport),
         btn(t('Exportieren …'), t('Ganze Bibliothek als .kzm-Datei speichern'), doExport, library.entries.length > 0),
         btn(t('Materialtest …'), t('Testraster mit gestufter Geschwindigkeit und Leistung lasern'), () => openMaterialTestDialog(ed)),
+        btn(t('Test auswerten …'), t('Foto des gelaserten Materialtests laden und die beste Zelle anklicken'), () => openTestPhotoDialog(ed)),
         btn(t('Passung kalibrieren …'), t('Schnittfuge und Steckspiel für ein Material ermitteln'), () => openCalibrateDialog(ed)),
       ),
     );

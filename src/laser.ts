@@ -967,6 +967,13 @@ export function openRotaryDialog() {
   const circ = numInput('', (v) => v > 0 && ((r.objectDiam = v / Math.PI), (objDiam.value = r.objectDiam.toFixed(2)), update()), t('Umfang statt Durchmesser eingeben, z. B. mit einem Maßband gemessen'));
   circ.value = (Math.PI * r.objectDiam).toFixed(2);
   row(t('Objektumfang (mm)'), circ);
+  const taper = h('input', { type: 'checkbox', checked: r.taper, onchange: (e: Event) => ((r.taper = (e.target as HTMLInputElement).checked), update()) });
+  row(t('Konisches Objekt'), h('span', {}, taper), t('Für Becher und andere Objekte, die zu einem Ende dünner werden: die Gravur bleibt überall maßhaltig'));
+  const taperRows = [
+    ...row(t('Durchmesser am linken Rand (mm)'), numField(() => r.taperLeft, (v) => (r.taperLeft = v)), t('Durchmesser des Objekts dort, wo der Job links beginnt (kleinstes X); mit dem Rahmen anfahren und messen')),
+    ...row(t('Durchmesser am rechten Rand (mm)'), numField(() => r.taperRight, (v) => (r.taperRight = v)), t('Durchmesser des Objekts dort, wo der Job rechts endet (größtes X)')),
+  ];
+  const taperNote = h('div', { class: 'note' }, t('Konisch: Das Objekt so unterlegen, dass seine Oberseite waagerecht liegt. Die Mitte des Jobs in Y bleibt eine gerade Linie, nach oben und unten wird zum dünnen Ende hin stärker gedreht. Bei Walzen wird angenommen, dass das Objekt am dickeren Ende aufliegt. Ändert sich der Job, die Durchmesser an den neuen Rändern messen.'));
   const mirror = h('input', { type: 'checkbox', checked: r.mirror, onchange: (e: Event) => ((r.mirror = (e.target as HTMLInputElement).checked), update()) });
   row(t('Drehrichtung umkehren'), h('span', {}, mirror), t('Wenn die Gravur gespiegelt herauskommt'));
   const info = h('div', { class: 'note' });
@@ -985,6 +992,8 @@ export function openRotaryDialog() {
     const deg = r.axis !== 'Y' && r.axis !== 'Z';
     perRevLabel.textContent = deg ? t('Achsweg pro Umdrehung (meist 360°)') : t('Achsweg pro Umdrehung (mm)');
     rollerLab.hidden = rollerEl.hidden = r.kind !== 'roller';
+    for (const el of taperRows) el.hidden = !r.taper;
+    taperNote.hidden = !r.taper;
     const c = rotaryCirc(r);
     const k = c > 0 ? r.perRev / c : 0;
     info.textContent =
@@ -999,6 +1008,7 @@ export function openRotaryDialog() {
     h('h3', {}, t('Drehachse: {name}', { name: target.name })),
     h('div', { class: 'form' }, ...rows),
     info,
+    taperNote,
     h('div', { class: 'note' }, t('Die Y-Richtung des Entwurfs wird zur Umfangsrichtung des Objekts. Den Laserkopf vor dem Start über die höchste Stelle des Objekts stellen und fokussieren; als Startpunkt eignet sich „Aktuelle Position“.')),
     h('div', { class: 'conn-row' }, testBtn),
     testNote,

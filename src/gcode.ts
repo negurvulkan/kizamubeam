@@ -86,9 +86,14 @@ export interface Rotary {
   objectDiam: number;
   /** Drehrichtung umkehren */
   mirror: boolean;
+  /** Konisches Objekt (Becher): der Durchmesser ändert sich entlang X linear von taperLeft zu taperRight */
+  taper: boolean;
+  /** Objektdurchmesser in mm am linken bzw. rechten Rand des Jobs (kleinstes bzw. größtes X) */
+  taperLeft: number;
+  taperRight: number;
 }
 
-export const DEFAULT_ROTARY: Rotary = { enabled: false, kind: 'roller', axis: 'Y', perRev: 360, rollerDiam: 25, objectDiam: 80, mirror: false };
+export const DEFAULT_ROTARY: Rotary = { enabled: false, kind: 'roller', axis: 'Y', perRev: 360, rollerDiam: 25, objectDiam: 80, mirror: false, taper: false, taperLeft: 80, taperRight: 70 };
 
 export interface Device {
   id: string;
@@ -287,34 +292,105 @@ export const outAxis = (d: Device): RotaryAxis => (rotaryOn(d) ? d.rotary.axis :
 /** Drehachse als eigene Achse (nicht am Y-Anschluss): sie wird zu Beginn mit G92 auf 0 gesetzt */
 export const separateAxis = (d: Device) => rotaryOn(d) && d.rotary.axis !== 'Y';
 
+/** Konischer Ausgleich eingeschaltet und beide Durchmesser gültig? */
+export const taperOn = (r: Rotary) => !!r.taper && r.taperLeft > 0 && r.taperRight > 0;
+
+/** Kleinster Objektdurchmesser im Job: bei konischen Objekten der dünnere Rand */
+export const minObjectDiam = (r: Rotary) => (taperOn(r) ? Math.min(r.taperLeft, r.taperRight) : r.objectDiam);
+
+/** Größte Abweichung der Ausgabe von der Sollkurve beim Unterteilen gerader Strecken (mm auf der Oberfläche) */
+const TAPER_TOL = 0.01;
+
 /**
- * Bewegungen für die Ausgabe mit Drehachse. Y (Weg auf der Oberfläche) wird um den Startpunkt in Achsweg
- * umgerechnet; am Y-Anschluss bleibt der Startpunkt, wo er ist, eine eigene Achse beginnt bei 0.
+ * Bewegungen für die Ausgabe mit Drehachse. Y (Weg auf der Oberfläche) wird in Achsweg umgerechnet;
+ * am Y-Anschluss bleibt der Startpunkt, wo er ist, eine eigene Achse beginnt bei 0.
  * Der Vorschub wird je Bewegung so angepasst, dass die Geschwindigkeit auf der Oberfläche stimmt
  * (die Steuerung rechnet F über X und den Achsweg). Ohne Drehachse kommen die Bewegungen unverändert zurück.
+ *
+ * Konisch (taper): Der Durchmesser D(x) wächst linear über die Breite des Jobs (box). Damit die Gravur überall
+ * maßhaltig ist, dreht ein mm auf der Oberfläche um 1 / (π·D(x)) Umdrehungen, gerechnet ab der Mitte des Jobs
+ * in Y (diese Linie bleibt gerade). Walzen treiben das Objekt am dickeren Ende an. Weil die Umrechnung von X
+ * abhängt, werden Strecken entlang X so unterteilt, dass die Ausgabe höchstens TAPER_TOL abweicht; t (Endzeit
+ * jeder Bewegung) wird dabei mit aufgeteilt.
  */
-export function rotaryMoves(mv: Moves, d: Device): Moves {
-  if (!rotaryOn(d)) return mv;
-  const k = rotaryScale(d.rotary);
+export function rotaryMoves(mv: Moves, d: Device, box: Box | null = null, t?: Float64Array): { mv: Moves; t?: Float64Array } {
+  if (!rotaryOn(d)) return { mv, t };
+  const r = d.rotary;
+  const k0 = rotaryScale(r);
   const ref = mv.y0,
-    base = d.rotary.axis === 'Y' ? ref : 0;
-  const map = (y: number) => base + (y - ref) * k;
-  const out = new Moves(mv.x0, map(mv.y0));
+    base = r.axis === 'Y' ? ref : 0;
+  let kAt = (_x: number) => k0,
+    yc = ref;
+  if (taperOn(r)) {
+    let x0 = box?.x0 ?? Infinity,
+      x1 = box?.x1 ?? -Infinity;
+    if (!box) for (let i = 0; i < mv.n; i++) (x0 = Math.min(x0, mv.x[i])), (x1 = Math.max(x1, mv.x[i]));
+    if (!(x1 >= x0)) x0 = x1 = mv.x0;
+    const big = Math.max(r.taperLeft, r.taperRight);
+    // Walzen: am dicken Ende dreht das Objekt so weit wie die Walze, am dünnen Ende entsprechend weniger
+    const c = (r.kind === 'roller' ? r.rollerDiam / big : 1) * Math.PI;
+    const sign = r.mirror ? -1 : 1;
+    kAt = (x: number) => {
+      const u = x1 > x0 ? Math.min(1, Math.max(0, (x - x0) / (x1 - x0))) : 0.5;
+      return (sign * r.perRev) / (c * (r.taperLeft + (r.taperRight - r.taperLeft) * u));
+    };
+    yc = box ? (box.y0 + box.y1) / 2 : ref;
+  }
+  const zero = (ref - yc) * kAt(mv.x0);
+  const map = (x: number, y: number) => base + (y - yc) * kAt(x) - zero;
+  const tapered = taperOn(r);
+  const out = new Moves(mv.x0, map(mv.x0, mv.y0));
+  const tt: number[] = [];
   let px = mv.x0,
-    py = mv.y0;
-  for (let i = 0; i < mv.n; i++) {
-    const x = mv.x[i],
-      y = mv.y[i];
-    let f = mv.f[i];
+    py = mv.y0,
+    pa = out.y0,
+    pt = 0;
+  const emit = (x: number, y: number, a: number, f: number, s: number, layer: number) => {
     const dx = x - px,
-      dy = y - py;
-    const l = Math.hypot(dx, dy);
-    if (f > 0 && l > 1e-9) f = Math.max(1, Math.round((f * Math.hypot(dx, dy * k)) / l));
-    out.push(x, map(y), f, mv.s[i], mv.layer[i]);
+      l = Math.hypot(dx, y - py);
+    if (f > 0 && l > 1e-9) f = Math.max(1, Math.round((f * Math.hypot(dx, a - pa)) / l));
+    out.push(x, a, f, s, layer);
     px = x;
     py = y;
+    pa = a;
+  };
+  for (let i = 0; i < mv.n; i++) {
+    const x = mv.x[i],
+      y = mv.y[i],
+      ti = t ? t[i] : 0;
+    const sx = px,
+      sy = py;
+    let n = 1;
+    if (tapered && mv.f[i] > 0) {
+      // Abweichung in der Mitte jedes Stücks, umgerechnet auf mm der Oberfläche; sie fällt etwa mit n²
+      const at = (u: number) => sx + (x - sx) * u;
+      const worst = (n: number) => {
+        let e = 0;
+        for (let j = 0; j < n; j++) {
+          const u0 = j / n,
+            u1 = (j + 1) / n,
+            um = (u0 + u1) / 2;
+          const ym = sy + (y - sy) * um;
+          e = Math.max(e, Math.abs(map(at(um), ym) - (map(at(u0), sy + (y - sy) * u0) + map(at(u1), sy + (y - sy) * u1)) / 2) / Math.abs(kAt(at(um))));
+        }
+        return e;
+      };
+      const e1 = worst(1);
+      if (e1 > TAPER_TOL) {
+        n = Math.min(1000, Math.ceil(Math.sqrt(e1 / TAPER_TOL)));
+        while (n < 1000 && worst(n) > TAPER_TOL) n = Math.min(1000, Math.ceil(n * 1.25));
+      }
+    }
+    for (let j = 1; j <= n; j++) {
+      const u = j / n,
+        qx = sx + (x - sx) * u,
+        qy = sy + (y - sy) * u;
+      emit(qx, qy, map(qx, qy), mv.f[i], mv.s[i], mv.layer[i]);
+      tt.push(pt + (ti - pt) * u);
+    }
+    pt = ti;
   }
-  return out;
+  return { mv: out, t: t ? Float64Array.from(tt) : undefined };
 }
 
 /** Relatives Verfahren um dx, dy mm (Oberfläche); mit Drehachse geht dy auf die Drehachse, f gilt für die Oberfläche */
@@ -671,6 +747,75 @@ export function kerfOffset(polys: Poly[], d: number): Poly[] {
   return out.filter((p) => p.length > 2).map((p) => ({ pts: p.map((q) => ({ x: q.X / KSCALE, y: q.Y / KSCALE })), closed: true }));
 }
 
+/** Höchstzahl der Ringe je Insel, falls Abstand und Fläche nicht zusammenpassen */
+const MAX_RINGS = 20000;
+
+/**
+ * Konturfolgende Füllung (Offset Fill): die Fläche (Gerade-Ungerade) wird in Ringen abgetragen, die der Kontur
+ * nach innen folgen. Der erste Ring liegt einen halben Abstand innerhalb, damit die Gravur die gezeichneten Maße
+ * behält. Jede zusammenhängende Fläche (Insel samt Löchern) wird vollständig von außen nach innen gefüllt,
+ * bevor es zur nächstgelegenen weitergeht; jeder Ring beginnt am Punkt, der dem vorigen Ende am nächsten liegt.
+ */
+function offsetFillRings(polys: Poly[], step: number, from: Pt): Poly[] {
+  const closed = polys.filter((p) => p.closed);
+  if (!closed.length || !(step > 0)) return [];
+  const { Clipper, ClipperOffset, ClipType, PolyType, PolyFillType, JoinType, EndType, PolyTree } = ClipperLib;
+  const c = new Clipper();
+  c.AddPaths(closed.map((p) => p.pts.map((q) => ({ X: Math.round(q.x * KSCALE), Y: Math.round(q.y * KSCALE) }))), PolyType.ptSubject, true);
+  const tree = new PolyTree();
+  c.Execute(ClipType.ctUnion, tree, PolyFillType.pftEvenOdd, PolyFillType.pftEvenOdd);
+  // Inseln: Außenkontur mit ihren Löchern; Inseln in Löchern sind eigene Inseln
+  const islands: ClipperLib.Paths[] = [];
+  const walk = (outers: ClipperLib.PolyNode[]) => {
+    for (const o of outers) {
+      islands.push([o.Contour(), ...o.Childs().map((h) => h.Contour())]);
+      for (const h of o.Childs()) walk(h.Childs());
+    }
+  };
+  walk(tree.Childs());
+  const ringsOf = (island: ClipperLib.Paths): Poly[] => {
+    // Ring für Ring vom vorigen aus versetzen; Aufräumen hält die Punktzahl an runden Ecken klein
+    const out: Poly[] = [];
+    let area = island;
+    for (let k = 0; k < MAX_RINGS && area.length; k++) {
+      const co = new ClipperOffset(2, FLATTEN_TOL * KSCALE);
+      co.AddPaths(area, JoinType.jtRound, EndType.etClosedPolygon);
+      const next: ClipperLib.Paths = [];
+      co.Execute(next, -(k ? step : step / 2) * KSCALE);
+      area = Clipper.CleanPolygons(next, FLATTEN_TOL * KSCALE).filter((p) => p.length > 2);
+      for (const p of area) out.push({ pts: p.map((q) => ({ x: q.X / KSCALE, y: q.Y / KSCALE })), closed: true });
+    }
+    return out;
+  };
+  const groups = islands.map(ringsOf).filter((g) => g.length);
+  const dist2 = (a: Pt, b: Pt) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
+  const nearest = (p: Poly, cur: Pt) => {
+    let best = 0;
+    for (let j = 1; j < p.pts.length; j++) if (dist2(p.pts[j], cur) < dist2(p.pts[best], cur)) best = j;
+    return best;
+  };
+  const out: Poly[] = [];
+  let cur = from;
+  const done = new Uint8Array(groups.length);
+  for (let k = 0; k < groups.length; k++) {
+    // nächste Insel nach ihrem äußersten Ring
+    let gi = -1,
+      gd = Infinity;
+    for (let i = 0; i < groups.length; i++) {
+      if (done[i]) continue;
+      const d = dist2(groups[i][0].pts[nearest(groups[i][0], cur)], cur);
+      if (d < gd) [gd, gi] = [d, i];
+    }
+    done[gi] = 1;
+    for (const r of groups[gi]) {
+      const q = startAt(r, nearest(r, cur));
+      out.push(q);
+      cur = q.pts[0];
+    }
+  }
+  return out;
+}
+
 /** Haltestege gleichmäßig über den Umfang einer geschlossenen Form verteilen */
 export function addTabs(p: Poly, T: TabSettings): Poly {
   const P = p.pts,
@@ -972,7 +1117,7 @@ export async function buildJob(inp: JobInput): Promise<Job> {
   // 2. Verschiebung nach „Starten ab“
   const jb = finite(bounds);
   if (jb && rotaryOn(device)) {
-    const c = Math.PI * device.rotary.objectDiam;
+    const c = Math.PI * minObjectDiam(device.rotary);
     if (c > 0 && jb.y1 - jb.y0 > c + 0.01)
       warnings.push(t('Der Job ist {h} mm hoch, der Umfang des Objekts aber nur {c} mm: Er überlappt sich beim Drehen.', { h: (jb.y1 - jb.y0).toFixed(1), c: c.toFixed(1) }));
   }
@@ -1015,6 +1160,16 @@ export async function buildJob(inp: JobInput): Promise<Job> {
     }
     if (!bk.polys.length) continue;
     const s = L.power / 100;
+    if (L.mode === 'fill' && L.fillStyle === 'offset') {
+      const rings = offsetFillRings(bk.polys, Math.max(0.01, L.interval), { x: mv.lastX(), y: mv.lastY() });
+      for (let p = 0; p < Math.max(1, L.passes); p++)
+        for (const r of rings) {
+          mv.push(r.pts[0].x, r.pts[0].y, 0, 0, li);
+          for (let i = 1; i < r.pts.length; i++) mv.push(r.pts[i].x, r.pts[i].y, L.speed, s, li);
+          mv.push(r.pts[0].x, r.pts[0].y, L.speed, s, li);
+        }
+      continue;
+    }
     if (L.mode === 'fill') {
       // Zeilen im gedrehten System berechnen und beim Ausgeben zurückdrehen; Kreuzschraffur = zweite Richtung um 90° versetzt
       const angles = [L.angle, ...(L.crossHatch ? [L.angle + 90] : [])].map((a) => (a * Math.PI) / 180);
@@ -1196,7 +1351,8 @@ export interface GCode {
  */
 export function writeGCode(job: Job, d: Device, est: Estimate, name = 'KizamuBeam'): GCode {
   const header = gcodeHeader(job, d, est, name);
-  return gcodeLines(rotaryMoves(job.moves, d), d, est, job.air, header);
+  const r = rotaryMoves(job.moves, d, job.bounds, est.t);
+  return gcodeLines(r.mv, d, { ...est, t: r.t! }, job.air, header);
 }
 
 /** Kopf des G-Codes: Kommentare, Einheiten, absolute Koordinaten, Laser im Lasermodus an */
@@ -1221,6 +1377,7 @@ function rotaryComment(d: Device): string[] {
     r.kind === 'chuck'
       ? t('; Drehachse: Futter, Achse {axis}, {perRev} je Umdrehung, Objekt Ø {od} mm', { axis: r.axis, perRev: num(r.perRev), od: num(r.objectDiam) })
       : t('; Drehachse: Walzen Ø {rd} mm, Achse {axis}, {perRev} je Umdrehung', { axis: r.axis, perRev: num(r.perRev), rd: num(r.rollerDiam) }),
+    ...(taperOn(r) ? [t('; Konisch: Ø {l} mm links, Ø {r} mm rechts', { l: num(r.taperLeft), r: num(r.taperRight) })] : []),
   ];
 }
 
@@ -1317,16 +1474,17 @@ export async function prepareGCode(job: Job, d: Device, est: Estimate, name = 'K
   const header = gcodeHeader(job, d, est, name);
   if (hasNative()) {
     try {
-      const mv = rotaryMoves(job.moves, d);
+      const { mv, t } = rotaryMoves(job.moves, d, job.bounds, est.t);
       const params = JSON.stringify({ x0: mv.x0, y0: mv.y0, sMax: d.sMax, air: job.air, airCmd: d.airCmd || 'M8', header, footer: gcodeFooter(d), total: est.total, yAxis: outAxis(d) });
-      const buf = await native<ArrayBuffer>('gcode_prepare', packMoves(mv, est.t, params));
+      const buf = await native<ArrayBuffer>('gcode_prepare', packMoves(mv, t!, params));
       const head = new Uint32Array(buf, 0, 2);
       return { id: head[0], lines: null, count: head[1], times: new Float64Array(buf, 8), total: est.total };
     } catch {
       /* ältere Desktop-App ohne Rust-Kern: weiter in TypeScript */
     }
   }
-  const g = gcodeLines(rotaryMoves(job.moves, d), d, est, job.air, header);
+  const r = rotaryMoves(job.moves, d, job.bounds, est.t);
+  const g = gcodeLines(r.mv, d, { ...est, t: r.t! }, job.air, header);
   return { id: null, lines: g.lines, count: g.lines.length, times: g.times, total: g.total };
 }
 
@@ -1373,7 +1531,7 @@ export function frameGCode(job: Job, d: Device, contour: boolean): string[] | nu
   for (let i = 1; i < pts.length; i++) raw.push(pts[i].x, pts[i].y, d.frameSpeed, 0, 0);
   // Mit Drehachse zurück zum Start, sonst beginnt der Job (oder der nächste Rahmen) an einer verdrehten Stelle
   if (rot) raw.push(raw.x0, raw.y0, 0, 0, 0);
-  const mv = rotaryMoves(raw, d);
+  const mv = rotaryMoves(raw, d, b).mv;
   const axis = outAxis(d);
   const out = ['G21', 'G90', ...rotaryZero(d), ...(d.frameLaser ? fw.frameOn : [])];
   let cf = -1,
