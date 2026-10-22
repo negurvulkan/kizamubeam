@@ -1,6 +1,6 @@
 // Geometrie: Formen in Pfade umwandeln, Begrenzungsrahmen, Text-Layout, Treffertest.
 import { apply, IDENT, inv, mul, Mat, Node, Obj, Pt, Shape, SubPath, TextShape } from './model';
-import { fitText, loadedFont, onFontLoaded, textLines, textToSubs } from './fonts';
+import { fitText, loadedFont, onFontLoaded, textLines, textToSubs, wrapParagraph, wrapWidth } from './fonts';
 import { bezierPt, segments } from './curves';
 import { shownText } from './vartext';
 import { barcodeExtent, barcodeOutline } from './barcode';
@@ -192,7 +192,13 @@ export function textLayout(src: TextShape): TextLayout {
   ctx.font = font;
   const spacing = t.hSpace / k;
   const lh = BASE * 1.2 + t.vSpace / k;
-  const raw = (t.upper ? shown.toUpperCase() : shown).split('\n');
+  const f = loadedFont(t.font, t.bold, t.italic);
+  const ls = f ? textLines(t, f.font) : null;
+  const ww = wrapWidth(t);
+  const paras = (t.upper ? shown.toUpperCase() : shown).split('\n');
+  // Textrahmen: Zeilen wie bei den Konturen umbrechen, solange die Schrift lädt mit der Browserschrift gemessen
+  const measure = (s: string) => (ctx.measureText(s).width + spacing * Math.max(0, [...s].length - 1)) * k;
+  const raw = ls ? ls.map((l) => l.text) : ww ? paras.flatMap((p) => wrapParagraph(p, ww, measure)) : paras;
   let minX = Infinity,
     maxX = -Infinity;
   const lines = raw.map((text, i) => {
@@ -204,11 +210,15 @@ export function textLayout(src: TextShape): TextLayout {
     return { text, x, y: i * lh, w };
   });
   // Mit geladener Schrift die echten Vorschübe verwenden, damit Rahmen und Konturen zusammenpassen
-  const f = loadedFont(t.font, t.bold, t.italic);
-  if (f) {
-    const ls = textLines(t, f.font);
+  if (ls) {
     minX = Math.min(...ls.map((l) => l.x)) / k;
     maxX = Math.max(...ls.map((l) => l.x + l.w)) / k;
+  }
+  // Textrahmen: Der Rahmen hat immer die eingestellte Breite, auch wenn die Zeilen kürzer sind
+  if (ww) {
+    const x0 = (t.align === 'left' ? 0 : t.align === 'center' ? -ww / 2 : -ww) / k;
+    minX = Math.min(minX, x0);
+    maxX = Math.max(maxX, x0 + ww / k);
   }
   if (maxX - minX < BASE * 0.2) maxX = minX + BASE * 0.2; // leere Zeile bleibt anklickbar
   const top = -BASE * 0.8,
