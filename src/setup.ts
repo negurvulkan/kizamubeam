@@ -3,6 +3,7 @@
 // Grundsatz: Vorschläge für die Firmware werden nur angezeigt; gesendet wird erst nach einem Klick der Person.
 import type { Device, Firmware } from './gcode';
 import { FIRMWARES } from './gcode';
+import { coolantPins, directionPinPath, invertPin, saveCmd, setCmd } from './fluidnc';
 import { t } from './i18n';
 import { defaultCutSettings, Doc, Layer, newDoc, translate } from './model';
 
@@ -14,6 +15,8 @@ export interface Facts {
   grbl: Record<number, number>;
   /** FluidNC-Konfiguration aus $CD, Pfade klein geschrieben wie „axes/x/max_travel_mm“ */
   fluid: Record<string, string>;
+  /** FluidNC: Datei, aus der die Konfiguration beim Start gelesen wird ($Config/Filename) */
+  fluidFile?: string;
   /** Marlin: Weichen Endanschläge (M211) und Schritte je mm (M92) */
   marlin: { maxX?: number; maxY?: number; stepsX?: number; stepsY?: number; soft?: boolean };
 }
@@ -214,6 +217,14 @@ export function homingAllowed(answer: Switches, mf: MachineFacts): boolean {
 }
 
 const mm1 = (v: number) => String(Math.round(v * 10) / 10);
+
+/** FluidNC: Werte setzen und in der Konfigurationsdatei speichern; undo stellt die alten Werte wieder her */
+function fluidFix(facts: Facts, label: string, values: Record<string, string>): Fix {
+  const file = facts.fluidFile || 'config.yaml';
+  const send = Object.entries(values).map(([k, v]) => setCmd(k, v));
+  const undo = Object.keys(values).map((k) => setCmd(k, facts.fluid[k] ?? ''));
+  return { label, send: [...send, saveCmd(file)], undo: [...undo, saveCmd(file)] };
+}
 const grblLike = (fw: Firmware | null) => fw === 'grbl' || fw === 'grblhal';
 
 /** Alle Befunde zur Konfiguration, in der Reihenfolge, in der sie im Assistenten erscheinen */
@@ -294,6 +305,7 @@ export function checkConfig(inp: CheckInput): Finding[] {
 
   // Endschalter und Referenzfahrt
   const sw = switchesOf(inp.switches, mf);
+  const fluidCycles = ['x', 'y'].map((a) => `axes/${a}/homing/cycle`).filter((k) => facts.fluid[k] !== undefined && Number(facts.fluid[k]) > 0);
   if (sw === 'unknown')
     add({ id: 'switches', level: 'info', title: t('Endschalter unbekannt'), text: t('Gib oben an, ob deine Maschine Endschalter hat. Ohne diese Angabe bietet der Assistent keine Referenzfahrt an.') });
   if (sw === 'no') {
@@ -302,7 +314,11 @@ export function checkConfig(inp: CheckInput): Finding[] {
         id: 'homing', level: 'warn', title: t('Referenzfahrt ohne Endschalter eingeschaltet'),
         text: t('Ohne Endschalter findet die Referenzfahrt nichts: Die Achsen fahren bis an den Anschlag, rattern dort, und am Ende meldet die Steuerung einen Alarm. Bei GRBL bleibt die Steuerung außerdem nach dem Einschalten gesperrt, bis sie referenziert ist.') +
           (isFluid ? ' ' + t('In der config.yaml bei den Achsen unter „homing:“ cycle auf 0 setzen.') : ''),
-        fix: grbl ? { label: t('Referenzfahrt ausschalten'), send: ['$22=0'], undo: [`$22=${facts.grbl[22]}`] } : undefined,
+        fix: grbl
+          ? { label: t('Referenzfahrt ausschalten'), send: ['$22=0'], undo: [`$22=${facts.grbl[22]}`] }
+          : isFluid && fluidCycles.length
+            ? fluidFix(facts, t('Referenzfahrt ausschalten'), Object.fromEntries(fluidCycles.map((k) => [k, '0'])))
+            : undefined,
       });
     if (mf.hardLimits)
       add({
@@ -314,6 +330,7 @@ export function checkConfig(inp: CheckInput): Finding[] {
       add({
         id: 'musthome', level: 'warn', title: t('Steuerung verlangt Referenzfahrt'),
         text: t('In der FluidNC-Konfiguration steht start/must_home: true. Ohne Endschalter bleibt die Maschine nach dem Einschalten im Alarm; dort must_home auf false setzen.'),
+        fix: fluidFix(facts, t('must_home ausschalten'), { 'start/must_home': 'false' }),
       });
     if (d.homeOnConnect)
       add({
@@ -345,6 +362,25 @@ export function checkConfig(inp: CheckInput): Finding[] {
   else if (mf.softLimits && mf.bed && (mf.bed.w <= 0 || mf.bed.h <= 0)) {
     /* steht schon beim Arbeitsbereich */
   } else if (mf.softLimits) add({ id: 'soft', level: 'ok', title: t('Verfahrgrenzen (Soft-Limits) sind an'), text: '' });
+
+  // Air Assist: FluidNC weiß, ob ein Kühlmittel-Ausgang eingetragen ist
+  const cool = isFluid ? coolantPins(facts.fluid) : null;
+  if (cool) {
+    const want = d.airCmd === 'M7' ? cool.mist : cool.flood;
+    const other = d.airCmd === 'M7' ? cool.flood : cool.mist;
+    if (want) add({ id: 'air', level: 'ok', title: t('Air Assist: Ausgang für {cmd} eingetragen', { cmd: d.airCmd }), text: '' });
+    else if (other)
+      add({
+        id: 'air', level: 'warn', title: t('Air Assist mit dem falschen Befehl'),
+        text: t('In der FluidNC-Konfiguration ist nur der Ausgang für {other} eingetragen, KizamuBeam schaltet Air Assist mit {cmd}. Die Luft bliebe aus.', { other: d.airCmd === 'M7' ? 'M8' : 'M7', cmd: d.airCmd }),
+        fix: { label: t('Air Assist mit {cmd} schalten', { cmd: d.airCmd === 'M7' ? 'M8' : 'M7' }), app: { airCmd: d.airCmd === 'M7' ? 'M8' : 'M7' } },
+      });
+    else
+      add({
+        id: 'air', level: 'info', title: t('Kein Ausgang für Air Assist'),
+        text: t('In der FluidNC-Konfiguration ist kein Kühlmittel-Ausgang eingetragen (coolant/flood_pin bzw. mist_pin). Layer mit Air Assist schalten dann nichts. Hängt die Pumpe an einem freien Pin, lässt er sich unter Laser → FluidNC → Konfiguration eintragen.'),
+      });
+  }
 
   // Koordinaten
   const p = inp.mpos;
@@ -381,6 +417,11 @@ export function checkConfig(inp: CheckInput): Finding[] {
 /** Richtung einer Achse umkehren: neue Werte für $3 (und $23, damit die Referenzfahrt nicht falsch herum fährt) */
 export function directionFix(axis: 'x' | 'y', facts: Facts): Fix | null {
   const mf = machineFacts(facts);
+  if (facts.fw === 'fluidnc') {
+    // FluidNC: direction_pin des Motors umkehren (wirkt erst nach einem Neustart)
+    const k = directionPinPath(facts.fluid, axis);
+    return k ? fluidFix(facts, t('Richtung von {axis} umkehren (danach neu starten)', { axis: axis.toUpperCase() }), { [k]: invertPin(facts.fluid[k]) }) : null;
+  }
   if (!grblLike(facts.fw) || mf.dirMask === null) return null;
   const bit = axis === 'x' ? 1 : 2;
   const send = [`$3=${mf.dirMask ^ bit}`],

@@ -14,6 +14,7 @@ import {
   buildTestJob, checkConfig, DEFAULT_TEST_JOB, detectFirmware, directionFix, emptyFacts, Facts, Finding, Fix, homingAllowed, machineFacts, parseFluidConfig, parseGrblSettings,
   parseMarlin, stepsFix, Switches, switchesOf, TestJobOptions,
 } from './setup';
+import { parseConfigFile } from './fluidnc';
 import { t, tBackend } from './i18n';
 
 const OFFERED_KEY = 'kizamubeam.setupOffered';
@@ -31,28 +32,7 @@ export function maybeOfferSetup(ed: Editor) {
 }
 
 /** Befehle senden und die Antworten sammeln, bis jede Zeile mit ok/error beantwortet ist oder die Zeit abläuft */
-function query(cmds: string[], ms = 2500): Promise<string[]> {
-  return new Promise((resolve) => {
-    const got: string[] = [];
-    let answered = 0;
-    let timer = 0;
-    const done = () => {
-      off();
-      clearTimeout(timer);
-      resolve(got);
-    };
-    const off = machine.on((e) => {
-      if (e.type !== 'line' || (e.dir !== 'in' && e.dir !== 'error')) return;
-      got.push(e.line);
-      if (/^(ok|error)\b/i.test(e.line) && ++answered >= cmds.length) {
-        clearTimeout(timer);
-        timer = window.setTimeout(done, 150);
-      }
-    });
-    timer = window.setTimeout(done, ms);
-    cmds.forEach((c) => machine.send(c));
-  });
-}
+const query = (cmds: string[], ms = 2500) => machine.query(cmds, ms);
 
 const waitFor = async (ok: () => boolean, ms: number) => {
   for (let waited = 0; !ok() && waited < ms; waited += 100) await new Promise((r) => setTimeout(r, 100));
@@ -155,7 +135,7 @@ export function openSetupWizard(ed: Editor) {
   /** Knopf, der nur bei bestehender Verbindung (und ohne laufenden Auftrag) geht */
   const connBtn = (label: string, onclick: () => void, extra: () => boolean = () => true, cls = 'btn') => {
     const b = h('button', { class: cls, onclick }, label) as HTMLButtonElement;
-    live.push(() => (b.disabled = !machine.connected || machine.busy || !extra()));
+    live.push(() => (b.disabled = !machine.connected || machine.running || !extra()));
     return b;
   };
 
@@ -254,6 +234,7 @@ export function openSetupWizard(ed: Editor) {
     const k = facts.fw ?? device.fw;
     if (k === 'fluidnc') {
       facts.fluid = parseFluidConfig(await query(['$CD'], 5000));
+      facts.fluidFile = parseConfigFile(await query(['$Config/Filename'])) ?? undefined;
       facts.grbl = parseGrblSettings(await query(['$$']));
     } else if (k === 'grbl' || k === 'grblhal') facts.grbl = parseGrblSettings(await query(['$$']));
     else if (k === 'marlin') facts.marlin = parseMarlin(await query(['M211', 'M503'], 3000));
@@ -312,11 +293,14 @@ export function openSetupWizard(ed: Editor) {
 
   async function applyFix(fix: Fix) {
     if (fix.send) {
-      if (machine.busy) return;
+      if (machine.running) return;
       const msg =
         t('Diese Befehle werden an die Steuerung gesendet und dort dauerhaft gespeichert:') + '\n\n' + fix.send.join('\n') +
         (fix.undo ? '\n\n' + t('Zurücknehmen lässt sich die Änderung mit:') + '\n' + fix.undo.join('\n') : '') + '\n\n' + t('Jetzt senden?');
       if (!confirm(msg)) return;
+      // FluidNC: Stand vor dem Speichern sichern (Laser → FluidNC → Konfiguration → Sicherungen)
+      if (fix.send.some((l) => l.startsWith('$CD=')) && machine.fluid)
+        (await import('./fluidncDialog')).addBackup(machine.fluid.text, machine.fluid.file, t('vor „{fix}“', { fix: fix.label }));
       for (const l of fix.send) await machine.send(l);
       if (fix.undo) machine.log(t('Zum Zurücknehmen: {cmds}', { cmds: fix.undo.join(' · ') }));
       await new Promise((r) => setTimeout(r, 300));
@@ -457,7 +441,9 @@ export function openSetupWizard(ed: Editor) {
         const k = facts.fw ?? device.fw;
         const text =
           k === 'fluidnc'
-            ? t('In der config.yaml beim Motor der Achse {axis} den direction_pin umkehren: „:low“ anhängen oder entfernen (z. B. über die Weboberfläche von FluidNC), danach die Steuerung neu starten.', { axis: axis.toUpperCase() })
+            ? fix
+              ? t('Die Achse läuft verkehrt herum; Entwürfe kämen gespiegelt heraus. KizamuBeam kehrt dazu den direction_pin des Motors in der config.yaml um; wirksam wird das nach einem Neustart der Steuerung.')
+              : t('In der config.yaml beim Motor der Achse {axis} den direction_pin umkehren: „:low“ anhängen oder entfernen (z. B. über die Weboberfläche von FluidNC), danach die Steuerung neu starten.', { axis: axis.toUpperCase() })
             : k === 'marlin'
               ? t('Bei Marlin ist die Richtung in der Firmware festgelegt (INVERT_X_DIR / INVERT_Y_DIR).')
               : k === 'smoothie'

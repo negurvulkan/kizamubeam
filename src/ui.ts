@@ -321,6 +321,10 @@ function buildMenu(ed: Editor) {
         [t('Geräteeinstellungen …'), '', () => openDeviceDialog(ed)],
         [t('Drehachse (Rotary) …'), '', () => openRotaryDialog()],
       ] },
+      { sub: 'FluidNC', items: [
+        [t('Konfiguration …'), '', () => import('./fluidncDialog').then((m) => m.openFluidConfig())],
+        [t('Dateien auf der Steuerung …'), '', () => import('./fluidncDialog').then((m) => m.openFluidFiles(ed))],
+      ] },
     ]],
     [t('Ansicht'), [
       [t('Ganze Seite'), 'Ctrl+0', () => ed.zoomPage()],

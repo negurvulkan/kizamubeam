@@ -7,7 +7,7 @@ import type { Editor } from './editor';
 import { h } from './dom';
 import { estimate, formatDuration, frameGCode, FIRMWARES, Job, prepareGCode, rotaryOn, writeGCode } from './gcode';
 import { isTauri, machine } from './machine';
-import { bedCheck, bedProblem, device, laserNotify, makeJob, runBlocker } from './laser';
+import { bedCheck, bedProblem, device, laserNotify, makeJob, runBlocker, runGCode } from './laser';
 import { layerLabel, Pt } from './model';
 import { Args, Content, json, log, r3, Tier, ToolDef, ToolError } from './agentutil';
 import { locale, t } from './i18n';
@@ -405,7 +405,7 @@ export const MACHINE_TOOLS: ToolDef[] = [
     run: async (_ed, a) => {
       desktopOnly();
       if (!machine.connected) throw new ToolError('Nicht verbunden (machine_connect).');
-      if (machine.busy) throw new ToolError('Es läuft gerade ein Auftrag.');
+      if (machine.running) throw new ToolError('Es läuft gerade ein Auftrag.');
       if (device.limitSwitches === 'no') throw new ToolError('Das Gerät hat laut Geräteeinstellungen keine Endschalter; eine Referenzfahrt würde bis zum Anschlag fahren.');
       const fw = FIRMWARES[device.fw];
       const r = ask('home', device.name, {
@@ -418,7 +418,7 @@ export const MACHINE_TOOLS: ToolDef[] = [
         started: 'Referenzfahrt gestartet.',
         action: async () => {
           if (!machine.connected) return t('Nicht verbunden.');
-          if (machine.busy) return t('Es läuft bereits ein Auftrag.');
+          if (machine.running) return t('Es läuft bereits ein Auftrag.');
           await machine.send(fw.home);
           return null;
         },
@@ -468,7 +468,7 @@ export const MACHINE_TOOLS: ToolDef[] = [
           const why = runBlocker();
           if (why) return why;
           await machine.runJob(lines, null, true);
-          return machine.busy ? null : t('Start fehlgeschlagen, Details in der Konsole.');
+          return machine.running ? null : t('Start fehlgeschlagen, Details in der Konsole.');
         },
       });
       return waitFor(r, waitSeconds(a));
@@ -515,8 +515,7 @@ export const MACHINE_TOOLS: ToolDef[] = [
           const why = runBlocker();
           if (why) return why;
           laserNotify(t('Job gestartet (von einem KI-Agenten angefordert), geschätzt {total}.', { total: formatDuration(s.est.total) }));
-          await machine.runPrepared(g);
-          return machine.busy ? null : t('Start fehlgeschlagen, Details in der Konsole.');
+          return (await runGCode(g)) && machine.running ? null : t('Start fehlgeschlagen, Details in der Konsole.');
         },
       });
       return waitFor(r, waitSeconds(a));
@@ -541,7 +540,7 @@ export const MACHINE_TOOLS: ToolDef[] = [
     inputSchema: { type: 'object', properties: {} },
     run: async () => {
       if (!machine.connected) throw new ToolError('Nicht verbunden.');
-      if (!machine.busy) throw new ToolError('Es läuft kein Job.');
+      if (!machine.running) throw new ToolError('Es läuft kein Job.');
       await machine.pause();
       machineLog('Angehalten');
       laserNotify(t('Ein KI-Agent hat den Job angehalten.'));

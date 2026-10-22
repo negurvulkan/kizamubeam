@@ -204,7 +204,7 @@ const READ_TOOLS: ToolDef[] = [
         state: st.state || null,
         workPosition: st.wpos,
         machinePosition: st.mpos,
-        jobRunning: machine.busy,
+        jobRunning: machine.running,
         progress: p ? { acked: p.acked, total: p.total, errors: p.errors } : null,
         remainingSeconds: machine.remaining(),
         request: requestState(),

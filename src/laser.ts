@@ -9,6 +9,8 @@ import {
   prepareGCode, Rotary, RotaryAxis, rotaryCirc, rotaryOn, rotaryTestLines, sameMoves, saveDevices, StartFrom, startHere,
 } from './gcode';
 import { isTauri, machine, PortInfo } from './machine';
+import type { PreparedGCode } from './gcode';
+import { airProblem, digitalOutputs, FluidFs, listCmd, outputCmd, OVERRIDE, parseFileList, pinNames, RAPID_OVERRIDE, TOGGLE_FLOOD, TOGGLE_MIST } from './fluidnc';
 import type { Doc, ImageLayer, Layer } from './model';
 import { materialTab } from './materialui';
 import { cameraTab } from './cameraui';
@@ -169,13 +171,73 @@ function designOk(ed: Editor): boolean {
 /** Warum gerade kein Job oder Rahmen laufen kann (null = es geht) */
 export function runBlocker(): string | null {
   if (!machine.connected) return t('Nicht verbunden.');
-  if (machine.busy) return t('Es läuft bereits ein Auftrag.');
+  if (machine.running || uploading) return t('Es läuft bereits ein Auftrag.');
   if (machine.status.state.startsWith('Alarm'))
     return fw().unlock
       ? t('Die Maschine ist im Alarmzustand. Erst referenzieren (Home) oder entsperren ({unlock}).', { unlock: fw().unlock! })
       : t('Die Maschine ist im Alarmzustand. Erst referenzieren (Home).');
   if (device.startFrom === 'current' && !machine.status.wpos) return t('Die aktuelle Position ist noch nicht bekannt.');
   return null;
+}
+
+/** Air Assist ist auf einem Layer an, die FluidNC-Konfiguration hat aber keinen passenden Ausgang: nachfragen */
+function airOk(job: Job): boolean {
+  if (!job.air.length || !machine.fluid) return true;
+  const why = airProblem(machine.fluid.values, device.airCmd);
+  return !why || confirm(t('⚠ Achtung') + '\n\n' + why + '\n\n' + t('Trotzdem starten?'));
+}
+
+/** Datei, unter der Jobs auf SD-Karte/Flash landen; wird jedes Mal überschrieben */
+const JOB_FILE = 'kizamubeam.gcode';
+/** Fortschritt beim Hochladen auf die Steuerung */
+let uploading: { sent: number; total: number } | null = null;
+const uploadListeners = new Set<() => void>();
+const uploadChanged = () => uploadListeners.forEach((f) => f());
+
+/**
+ * G-Code auf SD-Karte oder Flash der FluidNC-Steuerung laden und die Größe in der Dateiliste prüfen.
+ * Liefert die Größe in Bytes oder null (Fehler schon gemeldet).
+ */
+export async function uploadGCode(g: PreparedGCode, fs: FluidFs, file: string): Promise<number | null> {
+  const where = fs === 'sd' ? t('SD-Karte') : t('Flash');
+  if (uploading) return notify(t('Es wird schon eine Datei hochgeladen.'), true), null;
+  uploading = { sent: 0, total: 1 };
+  uploadChanged();
+  let size = 0;
+  try {
+    size = await machine.upload(device, fs, file, g, (sent, total) => ((uploading = { sent, total }), uploadChanged()));
+  } catch (e) {
+    notify(t('Hochladen auf die {where} fehlgeschlagen: {error}', { where, error: (e as Error).message }), true);
+    return null;
+  } finally {
+    uploading = null;
+    uploadChanged();
+  }
+  // Angekommen? Größe in der Dateiliste vergleichen (fehlt die Datei in der Liste, trotzdem weiter)
+  const f = parseFileList(await machine.query([listCmd(fs)], 4000, true)).find((x) => x.name.replace(/^\//, '') === file);
+  if (f && f.size !== size) {
+    notify(t('Die Datei auf der {where} ist unvollständig ({got} von {size} Bytes).', { where, got: f.size, size }), true);
+    return null;
+  }
+  machine.log(t('{file} auf die {where} geladen ({size} kB).', { file, where, size: Math.ceil(size / 1024) }));
+  return size;
+}
+
+/** Job senden: vom Rechner aus oder (FluidNC, Einstellung „Job ausführen“) erst hochladen und auf der Steuerung starten */
+export async function runGCode(g: PreparedGCode): Promise<boolean> {
+  if (device.runFrom === 'stream' || fw().read !== 'fluidnc') return machine.runPrepared(g);
+  if ((await uploadGCode(g, device.runFrom, JOB_FILE)) === null) return false;
+  await machine.runStored(device.runFrom, JOB_FILE);
+  return true;
+}
+
+/** Aktuellen Job berechnen und als Datei auf die Steuerung laden (ohne zu starten) */
+export async function uploadJob(ed: Editor, fs: FluidFs, file: string): Promise<number | null> {
+  const job = await makeJob(ed, false);
+  if (nothingToDo(job)) return null;
+  job.warnings.forEach((w) => notify(w));
+  const g = await prepareGCode(job, device, estimate(job.moves, device));
+  return uploadGCode(g, fs, file);
 }
 
 function canRun(): boolean {
@@ -187,12 +249,12 @@ function canRun(): boolean {
 export async function startJob(ed: Editor, src?: JobSource) {
   if (!canRun()) return;
   const job = await makeJob(ed, false, src);
-  if (nothingToDo(job) || (!src && !designOk(ed)) || !boundsOk(ed, job)) return;
+  if (nothingToDo(job) || (!src && !designOk(ed)) || !boundsOk(ed, job) || !airOk(job)) return;
   job.warnings.forEach((w) => notify(w));
   const est = estimate(job.moves, device);
   const g = await prepareGCode(job, device, est, src?.name);
   notify(t('Job gestartet, geschätzt {total}.', { total: formatDuration(est.total) }));
-  if ((await machine.runPrepared(g)) && !src) ed.afterJob();
+  if ((await runGCode(g)) && !src) ed.afterJob();
 }
 
 /**
@@ -202,7 +264,7 @@ export async function startJob(ed: Editor, src?: JobSource) {
 export async function startJobAt(ed: Editor, preview: Moves, i: number, frac: number, src?: JobSource): Promise<boolean> {
   if (!canRun()) return false;
   const job = await makeJob(ed, false, src);
-  if (nothingToDo(job) || (!src && !designOk(ed)) || !boundsOk(ed, job)) return false;
+  if (nothingToDo(job) || (!src && !designOk(ed)) || !boundsOk(ed, job) || !airOk(job)) return false;
   if (!sameMoves(preview, job.moves, job.offset)) {
     notify(t('Die Vorschau passt nicht mehr zum Job (z. B. weil sich die Laserposition geändert hat). Bitte die Vorschau neu öffnen.'), true);
     return false;
@@ -218,8 +280,7 @@ export async function startJobAt(ed: Editor, preview: Moves, i: number, frac: nu
   const at = formatDuration(Math.max(0, total - est.total));
   const g = await prepareGCode(job, device, est, t('{name} ab {at}', { name: src?.name ?? 'KizamuBeam', at }));
   notify(t('Job ab {at} gestartet, geschätzt {total}.', { at, total: formatDuration(est.total) }));
-  await machine.runPrepared(g);
-  return true;
+  return runGCode(g);
 }
 
 export async function frameJob(ed: Editor, contour: boolean, src?: JobSource) {
@@ -348,6 +409,45 @@ function laserTab(ed: Editor): HTMLElement {
     c.checked = get();
     return h('label', { class: 'check', title }, c, label);
   };
+  // Während des Jobs nachsteuern: Overrides für Leistung, Vorschub und Eilgang, Air Assist, Ausgänge (GRBL-Familie)
+  const ovVal: Record<'feed' | 'power', HTMLButtonElement> = {} as never;
+  const ovRow = (kind: 'feed' | 'power', label: string, title: string) => {
+    const c = OVERRIDE[kind];
+    const b = (txt: string, code: number, tip: string) => h('button', { class: 'btn small', title: tip, onclick: () => machine.realtime(code) }, txt);
+    ovVal[kind] = h('button', { class: 'btn small ov-val', title: t('Auf 100 % zurücksetzen'), onclick: () => machine.realtime(c.reset) }, '100 %') as HTMLButtonElement;
+    return [h('label', { title }, label), h('div', { class: 'ov-row' }, b('−10', c.minus10, t('10 % weniger')), b('−1', c.minus1, t('1 % weniger')), ovVal[kind], b('+1', c.plus1, t('1 % mehr')), b('+10', c.plus10, t('10 % mehr')))];
+  };
+  const rapidBtns = ([25, 50, 100] as const).map((p) => h('button', { class: 'btn small', onclick: () => machine.realtime(RAPID_OVERRIDE[p]) }, `${p} %`) as HTMLButtonElement);
+  const airBtn = h('button', {
+    class: 'btn small',
+    title: t('Air Assist sofort ein- oder ausschalten, auch während des Jobs'),
+    onclick: () => machine.realtime(device.airCmd === 'M7' ? TOGGLE_MIST : TOGGLE_FLOOD),
+  }, t('Air Assist')) as HTMLButtonElement;
+  const outRow = h('div', { class: 'ov-row' });
+  // Zu, solange nichts läuft (spart Platz); beim Start eines Jobs geht es von selbst auf
+  const ovBox = h('details', { class: 'ov-box' },
+    h('summary', {}, t('Nachsteuern')),
+    h('div', { class: 'form' },
+      ...ovRow('power', t('Leistung'), t('Laserleistung des laufenden Jobs in Prozent der eingestellten Werte (10 … 200 %)')),
+      ...ovRow('feed', t('Geschwindigkeit'), t('Vorschub des laufenden Jobs in Prozent der eingestellten Werte (10 … 200 %)')),
+      h('label', { title: t('Eilgang (Leerfahrten) in Prozent') }, t('Eilgang')), h('div', { class: 'ov-row' }, ...rapidBtns),
+      h('label', {}, t('Zubehör')), h('div', { class: 'ov-row' }, airBtn),
+      h('label', { class: 'ov-out-label', title: t('Freie Ausgänge der FluidNC-Konfiguration (user_outputs), z. B. für Absaugung oder Licht') }, t('Ausgänge')), outRow,
+    ),
+  );
+  const fillOutputs = () => {
+    outRow.textContent = '';
+    const outs = machine.fluid ? digitalOutputs(machine.fluid.values) : [];
+    for (const o of outs)
+      outRow.append(h('span', { class: 'ov-out', title: o.pin }, `P${o.n}`,
+        h('button', { class: 'btn small', onclick: () => machine.send(outputCmd(o.n, true)) }, t('an')),
+        h('button', { class: 'btn small', onclick: () => machine.send(outputCmd(o.n, false)) }, t('aus'))));
+    outRow.hidden = !outs.length;
+    (ovBox.querySelector('.ov-out-label') as HTMLElement).hidden = !outs.length;
+  };
+  fillOutputs();
+  let ovOpened = false;
+  const pinTxt = h('div', { class: 'note pins' });
   const devSel = h('select', { class: 'port', title: t('Gerät'), onchange: (e: Event) => selectDevice(ed, (e.target as HTMLSelectElement).value) }) as HTMLSelectElement;
   const fillDevices = () => {
     devSel.textContent = '';
@@ -357,10 +457,12 @@ function laserTab(ed: Editor): HTMLElement {
   root.append(
     h('div', { class: 'conn-row' }, devSel, h('button', { class: 'btn', title: t('Geräte hinzufügen, bearbeiten, löschen'), onclick: () => openDevicesDialog(ed) }, t('Geräte …'))),
     h('div', { class: 'laser-status' }, h('span', {}, dot, stTxt), posTxt),
+    pinTxt,
     h('div', { class: 'conn-row' }, portSel, refreshBtn, connBtn),
     h('div', { class: 'laser-grid' }, startB, pauseB, stopB, frameB, contourB, homeB, originB, previewB, saveB),
     bar,
     progTxt,
+    ovBox,
     h('div', { class: 'form' },
       h('label', {}, t('Starten ab')), startFrom,
       h('label', {}, t('Job-Ursprung')), originGrid,
@@ -428,7 +530,7 @@ function laserTab(ed: Editor): HTMLElement {
     posTxt.textContent = p ? `X ${p[0].toFixed(2)}  Y ${p[1].toFixed(2)}` : '';
     devSel.disabled = machine.connected || machine.connecting;
     const on = machine.connected,
-      busy = machine.busy;
+      busy = machine.running || !!uploading;
     connBtn.textContent = on ? t('Trennen') : machine.connecting ? t('Verbinde …') : t('Verbinden');
     connBtn.disabled = machine.connecting || (!isTauri() && !on);
     portSel.disabled = on || machine.connecting || !isTauri();
@@ -440,27 +542,52 @@ function laserTab(ed: Editor): HTMLElement {
     pauseB.lastChild!.textContent = hold ? t('Weiter') : t('Pause');
     (pauseB.firstChild as HTMLElement).innerHTML = hold ? ICONS.play : ICONS.pause;
     const pr = machine.progress;
-    const showProg = !!pr && !machine.jobIsFrame;
+    const stored = machine.storedJob;
+    const showProg = (!!pr && !machine.jobIsFrame) || !!stored || !!uploading;
     bar.hidden = progTxt.hidden = !showProg;
-    if (pr && showProg) {
+    const el = (since: number) => t('{time} vergangen', { time: formatDuration((performance.now() - since) / 1000) });
+    if (uploading) {
+      const f = uploading.total ? uploading.sent / uploading.total : 0;
+      (bar.firstChild as HTMLElement).style.width = `${(f * 100).toFixed(1)}%`;
+      progTxt.textContent = t('Lade auf die Steuerung … {pct} %', { pct: Math.floor(f * 100) });
+    } else if (stored) {
+      const f = (machine.status.sd?.pct ?? 0) / 100;
+      (bar.firstChild as HTMLElement).style.width = `${(f * 100).toFixed(1)}%`;
+      progTxt.textContent = `${Math.floor(f * 100)} % · ${t('läuft auf der Steuerung')} · ${el(stored.started)}`;
+    } else if (pr && showProg) {
       const f = pr.total ? pr.acked / pr.total : 0;
       (bar.firstChild as HTMLElement).style.width = `${(f * 100).toFixed(1)}%`;
       const rest = machine.remaining();
-      const el = (performance.now() - machine.jobStarted) / 1000;
-      progTxt.textContent = `${Math.floor(f * 100)} % · ${t('{time} vergangen', { time: formatDuration(el) })}${rest !== null ? t(' · noch etwa {rest}', { rest: formatDuration(rest) }) : ''}${pr.errors ? tn(' · {n} Fehler', ' · {n} Fehler', pr.errors) : ''}`;
+      progTxt.textContent = `${Math.floor(f * 100)} % · ${el(machine.jobStarted)}${rest !== null ? t(' · noch etwa {rest}', { rest: formatDuration(rest) }) : ''}${pr.errors ? tn(' · {n} Fehler', ' · {n} Fehler', pr.errors) : ''}`;
     }
+    // Nachsteuern: nur GRBL-Familie; Ov meldet die Steuerung nur ab und zu
+    ovBox.hidden = !on || !fw().overrides;
+    if (busy && !ovOpened) ((ovBox as HTMLDetailsElement).open = true), (ovOpened = true);
+    if (!busy) ovOpened = false;
+    const ov = machine.status.ov;
+    ovVal.feed.textContent = `${ov ? ov[0] : 100} %`;
+    ovVal.power.textContent = `${ov ? ov[2] : 100} %`;
+    ovVal.feed.classList.toggle('changed', !!ov && ov[0] !== 100);
+    ovVal.power.classList.toggle('changed', !!ov && ov[2] !== 100);
+    rapidBtns.forEach((b, i) => b.classList.toggle('cur', (ov ? ov[1] : 100) === [25, 50, 100][i]));
+    airBtn.classList.toggle('cur', /[FM]/.test(machine.status.acc));
+    const pins = on ? pinNames(machine.status.pins) : [];
+    pinTxt.textContent = pins.length ? t('Aktive Eingänge: {pins}', { pins: pins.join(', ') }) : '';
+    pinTxt.hidden = !pins.length;
     startFrom.value = device.startFrom;
     originBtns.forEach((b, k) => b.classList.toggle('cur', k === device.jobOrigin));
     originGrid.classList.toggle('disabled', device.startFrom === 'absolute');
   };
   machine.on((e) => {
     if (e.type === 'done') notify(e.message, !e.ok);
+    if (e.type === 'config' || e.type === 'connection') fillOutputs();
     if (e.type !== 'line') refresh();
   });
+  uploadListeners.add(refresh);
   deviceListeners.add(() => (fillDevices(), fillPorts(), refresh()));
   fillDevices();
   // Fortschrittstext auch ohne neue Ereignisse aktualisieren (vergangene Zeit)
-  setInterval(() => machine.progress && refresh(), 1000);
+  setInterval(() => machine.running && refresh(), 1000);
   refresh();
   return root;
 }
@@ -524,7 +651,7 @@ function moveTab(ed: Editor): HTMLElement {
     pos.textContent = machine.connected && s.wpos
       ? t('Position X {x}  Y {y} mm', { x: s.wpos[0].toFixed(2), y: s.wpos[1].toFixed(2) }) + (s.mpos && (Math.abs(s.mpos[0] - s.wpos[0]) > 1e-3 || Math.abs(s.mpos[1] - s.wpos[1]) > 1e-3) ? t(' (Maschine {x} / {y})', { x: s.mpos[0].toFixed(2), y: s.mpos[1].toFixed(2) }) : '')
       : t('Nicht verbunden');
-    root.querySelectorAll('button').forEach((b) => ((b as HTMLButtonElement).disabled = !machine.connected || machine.busy));
+    root.querySelectorAll('button').forEach((b) => ((b as HTMLButtonElement).disabled = !machine.connected || machine.running));
     if (!fw().clearOrigin) clearO.disabled = true;
     if (!fw().unlock) unlock.disabled = true;
   };
@@ -643,9 +770,34 @@ export function openDeviceDialog(ed: Editor, target: Device = device, onDone?: (
     ...[57600, 115200, 230400, 250000, 460800, 921600].map((b) => h('option', { value: String(b), selected: b === d.baud }, String(b))),
   );
   rows.push(h('label', {}, t('Baudrate')), baud);
-  text(t('WLAN-Adresse'), () => d.host, (v) => (d.host = v.trim()));
+  const hostIn = h('input', { type: 'text', value: d.host, oninput: (e: Event) => (d.host = (e.target as HTMLInputElement).value.trim()) }) as HTMLInputElement;
+  rows.push(h('label', {}, t('WLAN-Adresse')), h('span', { class: 'conn-row' }, hostIn,
+    h('button', {
+      class: 'btn small', title: t('FluidNC-Steuerungen im lokalen Netzwerk suchen'),
+      onclick: () => import('./fluidncDialog').then((m) => m.openDiscovery(d.httpPort || 80, (host) => ((d.host = host), (hostIn.value = host)))),
+    }, t('Suchen …'))));
   num(t('Telnet-Port'), () => d.tcpPort, (v) => (d.tcpPort = Math.round(v)));
   num(t('WebSocket-Port'), () => d.wsPort, (v) => (d.wsPort = Math.round(v)), t('FluidNC: 81; ist er nicht erreichbar, wird 80 versucht'));
+  num(t('Web-Port'), () => d.httpPort, (v) => (d.httpPort = Math.round(v)), t('Weboberfläche von FluidNC (meist 80): zum Hochladen auf SD-Karte/Flash und für die Suche'));
+  // Empfangspuffer für die Zeichenzählung; größer = flüssiger bei vielen kurzen Zeilen (Bildgravur)
+  const bufNote = h('div', { class: 'note wide' });
+  const bufSel = h('select', { onchange: (e: Event) => (d.rxBuffer = Number((e.target as HTMLSelectElement).value)) },
+    ...[127, 256, 512, 1024].map((b) => h('option', { value: String(b), selected: b === d.rxBuffer }, b === 127 ? t('127 Bytes (sicher)') : t('{n} Bytes', { n: b }))),
+  ) as HTMLSelectElement;
+  if (![127, 256, 512, 1024].includes(d.rxBuffer)) bufSel.append(h('option', { value: String(d.rxBuffer), selected: true }, t('{n} Bytes', { n: d.rxBuffer })));
+  const measureBuf = () => {
+    const bf = machine.status.bf;
+    if (!isCurrent || !machine.connected) return void (bufNote.textContent = t('Zum Messen erst verbinden.'));
+    if (machine.running || machine.status.state !== 'Idle') return void (bufNote.textContent = t('Zum Messen muss die Maschine still stehen.'));
+    if (!bf) return void (bufNote.textContent = t('Die Steuerung meldet ihren Puffer nicht (Bf: im Statusbericht; bei GRBL mit $10=2). Größere Werte nur ausprobieren: treten Fehler oder Aussetzer auf, zurück auf 127.'));
+    const free = Math.max(64, bf[1] - 1);
+    if (![...bufSel.options].some((o) => o.value === String(free))) bufSel.append(h('option', { value: String(free) }, t('{n} Bytes', { n: free })));
+    bufSel.value = String(free);
+    d.rxBuffer = free;
+    bufNote.textContent = t('Die Steuerung meldet {n} Bytes freien Empfangspuffer; eingestellt auf {m}.', { n: bf[1], m: free });
+  };
+  rows.push(h('label', { title: t('Wie viele Zeichen KizamuBeam an die Steuerung schickt, bevor sie bestätigt hat. Wirkt beim nächsten Verbinden.') }, t('Empfangspuffer')),
+    h('span', { class: 'conn-row' }, bufSel, h('button', { class: 'btn small', title: t('Pufferstand der verbundenen Steuerung lesen'), onclick: measureBuf }, t('Messen'))), bufNote);
   bool(t('Beim Verbinden referenzieren'), () => d.homeOnConnect, (v) => (d.homeOnConnect = v), t('Nach dem Verbinden eine Referenzfahrt starten'));
   rows.push(h('label', { title: t('Ohne Endschalter bietet der Assistent „Laser einrichten“ keine Referenzfahrt an') }, t('Endschalter')), h('select', { onchange: (e: Event) => (d.limitSwitches = (e.target as HTMLSelectElement).value as Device['limitSwitches']) },
     h('option', { value: 'unknown', selected: d.limitSwitches === 'unknown' }, t('Unbekannt')),
@@ -664,6 +816,26 @@ export function openDeviceDialog(ed: Editor, target: Device = device, onDone?: (
   rows.push(h('label', { title: t('Wird auf Layern mit „Air Assist“ vor dem Lasern gesendet, ausgeschaltet wird mit M9') }, t('Einschalten mit')), h('select', { onchange: (e: Event) => (d.airCmd = (e.target as HTMLSelectElement).value as Device['airCmd']) },
     h('option', { value: 'M8', selected: d.airCmd !== 'M7' }, t('M8 (Flood, üblich)')),
     h('option', { value: 'M7', selected: d.airCmd === 'M7' }, 'M7 (Mist)'),
+  ));
+  head('FluidNC');
+  rows.push(h('label', { title: t('Bei WLAN-Aussetzern läuft ein Job von SD-Karte oder Flash weiter; er wird vor dem Start über die Weboberfläche hochgeladen') }, t('Job ausführen')),
+    h('select', { onchange: (e: Event) => (d.runFrom = (e.target as HTMLSelectElement).value as Device['runFrom']) },
+      h('option', { value: 'stream', selected: d.runFrom === 'stream' }, t('Vom Rechner senden')),
+      h('option', { value: 'sd', selected: d.runFrom === 'sd' }, t('Auf SD-Karte laden und dort starten')),
+      h('option', { value: 'localfs', selected: d.runFrom === 'localfs' }, t('Im Flash speichern und dort starten')),
+    ));
+  const outsIn = h('input', {
+    type: 'text', value: d.jobOutputs.join(', '), placeholder: t('z. B. 0, 1'),
+    onchange: (e: Event) => {
+      const el = e.target as HTMLInputElement;
+      d.jobOutputs = [...new Set(el.value.split(/[\s,;]+/).filter(Boolean).map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n < 8))];
+      el.value = d.jobOutputs.join(', ');
+    },
+  }) as HTMLInputElement;
+  rows.push(h('label', { title: t('Digitale Ausgänge (user_outputs, M64/M65 P…), die während jedes Jobs an sind, z. B. Absaugung') }, t('Ausgänge im Job')), outsIn);
+  rows.push(h('label', {}, ''), h('span', { class: 'conn-row' },
+    h('button', { class: 'btn small', title: t('config.yaml der verbundenen Steuerung lesen und ändern'), onclick: () => import('./fluidncDialog').then((m) => m.openFluidConfig()) }, t('Konfiguration …')),
+    h('button', { class: 'btn small', title: t('Dateien auf SD-Karte und Flash'), onclick: () => import('./fluidncDialog').then((m) => m.openFluidFiles(ed)) }, t('Dateien …')),
   ));
   head(t('G-Code-Skripte'));
   const script = (label: string, title: string, get: () => string, set: (v: string) => void) => {
@@ -689,7 +861,7 @@ export function openDeviceDialog(ed: Editor, target: Device = device, onDone?: (
     () => d.agentMinSpeed, (v) => (d.agentMinSpeed = Math.max(0, v)));
   const readNote = h('div', { class: 'note' });
   // Lesen nur vom verbundenen Gerät und nur bei FluidNC und GRBL-artigen Steuerungen
-  const canRead = () => isCurrent && machine.connected && !machine.busy && FIRMWARES[d.fw].read !== null;
+  const canRead = () => isCurrent && machine.connected && !machine.running && FIRMWARES[d.fw].read !== null;
   const readBtn: HTMLButtonElement = h('button', {
     class: 'btn',
     disabled: !canRead(),

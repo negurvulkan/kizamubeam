@@ -83,6 +83,7 @@ pub async fn machine_ports() -> Vec<PortInfo> {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn machine_connect(
     app: AppHandle,
     state: State<'_, Machine>,
@@ -94,7 +95,10 @@ pub async fn machine_connect(
     sync: bool,
     realtime: bool,
     poll: Option<String>,
+    rx_buffer: Option<usize>,
 ) -> Result<(), String> {
+    // Ältere Oberflächen schicken keinen Puffer; unter 64 und über 16 KiB ist sicher ein Tippfehler
+    let rx_buffer = rx_buffer.unwrap_or(crate::stream::RX_BUFFER).clamp(64, 16384);
     if let Some(tx) = state.tx.lock().unwrap().take() {
         let _ = tx.send(Cmd::Close);
     }
@@ -111,7 +115,7 @@ pub async fn machine_connect(
                 .timeout(Duration::from_millis(10))
                 .open()
                 .map_err(|e| format!("{}: {e}", port.trim()))?;
-            std::thread::spawn(move || Streamer::new(p, events, busy, Protocol { telnet: false, sync, realtime, poll }).run(rx));
+            std::thread::spawn(move || Streamer::new(p, events, busy, Protocol { telnet: false, sync, realtime, poll, rx_buffer }).run(rx));
         }
         "tcp" => {
             let addr = (host.trim(), tcp_port)
@@ -123,11 +127,11 @@ pub async fn machine_connect(
             s.set_read_timeout(Some(Duration::from_millis(10))).map_err(|e| e.to_string())?;
             s.set_write_timeout(Some(Duration::from_secs(5))).map_err(|e| e.to_string())?;
             let _ = s.set_nodelay(true);
-            std::thread::spawn(move || Streamer::new(s, events, busy, Protocol { telnet: true, sync, realtime, poll }).run(rx));
+            std::thread::spawn(move || Streamer::new(s, events, busy, Protocol { telnet: true, sync, realtime, poll, rx_buffer }).run(rx));
         }
         "ws" => {
             let ws = crate::ws::connect(&host, tcp_port)?;
-            std::thread::spawn(move || Streamer::new(ws, events, busy, Protocol { telnet: false, sync, realtime, poll }).run(rx));
+            std::thread::spawn(move || Streamer::new(ws, events, busy, Protocol { telnet: false, sync, realtime, poll, rx_buffer }).run(rx));
         }
         _ => return Err(format!("Unbekannte Verbindungsart „{kind}“")),
     }

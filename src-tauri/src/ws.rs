@@ -228,7 +228,7 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         let lines: Vec<String> = (0..200).map(|i| format!("G1 X{}.5 Y{} S{} F3000", i % 37, i % 11, i % 1000)).chain(["M5".into(), "M2".into()]).collect();
         tx.send(Cmd::Job(lines.clone())).unwrap();
-        let proto = Protocol { telnet: false, sync: false, realtime: true, poll: None };
+        let proto = Protocol { telnet: false, sync: false, realtime: true, poll: None, rx_buffer: crate::stream::RX_BUFFER };
         let st = Streamer::new(ws, log.clone(), busy.clone(), proto);
         let client = std::thread::spawn(move || st.run(rx));
         let t0 = Instant::now();

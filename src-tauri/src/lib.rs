@@ -1,4 +1,5 @@
 pub mod agent;
+mod fluid;
 mod machine;
 mod native;
 mod packs;
@@ -211,6 +212,8 @@ pub fn run() {
             machine::machine_pause,
             machine::machine_resume,
             machine::machine_stop,
+            fluid::fluid_upload,
+            fluid::fluid_discover,
             agent::agent_info,
             agent::agent_configure,
             agent::agent_new_token,
