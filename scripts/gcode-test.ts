@@ -119,6 +119,65 @@ for (const fixed of [false, true]) {
   });
 }
 
+// ---------- Konturfolgende Füllung ----------
+
+const offsetJob = (objs: Obj[], interval = 1, passes = 1) =>
+  buildJob({
+    doc: loadDoc({ bed: { w: 400, h: 400 }, objs, layers: {} }),
+    layer: (i: number) => ({ ...defaultLayer(i), mode: 'fill' as const, fillStyle: 'offset' as const, interval, passes }),
+    imgLayer: () => defaultImageLayer(),
+    device: { ...newDevice({ fw: 'fluidnc' }), startFrom: 'absolute' as const, returnHome: false },
+  });
+/** Geschlossene Ringe einer Bewegungsliste: Eilfahrt zum Start, dann Laserstrecken zurück zum Start */
+function ringsOf(mv: Moves) {
+  const rings: { x: number[]; y: number[] }[] = [];
+  for (let i = 0; i < mv.n; i++) {
+    if (mv.s[i] === 0) rings.push({ x: [mv.x[i]], y: [mv.y[i]] });
+    else (rings.at(-1)!.x.push(mv.x[i]), rings.at(-1)!.y.push(mv.y[i]));
+  }
+  return rings;
+}
+
+await test('Kontur folgend: Quadrat in Ringen nach innen, erster Ring einen halben Abstand innerhalb', async () => {
+  const objs: Obj[] = [{ id: 1, m: [1, 0, 0, 1, 100, 100], layer: 1, shape: { kind: 'rect', w: 10, h: 10, r: 0 } as never }];
+  const job = await offsetJob(objs);
+  const rings = ringsOf(job.moves);
+  // Abstand 1 mm, Kante 10 mm: Ringe bei 0,5 / 1,5 / … / 4,5 mm innerhalb
+  assert.equal(rings.length, 5);
+  rings.forEach((r, k) => {
+    assert.ok(Math.abs(r.x.at(-1)! - r.x[0]) < 1e-9 && Math.abs(r.y.at(-1)! - r.y[0]) < 1e-9, 'Ring geschlossen');
+    const w = Math.max(...r.x) - Math.min(...r.x);
+    assert.ok(Math.abs(w - (9 - 2 * k)) < 0.01, `Ring ${k}: Breite ${w}`);
+  });
+  // Von außen nach innen, jeder Ring beginnt nah am Ende des vorigen
+  for (let k = 1; k < rings.length; k++) assert.ok(Math.hypot(rings[k].x[0] - rings[k - 1].x[0], rings[k].y[0] - rings[k - 1].y[0]) < 1.5);
+  // Gesamter Lauf bleibt innerhalb des Quadrats
+  for (let i = 0; i < job.moves.n; i++) assert.ok(job.moves.x[i] >= 100.49 && job.moves.x[i] <= 109.51);
+});
+
+await test('Kontur folgend: Löcher bleiben frei, Inseln nacheinander, Durchgänge wiederholt', async () => {
+  // Rahmen 20×20 mit Loch 10×10 (gerade-ungerade) und daneben ein zweites Quadrat
+  const objs: Obj[] = [
+    { id: 1, m: [1, 0, 0, 1, 100, 100], layer: 1, shape: { kind: 'rect', w: 20, h: 20, r: 0 } as never },
+    { id: 2, m: [1, 0, 0, 1, 105, 105], layer: 1, shape: { kind: 'rect', w: 10, h: 10, r: 0 } as never },
+    { id: 3, m: [1, 0, 0, 1, 200, 100], layer: 1, shape: { kind: 'rect', w: 4, h: 4, r: 0 } as never },
+  ];
+  const one = ringsOf((await offsetJob(objs)).moves);
+  // Rahmen 5 mm breit: Außen- und Lochring bei 0,5 und 1,5 mm; bei 2,5 mm bleiben nur die Ecken zwischen eckigem
+  // Außenrand und gerundetem Loch als ein Ring übrig. Dazu 2 Ringe im kleinen Quadrat.
+  const frame = one.filter((r) => Math.max(...r.x) < 150),
+    small = one.filter((r) => Math.min(...r.x) > 150);
+  assert.equal(small.length, 2);
+  assert.equal(frame.length, 5);
+  // Nichts im Loch (x 105…115, y 285…295 auf dem Bett mit y nach oben)
+  for (const r of frame) for (let i = 0; i < r.x.length; i++) assert.ok(!(r.x[i] > 104.9 && r.x[i] < 115.1 && r.y[i] > 284.9 && r.y[i] < 295.1));
+  // Erst eine Insel ganz, dann die andere
+  const side = one.map((r) => (Math.max(...r.x) < 150 ? 'a' : 'b')).join('');
+  assert.ok(/^a+b+$|^b+a+$/.test(side), side);
+  const two = ringsOf((await offsetJob(objs, 1, 2)).moves);
+  assert.equal(two.length, 2 * one.length);
+});
+
 // ---------- Drehachse ----------
 
 const rotDev = (r: Partial<Rotary>, extra: Partial<Device> = {}): Device => ({ ...newDevice({ fw: 'fluidnc' }), ...extra, rotary: { ...DEFAULT_ROTARY, enabled: true, ...r } });

@@ -1,6 +1,6 @@
 // Editor: Dokument, Rückgängig/Wiederholen, Autosave und Seiten.
 import {
-  allObjs, bumpIds, cloneObjs, defaultImageLayer, defaultLayer, normalizeLayer, loadDoc, pageName, ImageLayer, Layer, leaves, newDoc, Obj,
+  allObjs, bumpIds, cloneObjs, Doc, defaultImageLayer, defaultLayer, normalizeLayer, loadDoc, pageName, ImageLayer, Layer, leaves, newDoc, Obj,
   Shape,
 } from '../model';
 import { assetUrl, registerAsset, restoreAssets } from '../images';
@@ -9,6 +9,7 @@ import { t } from '../i18n';
 import { loadGen } from '../generators';
 import type { Editor } from '../editor';
 import { bumpShapeVersion } from './shared';
+import { docKey, makeTab } from './tabs';
 
 const STORAGE_KEY = 'kizamubeam.autosave';
 
@@ -112,16 +113,20 @@ export class EditorDocument {
     clearTimeout(this.saveTimer);
     this.saveTimer = window.setTimeout(() => this.saveNow(), 500);
   }
-  /** Zwischenstand sofort sichern, z. B. vor dem Neuladen der Oberfläche */
+  /** Zwischenstand sofort sichern, z. B. vor dem Neuladen der Oberfläche (alle Tabs) */
   saveNow(this: Editor) {
     clearTimeout(this.saveTimer);
+    this.updateChanged();
+    const json = JSON.stringify(this.doc);
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.doc));
+      localStorage.setItem(STORAGE_KEY, json);
     } catch {
       /* Speicher nicht verfügbar */
     }
+    this.saveTabs(json);
   }
   restore(this: Editor) {
+    if (this.restoreTabs(migrateGens)) return;
     try {
       const s = localStorage.getItem(STORAGE_KEY);
       if (s) {
@@ -133,6 +138,9 @@ export class EditorDocument {
     } catch {
       this.doc = newDoc();
     }
+    // Ältere Sicherung ohne Tabs: ein Tab mit ungespeicherten Änderungen (außer er ist leer)
+    this.tabs = [makeTab(this.doc, null, allObjs(this.doc).length > 0)];
+    this.tabIndex = 0;
   }
   /** IDs aller im Dokument verwendeten Bilder */
   assetIds(this: Editor, objs: Obj[] = allObjs(this.doc)): string[] {
@@ -149,18 +157,28 @@ export class EditorDocument {
     }
     return JSON.stringify(Object.keys(assets).length ? { ...this.doc, assets } : this.doc, null, 1);
   }
-  openDoc(this: Editor, json: string) {
+  /** Projektdatei lesen: Bilddaten anmelden, IDs und alte Generator-Parameter anpassen */
+  parseProject(this: Editor, json: string): Doc {
     const d = loadDoc(JSON.parse(json));
     if (d.assets) for (const [id, url] of Object.entries(d.assets)) registerAsset(id, url);
     delete d.assets;
     // Vorschau nur in Vorlagen-Dateien (wird beim Speichern als Vorlage neu erzeugt)
     delete d.template?.preview;
     restoreAssets(this.assetIds(allObjs(d)));
+    bumpIds(allObjs(d));
+    migrateGens(allObjs(d));
+    return d;
+  }
+  /** Projektdatei im aktiven Tab öffnen (ersetzt das Dokument, rückgängig machbar) */
+  openDoc(this: Editor, json: string) {
+    const d = this.parseProject(json);
     this.snapshot(t('Datei öffnen'));
     this.clearPageState();
     this.doc = d;
-    bumpIds(allObjs(d));
-    migrateGens(allObjs(d));
+    // Name unbekannt: wer die Datei kennt, ruft danach markSaved() auf
+    this.tab.name = null;
+    this.tab.saved = '';
+    this.onTabsChange?.();
     this.zoomPage();
     this.emit('doc');
     this.emit('sel');
@@ -171,6 +189,9 @@ export class EditorDocument {
     const bed = this.doc.bed;
     this.doc = newDoc();
     this.doc.bed = { ...bed };
+    this.tab.name = null;
+    this.tab.saved = docKey(this.doc);
+    this.onTabsChange?.();
     this.emit('doc');
     this.emit('sel');
   }
