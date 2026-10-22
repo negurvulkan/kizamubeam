@@ -119,3 +119,12 @@ export const locale = lang === 'de' ? 'de-DE' : 'en-US';
 
 /** Dezimalzeichen für die Anzeige: Komma auf Deutsch, Punkt auf Englisch. */
 export const dec = (s: string) => (lang === 'de' ? s.replace('.', ',') : s);
+
+/** Text in der Sprache der Oberfläche, sonst Englisch, sonst Deutsch, sonst der erste (z. B. aus Erweiterungen: „Text“ oder {"de": "…", "en": "…"}) */
+export function localText(v: unknown, l: string = lang): string {
+  if (typeof v === 'string') return v.trim();
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return '';
+  const o = v as Record<string, unknown>;
+  for (const k of [l, 'en', 'de', ...Object.keys(o)]) if (typeof o[k] === 'string' && (o[k] as string).trim()) return (o[k] as string).trim();
+  return '';
+}

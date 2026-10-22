@@ -107,6 +107,7 @@
         "Templates with project parameters and formulas – key fob, name tag and labelled box included",
         "Series from a table or CSV: every row becomes a finished copy, edit the table right in the dialog",
         "QR codes (link, Wi-Fi, vCard) and variable text with serial numbers, dates and CSV columns",
+        "Library for your own motifs, images and design elements with previews and search – insert by double-click or drag",
         "Material library for cut and image settings; LightBurn libraries (.clb) can be imported"
       ]
     },
@@ -116,7 +117,7 @@
       "b": [
         "MCP server for AI agents: read, design, generate parts. Local only, off by default, token-protected",
         "Machine actions from agents only start after you confirm – pause and stop always work",
-        "Extensions (.kzp) add device presets, templates and materials – no app update, data only, no code",
+        "Extensions (.kzp) add device presets, templates, materials and motifs – no app update, data only, no code",
         "Interface in English and German; new languages are easy to add",
         "GPL-3.0-or-later, open JSON file formats, built with Tauri 2, TypeScript and Rust",
         "Formerly “Laserwerk”: settings, devices and materials carry over, old projects still open"

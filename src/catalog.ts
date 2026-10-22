@@ -28,6 +28,8 @@ export interface CatalogEntry {
   devices: number;
   templates: number;
   materials: number;
+  /** Bibliotheks-Einträge (fehlt in älteren Katalogen) */
+  assets: number;
   /** Paketdatei relativ zu catalog.json */
   file: string;
   sha256: string;
@@ -86,7 +88,7 @@ export function parseCatalog(text: string): Catalog {
       name: p.name, ...(p.description ? { description: p.description } : {}),
       ...(typeof p.author === 'string' ? { author: p.author } : {}),
       ...(typeof p.homepage === 'string' && p.homepage.startsWith('https://') ? { homepage: p.homepage } : {}),
-      devices: n(p.devices), templates: n(p.templates), materials: n(p.materials),
+      devices: n(p.devices), templates: n(p.templates), materials: n(p.materials), assets: n(p.assets),
       file: p.file, sha256: p.sha256, size: n(p.size),
     });
   }
@@ -142,7 +144,7 @@ export async function buildCatalog(files: [name: string, text: string][], genera
       id: p.id, version: p.version, ...(p.minApp ? { minApp: p.minApp } : {}),
       name: raw.name, ...(raw.description ? { description: raw.description } : {}),
       ...(p.author ? { author: p.author } : {}), ...(p.homepage ? { homepage: p.homepage } : {}),
-      devices: p.devices.length, templates: p.templates.length, materials: p.materials.length,
+      devices: p.devices.length, templates: p.templates.length, materials: p.materials.length, assets: p.assets.length,
       file: name, sha256: await sha256Hex(text), size: new TextEncoder().encode(text).length,
     });
   }

@@ -25,6 +25,7 @@
     "test:updates": "node scripts/run-ts.mjs scripts/updates-test.ts",
     "test:packs": "node scripts/run-ts.mjs scripts/packs-test.ts",
     "test:catalog": "node scripts/run-ts.mjs scripts/catalog-test.ts",
+    "test:library": "node scripts/run-ts.mjs scripts/library-test.ts",
     "test:fluidnc": "node scripts/run-ts.mjs scripts/fluidnc-test.ts"
   },
   "license": "GPL-3.0-or-later",

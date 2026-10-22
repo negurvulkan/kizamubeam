@@ -1,9 +1,9 @@
 // Dateien öffnen/speichern: in Tauri über native Dialoge, im Browser per Download/Dateiauswahl.
 import type { Editor } from './editor';
-import { IDENT, visibleLeaves, PALETTE } from './model';
+import { IDENT, Obj, visibleLeaves, PALETTE } from './model';
 import { boundsOf, subsToD, shapeSubs, textLayout, textOutline } from './geom';
 import { assetUrl, processedPng, readDpi } from './images';
-import { importDxf, importSvg } from './importers';
+import { importDxf, importSvg, ImportResult } from './importers';
 import { t } from './i18n';
 
 const isTauri = () => '__TAURI_INTERNALS__' in window;
@@ -77,13 +77,41 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
  */
 export function buildSvg(ed: Editor, opts: { preview?: boolean } = {}): string {
   const { w, h } = ed.doc.bed;
+  const style = (i: number) => {
+    const L = ed.layer(i);
+    return { show: L.show, fill: L.mode === 'fill' };
+  };
+  if (opts.preview) return objsPreviewSvg(ed.doc.objs, style);
+  return (
+    `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}mm" height="${h}mm" viewBox="0 0 ${w} ${h}">\n` +
+    objsSvgParts(ed.doc.objs, style, false).parts.join('\n') +
+    `\n</svg>\n`
+  );
+}
+
+type LayerStyle = (layer: number) => { show: boolean; fill: boolean };
+
+/**
+ * Kleine SVG-Vorschau nur um die Objekte herum (Vorlagen, Bibliothek). thumbs: verkleinerte Bilder nach
+ * Asset-ID; große Bilder ohne verkleinerte Fassung erscheinen als graue Fläche.
+ */
+export function objsPreviewSvg(objs: Obj[], style: LayerStyle, thumbs: Record<string, string> = {}): string {
+  const { parts, box } = objsSvgParts(objs, style, true, thumbs);
+  if (!isFinite(box.x0)) return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"></svg>';
+  const pad = Math.max(box.x1 - box.x0, box.y1 - box.y0) * 0.04 + 0.5;
+  const vb = [box.x0 - pad, box.y0 - pad, box.x1 - box.x0 + 2 * pad, box.y1 - box.y0 + 2 * pad].map((v) => +v.toFixed(2));
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb.join(' ')}">${parts.join('')}</svg>`;
+}
+
+function objsSvgParts(objs: Obj[], style: LayerStyle, preview: boolean, thumbs: Record<string, string> = {}) {
   const parts: string[] = [];
   const box = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
-  const sw = opts.preview ? 'stroke-width="1" vector-effect="non-scaling-stroke"' : 'stroke-width="0.1"';
-  for (const [o, m] of visibleLeaves(ed.doc.objs)) {
-    const L = ed.layer(o.layer);
+  const sw = preview ? 'stroke-width="1" vector-effect="non-scaling-stroke"' : 'stroke-width="0.1"';
+  for (const [o, m] of visibleLeaves(objs)) {
+    const L = style(o.layer);
     if (!L.show) continue;
-    if (opts.preview) {
+    if (preview) {
       // m enthält schon die Lage des Objekts
       const b = boundsOf([{ ...o, m: IDENT }], m);
       if (b) {
@@ -94,11 +122,11 @@ export function buildSvg(ed: Editor, opts: { preview?: boolean } = {}): string {
       }
     }
     const color = PALETTE[o.layer];
-    const fill = L.mode === 'fill' ? color : 'none';
+    const fill = L.fill ? color : 'none';
     if (o.shape.kind === 'image') {
-      const url = assetUrl(o.shape.asset);
+      const url = thumbs[o.shape.asset] ?? assetUrl(o.shape.asset);
       const tf = `transform="matrix(${m.join(' ')})" width="${o.shape.w}" height="${o.shape.h}"`;
-      if (url && opts.preview && url.length > 150_000) parts.push(`<rect ${tf} fill="#bbb"/>`);
+      if (url && preview && url.length > 150_000) parts.push(`<rect ${tf} fill="#bbb"/>`);
       else if (url) parts.push(`<image ${tf} preserveAspectRatio="none" href="${url}"/>`);
       continue;
     }
@@ -124,18 +152,7 @@ export function buildSvg(ed: Editor, opts: { preview?: boolean } = {}): string {
     }
     parts.push(`<path d="${subsToD(shapeSubs(o.shape), m)}" fill="${fill}" fill-rule="evenodd" stroke="${color}" ${sw}/>`);
   }
-  if (opts.preview) {
-    if (!isFinite(box.x0)) return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"></svg>';
-    const pad = Math.max(box.x1 - box.x0, box.y1 - box.y0) * 0.04 + 0.5;
-    const vb = [box.x0 - pad, box.y0 - pad, box.x1 - box.x0 + 2 * pad, box.y1 - box.y0 + 2 * pad].map((v) => +v.toFixed(2));
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb.join(' ')}">${parts.join('')}</svg>`;
-  }
-  return (
-    `<?xml version="1.0" encoding="UTF-8"?>\n` +
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}mm" height="${h}mm" viewBox="0 0 ${w} ${h}">\n` +
-    parts.join('\n') +
-    `\n</svg>\n`
-  );
+  return { parts, box };
 }
 
 export async function exportSvg(ed: Editor) {
@@ -145,7 +162,8 @@ export async function exportSvg(ed: Editor) {
 // ---------- Import ----------
 
 const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp', 'tif', 'tiff'];
-const IMPORT_EXT = ['svg', 'dxf', ...IMAGE_EXT];
+/** Was Importieren annimmt; .kza = Eintrag der Bibliothek */
+export const IMPORT_EXT = ['svg', 'dxf', ...IMAGE_EXT, 'kza'];
 const MIME: Record<string, string> = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', bmp: 'image/bmp', gif: 'image/gif', webp: 'image/webp',
 };
@@ -159,26 +177,38 @@ function bytesToDataUrl(bytes: Uint8Array, mime: string): Promise<string> {
   });
 }
 
-/** Dateiinhalt anhand von Endung bzw. Dateikopf importieren; Fehler werden geworfen */
-export async function importBytesOrThrow(ed: Editor, name: string, bytes: Uint8Array) {
+type ParsedFile = { kind: 'vectors'; res: ImportResult } | { kind: 'image'; dataUrl: string; dpi: number | null };
+
+/** Dateiinhalt anhand von Endung bzw. Dateikopf lesen; Fehler werden geworfen */
+async function parseFile(name: string, bytes: Uint8Array): Promise<ParsedFile> {
   const ext = (/\.([a-z0-9]+)$/i.exec(name)?.[1] ?? '').toLowerCase();
   const head = new TextDecoder().decode(bytes.slice(0, 512)).trimStart();
-  if (ext === 'svg' || head.startsWith('<svg') || (head.startsWith('<?xml') && head.includes('<svg'))) {
-    await ed.importVectors(importSvg(new TextDecoder().decode(bytes)), name);
-    return;
-  }
-  if (ext === 'dxf' || /^\s*0\s*\r?\n\s*SECTION/.test(head)) {
-    await ed.importVectors(importDxf(new TextDecoder().decode(bytes)), name);
-    return;
-  }
-  if (ext === 'tif' || ext === 'tiff' || isTiff(bytes)) {
-    const { dataUrl, dpi } = await decodeTiff(bytes);
-    await ed.importImage(dataUrl, dpi, name);
-    return;
-  }
+  if (ext === 'svg' || head.startsWith('<svg') || (head.startsWith('<?xml') && head.includes('<svg')))
+    return { kind: 'vectors', res: importSvg(new TextDecoder().decode(bytes)) };
+  if (ext === 'dxf' || /^\s*0\s*\r?\n\s*SECTION/.test(head)) return { kind: 'vectors', res: importDxf(new TextDecoder().decode(bytes)) };
+  if (ext === 'tif' || ext === 'tiff' || isTiff(bytes)) return { kind: 'image', ...(await decodeTiff(bytes)) };
   const mime = MIME[ext] ?? sniffImage(bytes);
   if (!mime) throw new Error(t('Dateiformat wird nicht unterstützt (SVG, DXF, PNG, JPG, BMP, GIF, WebP, TIFF).'));
-  await ed.importImage(await bytesToDataUrl(bytes, mime), readDpi(bytes), name);
+  return { kind: 'image', dataUrl: await bytesToDataUrl(bytes, mime), dpi: readDpi(bytes) };
+}
+
+/** Dateiinhalt anhand von Endung bzw. Dateikopf importieren; Fehler werden geworfen */
+export async function importBytesOrThrow(ed: Editor, name: string, bytes: Uint8Array) {
+  if (/\.kza$/i.test(name)) {
+    const { insertAssetFile } = await import('./libraryPanel');
+    await insertAssetFile(ed, new TextDecoder().decode(bytes));
+    return;
+  }
+  const f = await parseFile(name, bytes);
+  if (f.kind === 'vectors') await ed.importVectors(f.res, name);
+  else await ed.importImage(f.dataUrl, f.dpi, name);
+}
+
+/** Datei zu Objekten machen, ohne sie einzufügen (für die Bibliothek); notes: Hinweise des Imports */
+export async function fileObjs(ed: Editor, name: string, bytes: Uint8Array): Promise<{ objs: Obj[]; notes: string[] }> {
+  const f = await parseFile(name, bytes);
+  if (f.kind === 'image') return { objs: [await ed.imageObj(f.dataUrl, f.dpi, name)], notes: [] };
+  return { objs: await ed.vectorObjs(f.res, name), notes: f.res.notes };
 }
 
 /** Dateiinhalt importieren, Fehler als Meldung */
@@ -241,6 +271,7 @@ export async function importFile(ed: Editor) {
         [t('Alle unterstützten Dateien'), IMPORT_EXT],
         [t('Bilder'), IMAGE_EXT],
         [t('Vektoren (SVG, DXF)'), ['svg', 'dxf']],
+        [t('Bibliotheks-Einträge'), ['kza']],
       ],
     });
     if (!path) return;

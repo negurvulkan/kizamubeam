@@ -1,6 +1,6 @@
 # Extension packs (`.kzp`)
 
-An extension pack adds device presets, templates and material library entries to KizamuBeam without installing a new version of the app. A pack is a single JSON file. It contains data only, never program code, and KizamuBeam checks every entry before it installs anything.
+An extension pack adds device presets, templates, material library entries and library items (motifs, images, design elements) to KizamuBeam without installing a new version of the app. A pack is a single JSON file. It contains data only, never program code, and KizamuBeam checks every entry before it installs anything.
 
 Install a pack with File → Extensions … → Install …, or drag the `.kzp` file onto the workspace. The same window lists installed packs and removes them. A complete example is [`packs/org.kizamubeam.example.kzp`](../packs/org.kizamubeam.example.kzp).
 
@@ -24,7 +24,8 @@ Install a pack with File → Extensions … → Install …, or drag the `.kzp` 
   "homepage": "https://example.com/workshop-pack",
   "devices": [],
   "templates": [],
-  "materials": []
+  "materials": [],
+  "assets": []
 }
 ```
 
@@ -38,7 +39,7 @@ Install a pack with File → Extensions … → Install …, or drag the `.kzp` 
 | `name` | yes | Name shown in the app, at most 80 characters |
 | `description`, `author` | no | Shown in the Extensions window |
 | `homepage` | no | An `https://` address, shown as text |
-| `devices`, `templates`, `materials` | at least one entry in total | The content, described below |
+| `devices`, `templates`, `materials`, `assets` | at least one entry in total | The content, described below |
 
 Texts marked as *localised* may be a plain string or an object with one string per language code (`"en"`, `"de"`, …). KizamuBeam shows the interface language, then English, then German, then the first one given.
 
@@ -76,6 +77,24 @@ Templates appear under “From extensions” in File → New from template …. 
 Entries in the format of a material library (`.kzm`): `material`, `thickness` (mm or `null`), `title`, `desc`, `settings` (layer settings; at least `mode` `line` or `fill`, other values fall back to defaults) and optionally `img` and `fit`. Give each entry a short `id` that stays the same between versions of the pack.
 
 Materials are copied into the material library when the pack is installed. When the pack is updated, its entries are replaced; an entry that was changed in KizamuBeam belongs to you from then on and is kept. Removing the pack removes its unchanged entries.
+
+### Library items (`assets`)
+
+Motifs, images and design elements for the Library window (Window → Library). They appear there with the pack name, can be searched and inserted like your own items, but cannot be changed or deleted except by removing the pack. Each entry has the content of a `.kza` file, as written by the Library window's “Export …” button, plus an `id`:
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `id` | recommended | Short id that stays the same between versions of the pack (otherwise the position in the list) |
+| `name` | yes | Localised name, at most 80 characters |
+| `category` | no | `motif`, `image` or `element` (design element); without it `image` for pure images, otherwise `motif` |
+| `tags` | no | List of localised keywords for the search |
+| `w`, `h` | no | Size in mm, shown in the Library window |
+| `objs` | yes | Objects as in a project file (`m` matrix, `layer` 0 to 31, `shape`), best with their bounding box starting at 0, 0 |
+| `images` | for images | Image data by asset id, as `data:image/png;base64,…` (also JPEG, GIF, WebP, BMP); nothing else is accepted |
+| `fill` | no | Layers drawn filled in the preview |
+| `preview` | no | Small SVG preview; without it KizamuBeam draws one |
+
+Every object is checked: known shape kinds only, valid numbers, layers and paths, images only as embedded data. Formulas (`bind`), visibility conditions (`showIf`), hidden and locked flags are dropped, because they belong to the project an item came from. The example pack has three items (heart, double frame, star).
 
 ## Official catalogue
 

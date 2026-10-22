@@ -1,4 +1,4 @@
-// Erweiterungen (Inhaltspakete, .kzp): Gerätevorlagen, Vorlagen und Materialien, die sich ohne App-Update
+// Erweiterungen (Inhaltspakete, .kzp): Gerätevorlagen, Vorlagen, Materialien und Bibliotheks-Einträge, die sich ohne App-Update
 // nachladen lassen. Ein Paket enthält nur Daten, keinen Code; alles wird beim Lesen gegen das Format geprüft und
 // auf erlaubte Felder beschränkt. Gespeichert wird in der Desktop-App im Einstellungsordner (Rust: packs.rs),
 // im Browser im lokalen Speicher. Die Prüflogik wird mit `npm run test:packs` getestet.
@@ -8,7 +8,10 @@ import { loadDoc } from './model';
 import { normalizeTemplate, TemplateInfo } from './templates';
 import type { ProjectParam } from './params';
 import { compareVersions } from './updates';
-import { lang, t } from './i18n';
+import { AssetData, AssetError, parseAsset } from './assetFormat';
+import { localText, t } from './i18n';
+
+export { localText };
 import { version as APP_VERSION } from '../package.json';
 
 export const PACK_EXT = 'kzp';
@@ -40,18 +43,11 @@ export interface Pack {
   devices: { preset: PackDevice; source?: string }[];
   templates: PackTemplate[];
   materials: MaterialEntry[];
+  /** Einträge für die Bibliothek (Motive, Bilder, Designelemente); id = eigene Kennung im Paket */
+  assets: (AssetData & { id: string })[];
 }
 
 export class PackError extends Error {}
-
-/** Text in der Sprache der Oberfläche, sonst Englisch, sonst Deutsch, sonst der erste */
-export function localText(v: unknown, l: string = lang): string {
-  if (typeof v === 'string') return v.trim();
-  if (!v || typeof v !== 'object' || Array.isArray(v)) return '';
-  const o = v as Record<string, unknown>;
-  for (const k of [l, 'en', 'de', ...Object.keys(o)]) if (typeof o[k] === 'string' && (o[k] as string).trim()) return (o[k] as string).trim();
-  return '';
-}
 
 const ID_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/;
 const VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
@@ -160,8 +156,18 @@ export function parsePack(text: string, appVersion: string = APP_VERSION): Pack 
     return { ...e, id: `pk:${id}:${own}`, pack: id };
   });
   if (new Set(materials.map((m) => m.id)).size !== materials.length) throw new PackError(t('Materialien mit doppelter Kennung'));
-  if (!devices.length && !templates.length && !materials.length) throw new PackError(t('Die Erweiterung ist leer'));
-  const pack: Pack = { id, version, name, devices, templates, materials };
+  const assets = list('assets').map((a, i) => {
+    const where = t('Bibliotheks-Eintrag {n}', { n: i + 1 });
+    try {
+      const own = a && typeof a === 'object' && typeof (a as { id?: unknown }).id === 'string' ? (a as { id: string }).id.trim().slice(0, 40) : '';
+      return { ...parseAsset(a, where), id: own || String(i + 1) };
+    } catch (e) {
+      throw new PackError(e instanceof AssetError && e.message.startsWith(where) ? e.message : `${where}: ${(e as Error).message}`);
+    }
+  });
+  if (new Set(assets.map((a) => a.id)).size !== assets.length) throw new PackError(t('Bibliotheks-Einträge mit doppelter Kennung'));
+  if (!devices.length && !templates.length && !materials.length && !assets.length) throw new PackError(t('Die Erweiterung ist leer'));
+  const pack: Pack = { id, version, name, devices, templates, materials, assets };
   if (minApp) pack.minApp = minApp;
   const description = str(localText(raw.description), 1000);
   if (description) pack.description = description;
@@ -173,13 +179,14 @@ export function parsePack(text: string, appVersion: string = APP_VERSION): Pack 
 }
 
 /** Kurzbeschreibung des Inhalts, z. B. „3 Gerätevorlagen · 1 Vorlage“ */
-export const packSummary = (p: Pack) => countSummary(p.devices.length, p.templates.length, p.materials.length);
+export const packSummary = (p: Pack) => countSummary(p.devices.length, p.templates.length, p.materials.length, p.assets.length);
 
-export function countSummary(devices: number, templates: number, materials: number): string {
+export function countSummary(devices: number, templates: number, materials: number, assets = 0): string {
   const parts: string[] = [];
   if (devices) parts.push(devices === 1 ? t('1 Gerätevorlage') : t('{n} Gerätevorlagen', { n: devices }));
   if (templates) parts.push(templates === 1 ? t('1 Vorlage') : t('{n} Vorlagen', { n: templates }));
   if (materials) parts.push(materials === 1 ? t('1 Material') : t('{n} Materialien', { n: materials }));
+  if (assets) parts.push(assets === 1 ? t('1 Bibliotheks-Eintrag') : t('{n} Bibliotheks-Einträge', { n: assets }));
   return parts.join(' · ');
 }
 
@@ -207,6 +214,11 @@ export const packFileName = (id: string) => `${id}.${PACK_EXT}`;
 /** Gerätevorlagen: eingebaute zuerst, dann die aus Erweiterungen */
 export function presetList(): { preset: PackDevice; source?: string; pack?: string }[] {
   return [...PRESETS.map((preset) => ({ preset })), ...installed.flatMap(({ pack }) => pack.devices.map((d) => ({ ...d, pack: pack.name })))];
+}
+
+/** Bibliotheks-Einträge aus Erweiterungen; key = „Paket-Kennung/Eintrag“ */
+export function packAssets(): { asset: AssetData; key: string; pack: string }[] {
+  return installed.flatMap(({ pack }) => pack.assets.map((asset) => ({ asset, key: `${pack.id}/${asset.id}`, pack: pack.name })));
 }
 
 /** Vorlagen aus Erweiterungen; key = „Paket-Kennung/Nummer“ */

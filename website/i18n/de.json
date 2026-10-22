@@ -107,6 +107,7 @@
         "Vorlagen mit Projektparametern und Formeln – inklusive Schlüsselanhänger, Namensschild und beschrifteter Box",
         "Serie aus Tabelle oder CSV: jede Zeile wird eine fertige Kopie, Tabelle direkt im Dialog bearbeiten",
         "QR-Codes (Link, WLAN, Visitenkarte) und variabler Text mit Seriennummer, Datum und CSV-Spalten",
+        "Bibliothek für eigene Motive, Bilder und Designelemente mit Vorschau und Suche – per Doppelklick oder Ziehen einfügen",
         "Materialbibliothek für Schneid- und Bildeinstellungen; LightBurn-Bibliotheken (.clb) lassen sich importieren"
       ]
     },
@@ -116,7 +117,7 @@
       "b": [
         "MCP-Server für KI-Agenten: lesen, entwerfen, Teile erzeugen. Nur lokal, standardmäßig aus, mit Token",
         "Maschinenaktionen von Agenten starten erst nach deiner Bestätigung – Pause und Stopp funktionieren immer",
-        "Erweiterungen (.kzp) bringen Gerätevorlagen, Vorlagen und Materialien – ohne App-Update, nur Daten, kein Code",
+        "Erweiterungen (.kzp) bringen Gerätevorlagen, Vorlagen, Materialien und Motive – ohne App-Update, nur Daten, kein Code",
         "Oberfläche auf Deutsch und Englisch; neue Sprachen lassen sich einfach ergänzen",
         "GPL-3.0-or-later, offene JSON-Dateiformate, gebaut mit Tauri 2, TypeScript und Rust",
         "Früher „Laserwerk“: Einstellungen, Geräte und Materialien werden übernommen, alte Projekte öffnen weiter"

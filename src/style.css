@@ -3027,3 +3027,118 @@ input.bound {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Bibliothek */
+.win-library {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.win-library.lib-drop {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+}
+.lib-bar {
+  display: flex;
+  gap: 4px;
+  padding: 4px 6px;
+  align-items: center;
+}
+.lib-bar + .lib-bar {
+  border-bottom: 1px solid var(--line);
+  padding-top: 0;
+}
+.lib-search {
+  flex: 1;
+  min-width: 0;
+}
+.lib-cat {
+  max-width: 45%;
+}
+.lib-grid {
+  flex: 1;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  align-content: start;
+  gap: 6px;
+  padding: 6px;
+}
+.lib-grid .empty {
+  grid-column: 1 / -1;
+  color: var(--muted);
+}
+.lib-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-2);
+  cursor: grab;
+  min-width: 0;
+}
+.lib-tile:hover {
+  border-color: var(--accent);
+}
+.lib-tile.sel {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.lib-tile.broken {
+  opacity: 0.5;
+  cursor: default;
+}
+.lib-tile img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 3px;
+}
+.lib-name {
+  font-size: 11px;
+  width: 100%;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lib-pack {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.lib-foot {
+  border-top: 1px solid var(--line);
+  padding: 4px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.lib-info {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lib-actions {
+  display: flex;
+  gap: 4px;
+}
+.lib-actions button {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-left: 2px;
+  padding-right: 2px;
+}
+.lib-dialog .tpl-head .form {
+  grid-template-columns: 90px 1fr;
+}

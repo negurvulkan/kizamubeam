@@ -21,6 +21,8 @@ import { coerce, ParamType, ProjectParam } from './params';
 import { genLeaves } from './editor/generators';
 import { builtinTemplates } from './builtinTemplates';
 import { packTemplates } from './packs';
+import { addToLibrary, loadLibraryAsset } from './assetLibrary';
+import { ASSET_CATEGORIES, AssetCategory, parseTags } from './assetFormat';
 import { defaultTemplate, guessColumns, tableRows, listTemplates, readTemplate, templateFields, templateFileName, templateJson, writeTemplate } from './templates';
 import { DEFAULT_NEST_SETTINGS, NestSettings } from './editor/nest';
 import { Args, describe, findObj, flip, machineBox, pageList, r3, Tier, ToolDef, ToolError } from './agentutil';
@@ -586,6 +588,62 @@ export const EDIT_TOOLS: ToolDef[] = [
         problems: ed.paramProblems.map(({ obj, issues }) => ({ id: obj.id, issues: issues.map((i) => `${i.level}: ${i.msg}`) })),
         pages: pageList(ed),
       };
+    },
+  },
+  {
+    name: 'insert_asset',
+    title: 'Aus Bibliothek einfügen',
+    description:
+      'Fügt einen Eintrag der Bibliothek (Motiv, Bild, Designelement; asset = Kennung aus list_assets) als Gruppe ein, mit der Mitte bei x, y (Maschinenkoordinaten, mm; ohne Angabe Mitte der Ansicht). Liegt der Eintrag auf einem einzigen Layer, kommt er auf layer (Standard: aktueller Layer); sonst behalten die Teile ihre Layer.',
+    tier: Tier.Edit,
+    inputSchema: obj({ asset: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, layer: { type: 'integer', minimum: 0, maximum: 31 } }, ['asset']),
+    run: async (ed, a) => {
+      let data;
+      try {
+        data = await loadLibraryAsset(String(a.asset ?? ''));
+      } catch (e) {
+        throw new ToolError(e instanceof Error ? e.message : String(e));
+      }
+      const x = optNum(a, 'x'),
+        y = optNum(a, 'y');
+      if ((x === undefined) !== (y === undefined)) throw new ToolError('x und y nur zusammen angeben');
+      const keep = ed.currentLayer;
+      ed.currentLayer = layerOf(ed, a);
+      try {
+        const o = ed.insertAsset(data, x === undefined ? undefined : { x, y: ed.doc.bed.h - y! });
+        if (!o) throw new ToolError('Der Eintrag ist leer');
+        return { id: o.id, object: describe(ed, o, IDENT, false) };
+      } finally {
+        ed.currentLayer = keep;
+      }
+    },
+  },
+  {
+    name: 'save_asset',
+    title: 'In Bibliothek speichern',
+    description:
+      'Speichert Objekte (ids, oberste Ebene; ohne ids die Auswahl) als neuen Eintrag in der Bibliothek: name, category (motif = Motiv, image = Bild, element = Designelement; ohne Angabe geraten), tags (Stichwörter für die Suche). Formeln, Bedingungen und ausgeblendete Teile werden nicht mitgespeichert. Liefert die Kennung für insert_asset.',
+    tier: Tier.Edit,
+    inputSchema: obj({
+      ids: { ...IDS, description: 'Objekt-ids (oberste Ebene); ohne Angabe die Auswahl' },
+      name: { type: 'string' },
+      category: { type: 'string', enum: ASSET_CATEGORIES },
+      tags: { type: 'array', items: { type: 'string' } },
+    }, ['name']),
+    run: async (ed, a) => {
+      const objs = a.ids === undefined ? ed.sel : topObjs(ed, ids(a));
+      if (!objs.length) throw new ToolError('Nichts ausgewählt; ids angeben');
+      const name = String(a.name ?? '').trim();
+      if (!name) throw new ToolError('„name“ fehlt');
+      const category = a.category === undefined ? undefined : oneOf<AssetCategory>(a, 'category', ASSET_CATEGORIES);
+      const data = ed.assetFromObjs(objs, name, category, parseTags(a.tags));
+      if (!data) throw new ToolError('Die Objekte enthalten nichts Sichtbares');
+      try {
+        const key = await addToLibrary(data);
+        return { asset: key, name: data.name, category: data.category, tags: data.tags, size: { w: r3(data.w), h: r3(data.h) } };
+      } catch (e) {
+        throw new ToolError(e instanceof Error ? e.message : String(e));
+      }
     },
   },
   {

@@ -37,6 +37,25 @@ export function assetImage(id: string): HTMLImageElement | null {
   return assets.get(id)?.img ?? null;
 }
 
+/** Verkleinerte Fassung (PNG, längste Seite max Bildpunkte) für Vorschauen; null, solange das Bild nicht dekodiert ist */
+export function thumbnailUrl(id: string, max = 200): string | null {
+  const a = assets.get(id);
+  return a?.img ? scaledPng(a.img, max) : null;
+}
+
+/** Bild auf höchstens max Bildpunkte verkleinert als PNG-data:-URL */
+export function scaledPng(img: HTMLImageElement, max = 200): string {
+  const f = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight, 1));
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(img.naturalWidth * f));
+  c.height = Math.max(1, Math.round(img.naturalHeight * f));
+  c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
+  return c.toDataURL('image/png');
+}
+
+/** Bilddaten dekodieren (ohne sie zu registrieren) */
+export const decodeImage = (dataUrl: string) => decode(dataUrl);
+
 /** Bilddaten registrieren. Gleiche Daten ergeben dieselbe ID. */
 export async function addAsset(dataUrl: string): Promise<{ id: string; w: number; h: number }> {
   const id = await hashId(dataUrl);
