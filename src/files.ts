@@ -5,14 +5,20 @@ import { boundsOf, subsToD, shapeSubs, textLayout, textOutline } from './geom';
 import { assetUrl, processedPng, readDpi } from './images';
 import { importDxf, importSvg } from './importers';
 import { t } from './i18n';
+import { tabNameFromPath } from './editor/tabs';
 
 const isTauri = () => '__TAURI_INTERNALS__' in window;
 
 /** Textdatei speichern; false, wenn der Dialog abgebrochen wurde */
 export async function saveText(name: string, filterName: string, ext: string, mime: string, contents: string): Promise<boolean> {
+  return (await saveTextAs(name, filterName, ext, mime, contents)) !== null;
+}
+
+/** Textdatei speichern; liefert den gewählten Pfad (im Browser den Dateinamen) oder null bei Abbruch */
+async function saveTextAs(name: string, filterName: string, ext: string, mime: string, contents: string): Promise<string | null> {
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core');
-    return (await invoke<string | null>('save_text_file', { defaultName: name, filterName, extensions: [ext], contents })) !== null;
+    return await invoke<string | null>('save_text_file', { defaultName: name, filterName, extensions: [ext], contents });
   }
   const url = URL.createObjectURL(new Blob([contents], { type: mime }));
   const a = document.createElement('a');
@@ -20,7 +26,7 @@ export async function saveText(name: string, filterName: string, ext: string, mi
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-  return true;
+  return name;
 }
 
 /** Textdatei wählen und lesen; liefert [Dateiname, Inhalt] oder null */
@@ -42,14 +48,27 @@ export async function openText(filterName: string, extensions: string[]): Promis
   });
 }
 
+/** Projekt des aktiven Tabs speichern; der Tab übernimmt den Dateinamen */
 export async function saveProject(ed: Editor) {
-  await saveText('projekt.kzb', t('KizamuBeam-Projekt'), 'kzb', 'application/json', ed.serialize());
+  const tab = ed.tab;
+  const contents = ed.serialize();
+  const saved = ed.tabKey();
+  const path = await saveTextAs(`${tab.name ?? t('projekt')}.kzb`, t('KizamuBeam-Projekt'), 'kzb', 'application/json', contents);
+  if (path === null) return;
+  // Während des Dialogs kann ein anderer Tab aktiv geworden sein
+  tab.name = tabNameFromPath(path);
+  tab.saved = saved;
+  if (tab === ed.tab) ed.updateChanged();
+  else tab.changed = false;
+  ed.onTabsChange?.();
+  ed.scheduleSave();
 }
 
+/** Projektdatei in einem neuen Tab öffnen (oder im aktiven, wenn er leer ist) */
 export async function openProject(ed: Editor) {
-  const apply = (text: string) => {
+  const apply = (text: string, name: string) => {
     try {
-      ed.openDoc(text);
+      ed.openInTab(text, tabNameFromPath(name));
     } catch (e) {
       alert(t('Datei konnte nicht geöffnet werden: {message}', { message: (e as Error).message }));
     }
@@ -57,14 +76,14 @@ export async function openProject(ed: Editor) {
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core');
     const res = await invoke<[string, string] | null>('open_text_file', { filterName: t('KizamuBeam-Projekt'), extensions: ['kzb', 'kzt', 'lwk', 'json'] });
-    if (res) apply(res[1]);
+    if (res) apply(res[1], res[0]);
     return;
   }
   const input = document.getElementById('fileinput') as HTMLInputElement;
   input.onchange = async () => {
     const f = input.files?.[0];
     input.value = '';
-    if (f) apply(await f.text());
+    if (f) apply(await f.text(), f.name);
   };
   input.click();
 }

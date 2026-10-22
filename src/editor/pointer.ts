@@ -1,6 +1,7 @@
 // Editor: Maus- und Stifteingaben auf der Arbeitsfläche (Ziehen, Zeichnen, Werkzeuge).
-import { about, apply, clone, IDENT, inv, mul, newId, Node, Obj, Pt, rotate, scale, Shape, SubPath, translate, visibleLeaves } from '../model';
-import { Box, boundsOf, leafIntersectsBox, segments, shapeSubs } from '../geom';
+import { about, apply, clone, IDENT, inv, Mat, mul, newId, Node, Obj, Pt, rotate, scale, Shape, SubPath, TextShape, translate, visibleLeaves } from '../model';
+import { Box, boundsOf, leafIntersectsBox, segments, shapeSubs, textLayout } from '../geom';
+import { wrapWidth } from '../fonts';
 import { buildSnapSet, findSnap } from '../snap';
 import { t } from '../i18n';
 import type { Editor } from '../editor';
@@ -14,6 +15,14 @@ const ROTATE_CURSOR =
 
 function normBox(a: Pt, b: Pt): Box {
   return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) };
+}
+
+/** Gerader, ungedrehter Textrahmen (Umbruch an, nicht auf Pfad): Seitengriffe ändern seine Breite */
+function frameText(o: Obj, m: Mat): { s: TextShape } | null {
+  const s = o.shape;
+  if (s.kind !== 'text' || !wrapWidth(s) || s.path) return null;
+  if (Math.abs(m[1]) > 1e-9 || Math.abs(m[2]) > 1e-9 || m[0] <= 0 || m[3] <= 0) return null;
+  return { s };
 }
 
 const JOINT_HINT_SECOND =
@@ -126,17 +135,10 @@ export class EditorPointer {
           this.textEditor?.(o, false);
           return;
         }
+        // Klicken setzt einen Text, Ziehen einen Textrahmen mit Zeilenumbruch (erst beim Loslassen)
         const p = this.snapPt(wp, e);
         this.clearSnap();
-        this.snapshot(t('Text erstellen'));
-        const txt: Obj = {
-          id: newId(), m: translate(p.x, p.y), layer: this.currentLayer,
-          shape: { kind: 'text', text: '', ...this.textDefaults },
-        };
-        this.doc.objs.push(txt);
-        this.setSel([txt]);
-        this.emit('doc');
-        this.textEditor?.(txt, true);
+        this.drag = { type: 'textframe', start: p, end: p };
         return;
       }
       case 'trim': {
@@ -329,6 +331,18 @@ export class EditorPointer {
           const s = Math.abs(fx) > Math.abs(fy) ? fx : fy;
           fx = fy = s;
         }
+        // Textrahmen am Seitengriff: Rahmenbreite ändern und neu umbrechen statt die Schrift zu strecken
+        const frame = hy === 0.5 && !fromCenter && this.sel.length === 1 ? frameText(this.sel[0], d.orig[0]) : null;
+        if (frame) {
+          frame.s.maxW = Math.max(1, (Math.abs(fx) * b.w) / d.orig[0][0]);
+          this.touch(frame.s);
+          const lb = textLayout(frame.s).box;
+          const m = [...d.orig[0]] as Mat;
+          m[4] = hx === 1 ? b.x - m[0] * lb.x : b.x + b.w - m[0] * (lb.x + lb.w);
+          this.sel[0].m = m;
+          this.emit('doc');
+          return;
+        }
         const clampS = (v: number) => (Math.abs(v) < 1e-3 ? (v < 0 ? -1e-3 : 1e-3) : v);
         const D = about(scale(clampS(fx), clampS(fy)), A.x, A.y);
         this.sel.forEach((o, i) => (o.m = mul(D, d.orig[i])));
@@ -346,6 +360,10 @@ export class EditorPointer {
         this.emit('doc');
         return;
       }
+      case 'textframe':
+        d.end = this.snapPt(wp, e, { toggle: false });
+        this.redraw();
+        return;
       case 'marquee':
       case 'nodebox':
         d.end = wp;
@@ -543,6 +561,11 @@ export class EditorPointer {
           this.setSel([d.obj]);
         }
         return;
+      case 'textframe': {
+        const r = normBox(d.start, d.end);
+        this.createText(r.w * this.view.zoom < 6 ? d.start : r, r.w * this.view.zoom < 6 ? 0 : r.w);
+        return;
+      }
       case 'linenode':
       case 'pivot':
         return;

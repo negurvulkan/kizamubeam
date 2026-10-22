@@ -671,6 +671,75 @@ export function kerfOffset(polys: Poly[], d: number): Poly[] {
   return out.filter((p) => p.length > 2).map((p) => ({ pts: p.map((q) => ({ x: q.X / KSCALE, y: q.Y / KSCALE })), closed: true }));
 }
 
+/** Höchstzahl der Ringe je Insel, falls Abstand und Fläche nicht zusammenpassen */
+const MAX_RINGS = 20000;
+
+/**
+ * Konturfolgende Füllung (Offset Fill): die Fläche (Gerade-Ungerade) wird in Ringen abgetragen, die der Kontur
+ * nach innen folgen. Der erste Ring liegt einen halben Abstand innerhalb, damit die Gravur die gezeichneten Maße
+ * behält. Jede zusammenhängende Fläche (Insel samt Löchern) wird vollständig von außen nach innen gefüllt,
+ * bevor es zur nächstgelegenen weitergeht; jeder Ring beginnt am Punkt, der dem vorigen Ende am nächsten liegt.
+ */
+function offsetFillRings(polys: Poly[], step: number, from: Pt): Poly[] {
+  const closed = polys.filter((p) => p.closed);
+  if (!closed.length || !(step > 0)) return [];
+  const { Clipper, ClipperOffset, ClipType, PolyType, PolyFillType, JoinType, EndType, PolyTree } = ClipperLib;
+  const c = new Clipper();
+  c.AddPaths(closed.map((p) => p.pts.map((q) => ({ X: Math.round(q.x * KSCALE), Y: Math.round(q.y * KSCALE) }))), PolyType.ptSubject, true);
+  const tree = new PolyTree();
+  c.Execute(ClipType.ctUnion, tree, PolyFillType.pftEvenOdd, PolyFillType.pftEvenOdd);
+  // Inseln: Außenkontur mit ihren Löchern; Inseln in Löchern sind eigene Inseln
+  const islands: ClipperLib.Paths[] = [];
+  const walk = (outers: ClipperLib.PolyNode[]) => {
+    for (const o of outers) {
+      islands.push([o.Contour(), ...o.Childs().map((h) => h.Contour())]);
+      for (const h of o.Childs()) walk(h.Childs());
+    }
+  };
+  walk(tree.Childs());
+  const ringsOf = (island: ClipperLib.Paths): Poly[] => {
+    // Ring für Ring vom vorigen aus versetzen; Aufräumen hält die Punktzahl an runden Ecken klein
+    const out: Poly[] = [];
+    let area = island;
+    for (let k = 0; k < MAX_RINGS && area.length; k++) {
+      const co = new ClipperOffset(2, FLATTEN_TOL * KSCALE);
+      co.AddPaths(area, JoinType.jtRound, EndType.etClosedPolygon);
+      const next: ClipperLib.Paths = [];
+      co.Execute(next, -(k ? step : step / 2) * KSCALE);
+      area = Clipper.CleanPolygons(next, FLATTEN_TOL * KSCALE).filter((p) => p.length > 2);
+      for (const p of area) out.push({ pts: p.map((q) => ({ x: q.X / KSCALE, y: q.Y / KSCALE })), closed: true });
+    }
+    return out;
+  };
+  const groups = islands.map(ringsOf).filter((g) => g.length);
+  const dist2 = (a: Pt, b: Pt) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
+  const nearest = (p: Poly, cur: Pt) => {
+    let best = 0;
+    for (let j = 1; j < p.pts.length; j++) if (dist2(p.pts[j], cur) < dist2(p.pts[best], cur)) best = j;
+    return best;
+  };
+  const out: Poly[] = [];
+  let cur = from;
+  const done = new Uint8Array(groups.length);
+  for (let k = 0; k < groups.length; k++) {
+    // nächste Insel nach ihrem äußersten Ring
+    let gi = -1,
+      gd = Infinity;
+    for (let i = 0; i < groups.length; i++) {
+      if (done[i]) continue;
+      const d = dist2(groups[i][0].pts[nearest(groups[i][0], cur)], cur);
+      if (d < gd) [gd, gi] = [d, i];
+    }
+    done[gi] = 1;
+    for (const r of groups[gi]) {
+      const q = startAt(r, nearest(r, cur));
+      out.push(q);
+      cur = q.pts[0];
+    }
+  }
+  return out;
+}
+
 /** Haltestege gleichmäßig über den Umfang einer geschlossenen Form verteilen */
 export function addTabs(p: Poly, T: TabSettings): Poly {
   const P = p.pts,
@@ -1015,6 +1084,16 @@ export async function buildJob(inp: JobInput): Promise<Job> {
     }
     if (!bk.polys.length) continue;
     const s = L.power / 100;
+    if (L.mode === 'fill' && L.fillStyle === 'offset') {
+      const rings = offsetFillRings(bk.polys, Math.max(0.01, L.interval), { x: mv.lastX(), y: mv.lastY() });
+      for (let p = 0; p < Math.max(1, L.passes); p++)
+        for (const r of rings) {
+          mv.push(r.pts[0].x, r.pts[0].y, 0, 0, li);
+          for (let i = 1; i < r.pts.length; i++) mv.push(r.pts[i].x, r.pts[i].y, L.speed, s, li);
+          mv.push(r.pts[0].x, r.pts[0].y, L.speed, s, li);
+        }
+      continue;
+    }
     if (L.mode === 'fill') {
       // Zeilen im gedrehten System berechnen und beim Ausgeben zurückdrehen; Kreuzschraffur = zweite Richtung um 90° versetzt
       const angles = [L.angle, ...(L.crossHatch ? [L.angle + 90] : [])].map((a) => (a * Math.PI) / 180);
