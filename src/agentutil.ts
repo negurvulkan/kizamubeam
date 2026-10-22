@@ -110,7 +110,8 @@ export function describe(ed: Editor, o: Obj, parent: Mat, detail: boolean): Reco
       else if (hasPlaceholders(s.text)) out.shown = shownText(s);
       if (s.maxW) out.maxWidth = r3(s.maxW * sx);
       if (s.maxH) out.maxHeight = r3(s.maxH * sy);
-      if (s.fit) out.fitShrink = true;
+      if (s.fit === 'shrink') out.fitShrink = true;
+      if (s.fit === 'wrap') out.wrap = true;
       break;
     case 'barcode':
       Object.assign(out, { type: s.type, data: s.data, errorCorrection: s.ec, size: r3(s.size * sx), invert: s.invert, quietZone: s.quiet });

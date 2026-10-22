@@ -200,8 +200,11 @@ export interface TextShape {
   maxW?: number;
   /** Höchsthöhe in mm: ein höherer Textblock wird gleichmäßig verkleinert (0/fehlt = aus) */
   maxH?: number;
-  /** shrink: zu breiter Text wird gleichmäßig verkleinert statt gestaucht (Text in Rahmen einpassen) */
-  fit?: 'shrink';
+  /**
+   * shrink: zu breiter Text wird gleichmäßig verkleinert statt gestaucht (Text in Rahmen einpassen).
+   * wrap: Textrahmen mit fester Breite maxW; Zeilen brechen an Wortgrenzen um, die Höhe wächst mit.
+   */
+  fit?: 'shrink' | 'wrap';
 }
 
 /** Variabler Text an einem Objekt (Text oder Barcode) */

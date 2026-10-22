@@ -2,11 +2,12 @@
 // Operationen, Offset, Arrays, Biegeschnitte, Verbindungen, Layer, Import und Dateien. Jeder Aufruf ist ein
 // Undo-Schritt (siehe Editor.batch in agent.ts). Koordinaten: Maschine, Ursprung unten links, y nach oben, mm.
 import type { Editor } from './editor';
-import { boundsOf, Box, segments, shapeSubs } from './geom';
+import { boundsOf, Box, segments, shapeSubs, textLayout } from './geom';
 import { about, apply, BarcodeShape, IDENT, NOTE_KEYS, ObjBindKey, leaves, Mat, mul, newId, Obj, QrLevel, rotate, scale, Shape, SubPath, TextShape, translate } from './model';
 import { qrMatrix } from './barcode';
 import { advanceVarText } from './vartext';
 import { BoolOp, OffsetOptions } from './ops';
+import { WARP_KINDS } from './warp';
 import { circularMatrices, DEFAULT_GRID, gridMatrices, GridOptions } from './arrays';
 import { DEFAULT_HINGE, HingeKind, HingeOptions, suggestHinge } from './hinges';
 import { DEFAULT_JOINT, EdgePick, isStraight, JointKind, JointOptions } from './joints';
@@ -23,6 +24,7 @@ import { builtinTemplates } from './builtinTemplates';
 import { packTemplates } from './packs';
 import { defaultTemplate, guessColumns, tableRows, listTemplates, readTemplate, templateFields, templateFileName, templateJson, writeTemplate } from './templates';
 import { DEFAULT_NEST_SETTINGS, NestSettings } from './editor/nest';
+import { tabNameFromPath } from './editor/tabs';
 import { Args, describe, findObj, flip, machineBox, pageList, r3, Tier, ToolDef, ToolError } from './agentutil';
 import { CheckIssue, fixLabel, loadCheckSettings } from './check';
 
@@ -256,14 +258,15 @@ export const EDIT_TOOLS: ToolDef[] = [
     name: 'create_text',
     title: 'Text anlegen',
     description:
-      'Legt einen Text an. x/y = Anfang der Grundlinie der ersten Zeile (bei align center/right die Mitte bzw. das Ende). size = Schrifthöhe (Em) in mm. Zeilenumbrüche mit \\n. Schriften: list_fonts.',
+      'Legt einen Text an. x/y = Anfang der Grundlinie der ersten Zeile (bei align center/right die Mitte bzw. das Ende). size = Schrifthöhe (Em) in mm. Zeilenumbrüche mit \\n. frameWidth > 0 macht einen Textrahmen: Zeilen brechen an dieser Breite (mm) an Wortgrenzen um, die Höhe wächst mit. Schriften: list_fonts.',
     tier: Tier.Edit,
     inputSchema: obj({
       text: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, font: { type: 'string' }, size: { type: 'number' },
       bold: { type: 'boolean' }, italic: { type: 'boolean' }, upper: { type: 'boolean', description: 'In Großbuchstaben' },
       align: { type: 'string', enum: ['left', 'center', 'right'] }, letterSpacing: { type: 'number', description: 'Zusätzlicher Zeichenabstand (mm)' },
       lineSpacing: { type: 'number', description: 'Zusätzlicher Zeilenabstand (mm)' },
-      weld: { type: 'boolean', description: 'Buchstaben schweißen: überlappende Zeichen zu einer Kontur verschmelzen' }, layer: LAYER, rotation: ROT,
+      weld: { type: 'boolean', description: 'Buchstaben schweißen: überlappende Zeichen zu einer Kontur verschmelzen' },
+      frameWidth: { type: 'number', description: 'Breite des Textrahmens in mm (automatischer Zeilenumbruch, 0 = aus)' }, layer: LAYER, rotation: ROT,
     }, ['text', 'x', 'y']),
     run: (ed, a) => {
       if (typeof a.text !== 'string' || !a.text.trim()) throw new ToolError('„text“ ist leer');
@@ -277,6 +280,8 @@ export const EDIT_TOOLS: ToolDef[] = [
         hSpace: num(a, 'letterSpacing', { def: 0 }), vSpace: num(a, 'lineSpacing', { def: 0 }),
       };
       if (bool(a, 'weld', false)) shape.weld = true;
+      const fw = num(a, 'frameWidth', { def: 0, min: 0 });
+      if (fw > 0) Object.assign(shape, { fit: 'wrap', maxW: fw });
       const p = W(ed, num(a, 'x'), num(a, 'y'));
       const o = addObj(ed, shape, translate(p.x, p.y), layerOf(ed, a));
       const rot = num(a, 'rotation', { def: 0 });
@@ -686,7 +691,7 @@ export const EDIT_TOOLS: ToolDef[] = [
     name: 'edit_object',
     title: 'Objekt ändern',
     description:
-      'Ändert Eigenschaften eines Objekts (auch in Gruppen). Alle Typen: name (leer = Standardname), hidden (ausgeblendet: nicht gezeichnet und nicht gelasert), locked (auf der Arbeitsfläche nicht auswählbar; nur oberste Ebene). Text: text, font, size (mm auf dem Bett), bold, italic, upper, align, letterSpacing, lineSpacing, weld (Buchstaben schweißen); bei Text auf Pfad (apply_path_to_text) pathOffset (Verschiebung entlang der Kurve, mm), pathDistance (Abstand der Grundlinie, mm, positiv nach oben), pathFlip (andere Seite), removePath (wieder gerade), variable (variabler Text mit Platzhaltern, siehe variable_text), variableOffset, maxWidth (mm, breitere Zeilen werden gestaucht, 0 = aus), maxHeight (mm, ein höherer Block wird verkleinert, 0 = aus), fitShrink (zu breiten Text verkleinern statt stauchen). QR-Code: data, errorCorrection, qrSize (Kantenlänge mm), invert, quietZone, variable, variableOffset. Rechteck: cornerRadius. Vieleck: sides, star, innerRatio. Lage und Größe ändert transform.',
+      'Ändert Eigenschaften eines Objekts (auch in Gruppen). Alle Typen: name (leer = Standardname), hidden (ausgeblendet: nicht gezeichnet und nicht gelasert), locked (auf der Arbeitsfläche nicht auswählbar; nur oberste Ebene). Text: text, font, size (mm auf dem Bett), bold, italic, upper, align, letterSpacing, lineSpacing, weld (Buchstaben schweißen); bei Text auf Pfad (apply_path_to_text) pathOffset (Verschiebung entlang der Kurve, mm), pathDistance (Abstand der Grundlinie, mm, positiv nach oben), pathFlip (andere Seite), removePath (wieder gerade), variable (variabler Text mit Platzhaltern, siehe variable_text), variableOffset, maxWidth (mm, breitere Zeilen werden gestaucht, 0 = aus), maxHeight (mm, ein höherer Block wird verkleinert, 0 = aus), fitShrink (zu breiten Text verkleinern statt stauchen), wrap (Textrahmen: Zeilen an maxWidth an Wortgrenzen umbrechen, Höhe wächst mit; ohne maxWidth gilt die jetzige Breite). QR-Code: data, errorCorrection, qrSize (Kantenlänge mm), invert, quietZone, variable, variableOffset. Rechteck: cornerRadius. Vieleck: sides, star, innerRatio. Lage und Größe ändert transform.',
     tier: Tier.Edit,
     inputSchema: obj({
       id: { type: 'integer' }, name: { type: 'string' }, hidden: { type: 'boolean' }, locked: { type: 'boolean' }, text: { type: 'string' }, font: { type: 'string' }, size: { type: 'number' }, bold: { type: 'boolean' },
@@ -694,7 +699,7 @@ export const EDIT_TOOLS: ToolDef[] = [
       letterSpacing: { type: 'number' }, lineSpacing: { type: 'number' }, weld: { type: 'boolean' }, pathOffset: { type: 'number' },
       pathDistance: { type: 'number' }, pathFlip: { type: 'boolean' }, removePath: { type: 'boolean' }, cornerRadius: { type: 'number' },
       sides: { type: 'integer', minimum: 3, maximum: 200 }, star: { type: 'boolean' }, innerRatio: { type: 'number' },
-      variable: { type: 'boolean' }, variableOffset: { type: 'integer' }, maxWidth: { type: 'number' }, maxHeight: { type: 'number' }, fitShrink: { type: 'boolean' }, data: { type: 'string' },
+      variable: { type: 'boolean' }, variableOffset: { type: 'integer' }, maxWidth: { type: 'number' }, maxHeight: { type: 'number' }, fitShrink: { type: 'boolean' }, wrap: { type: 'boolean' }, data: { type: 'string' },
       errorCorrection: { type: 'string', enum: ['L', 'M', 'Q', 'H'] }, qrSize: { type: 'number' }, invert: { type: 'boolean' }, quietZone: { type: 'integer' },
     }, ['id']),
     run: (ed, a) => {
@@ -712,7 +717,7 @@ export const EDIT_TOOLS: ToolDef[] = [
       }
       const SHAPE_KEYS = [
         'text', 'font', 'size', 'bold', 'italic', 'upper', 'align', 'letterSpacing', 'lineSpacing', 'weld', 'pathOffset', 'pathDistance', 'pathFlip', 'removePath',
-        'cornerRadius', 'sides', 'star', 'innerRatio', 'variable', 'variableOffset', 'maxWidth', 'maxHeight', 'fitShrink', 'data', 'errorCorrection', 'qrSize', 'invert', 'quietZone',
+        'cornerRadius', 'sides', 'star', 'innerRatio', 'variable', 'variableOffset', 'maxWidth', 'maxHeight', 'fitShrink', 'wrap', 'data', 'errorCorrection', 'qrSize', 'invert', 'quietZone',
       ];
       const shapeChange = SHAPE_KEYS.some((k) => a[k] !== undefined);
       if (Object.keys(props).length) ed.setObjProps([o], props);
@@ -749,7 +754,13 @@ export const EDIT_TOOLS: ToolDef[] = [
         if (mh !== undefined) s.maxH = mh / (Math.hypot(m[2], m[3]) || 1);
         if (a.fitShrink !== undefined) {
           if (a.fitShrink === true) s.fit = 'shrink';
-          else delete s.fit;
+          else if (s.fit === 'shrink') delete s.fit;
+        }
+        if (a.wrap !== undefined) {
+          if (a.wrap === true) {
+            if (!s.maxW) s.maxW = Math.max(1, textLayout(s).box.w);
+            s.fit = 'wrap';
+          } else if (s.fit === 'wrap') delete s.fit;
         }
         setVar(s, a);
       } else if (s.kind === 'barcode') {
@@ -981,6 +992,26 @@ export const EDIT_TOOLS: ToolDef[] = [
         join: oneOf(a, 'join', ['round', 'miter', 'square'] as const, 'round'),
       };
       await ed.offsetSel(opt, bool(a, 'keep_originals', true));
+      return result(ed, before);
+    },
+  },
+  {
+    name: 'warp',
+    title: 'Verformen',
+    description:
+      'Verformt die Objekte gemeinsam über ihren Rahmen: arc (Bogen), arcUpper/arcLower (nur obere/untere Kante), bulge (Wölben), flag (Welle), perspective (Fluchtpunkt). amount -100 … 100 (%), negativ in die andere Richtung; vertical = um 90° gedreht. Formen und Texte werden zu Bézierpfaden (Text ist danach nicht mehr als Text bearbeitbar), Bilder werden neu berechnet.',
+    tier: Tier.Edit,
+    inputSchema: obj({
+      ids: IDS, kind: { type: 'string', enum: [...WARP_KINDS] }, amount: { type: 'number', minimum: -100, maximum: 100 }, vertical: { type: 'boolean' },
+    }, ['ids', 'kind', 'amount']),
+    run: async (ed, a) => {
+      const before = snapshotIds(ed);
+      ed.setSel(topObjs(ed, ids(a)));
+      await ed.warpSel({
+        kind: oneOf(a, 'kind', WARP_KINDS),
+        amount: num(a, 'amount', { min: -100, max: 100 }),
+        vertical: bool(a, 'vertical', false),
+      });
       return result(ed, before);
     },
   },
@@ -1431,6 +1462,7 @@ export const EDIT_TOOLS: ToolDef[] = [
       }
       try {
         ed.openDoc(new TextDecoder().decode(buf));
+        ed.markSaved(tabNameFromPath(path));
       } catch (e) {
         throw new ToolError((e as Error).message);
       }
@@ -1452,6 +1484,7 @@ export const EDIT_TOOLS: ToolDef[] = [
       const { invoke } = await import('@tauri-apps/api/core');
       try {
         await invoke('agent_write_file', { path, contents: svg ? buildSvg(ed) : ed.serialize(), overwrite: bool(a, 'overwrite', false) });
+        if (!svg) ed.markSaved(tabNameFromPath(path));
       } catch (e) {
         throw new ToolError(String(e));
       }
