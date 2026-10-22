@@ -165,7 +165,8 @@ export function fitText(t: TextShape, font: opentype.Font): TextShape {
   const byW = t.fit === 'shrink' && !!t.maxW && t.maxW > 0;
   const byH = !!t.maxH && t.maxH > 0;
   if (!byW && !byH) return t;
-  const lines = linesOf({ ...t, maxW: undefined }, font);
+  // Textrahmen: Höhe der umbrochenen Zeilen zählt; kleiner gesetzt passen eher mehr Wörter in eine Zeile
+  const lines = linesOf(wrapWidth(t) ? t : { ...t, maxW: undefined }, font);
   const w = Math.max(0, ...lines.map((l) => l.w));
   const h = (lines.length - 1) * (t.size * 1.2 + t.vSpace) + t.size;
   const f = Math.min(1, byW && w > 0 ? t.maxW! / w : 1, byH && h > 0 ? t.maxH! / h : 1);
@@ -176,18 +177,63 @@ export function fitText(t: TextShape, font: opentype.Font): TextShape {
   return out;
 }
 
+/** Breite des Textrahmens in mm, wenn der Text automatisch umbricht (fit = wrap), sonst 0 */
+export function wrapWidth(t: TextShape): number {
+  return t.fit === 'wrap' && t.maxW && t.maxW > 0 ? t.maxW : 0;
+}
+
+/**
+ * Einen Absatz an Wortgrenzen in Zeilen umbrechen, die höchstens maxW breit sind (width misst eine Zeile in mm).
+ * Ein Wort, das allein zu breit ist, wird zwischen den Buchstaben getrennt. Leerzeichen am Umbruch entfallen.
+ */
+export function wrapParagraph(text: string, maxW: number, width: (s: string) => number): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let gap = '';
+  for (const tok of text.split(/( +)/)) {
+    if (!tok) continue;
+    if (tok[0] === ' ') {
+      if (cur) gap += tok;
+      else cur = tok; // Einrückung am Absatzanfang bleibt
+      continue;
+    }
+    const cand = cur + gap + tok;
+    gap = '';
+    if (!cur.trim() || width(cand) <= maxW) cur = cand;
+    else {
+      out.push(cur);
+      cur = tok;
+    }
+    // Zu langes Wort: vorne so viele Zeichen abtrennen, wie in eine Zeile passen
+    while (width(cur) > maxW && [...cur].length > 1) {
+      const chars = [...cur];
+      let n = 1;
+      while (n < chars.length - 1 && width(chars.slice(0, n + 1).join('')) <= maxW) n++;
+      out.push(chars.slice(0, n).join(''));
+      cur = chars.slice(n).join('');
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
 function linesOf(t: TextShape, font: opentype.Font) {
   const size = t.size;
   const scale = size / font.unitsPerEm;
   const lh = size * 1.2 + t.vSpace;
   const text = shownText(t);
-  const lines = (t.upper ? text.toUpperCase() : text).split('\n');
-  return lines.map((line, li) => {
-    const glyphs = font.stringToGlyphs(line);
-    let advances = glyphs.map((g, i) => {
+  const advancesOf = (glyphs: opentype.Glyph[]) =>
+    glyphs.map((g, i) => {
       const kern = i < glyphs.length - 1 ? font.getKerningValue(g, glyphs[i + 1]) : 0;
       return ((g.advanceWidth ?? 0) + kern) * scale + (i < glyphs.length - 1 ? t.hSpace : 0);
     });
+  const paras = (t.upper ? text.toUpperCase() : text).split('\n');
+  const ww = wrapWidth(t);
+  const width = (s: string) => advancesOf(font.stringToGlyphs(s)).reduce((a, b) => a + b, 0);
+  const lines = ww ? paras.flatMap((p) => wrapParagraph(p, ww, width)) : paras;
+  return lines.map((line, li) => {
+    const glyphs = font.stringToGlyphs(line);
+    let advances = advancesOf(glyphs);
     let w = advances.reduce((a, b) => a + b, 0);
     const sx = t.maxW && t.maxW > 0 && w > t.maxW ? t.maxW / w : 1;
     if (sx !== 1) {
@@ -201,7 +247,7 @@ function linesOf(t: TextShape, font: opentype.Font) {
       x += adv;
       return cur;
     });
-    return { glyphs, xs, x: x0, w, y: li * lh, sx };
+    return { text: line, glyphs, xs, x: x0, w, y: li * lh, sx };
   });
 }
 
