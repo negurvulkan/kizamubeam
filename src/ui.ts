@@ -13,6 +13,7 @@ import { openCircularArrayDialog, openGridArrayDialog } from './arrayDialogs';
 import { openNestDialog } from './nestDialog';
 import { openJointDialog } from './jointDialog';
 import { openHingeDialog } from './hingeDialog';
+import { openSlotDialog } from './slotDialog';
 import { openQrDialog, openVarTextDialog } from './qrDialog';
 import { askGenConvert, openGenDialog } from './generators/dialog';
 import { genLabel, getGenerator } from './generators';
@@ -250,6 +251,7 @@ function buildMenu(ed: Editor) {
       [t('Verbindungen (Zinken, Zapfen, Keil, T-Slot) …'), '', () => ed.setTool('joint')],
       [t('Scharnier für Deckel …'), '', () => ed.startHingeTool()],
       [t('Biegeschnitte (Living Hinge) …'), '', () => openHingeDialog(ed)],
+      [t('Schlitze an Materialdicke anpassen …'), '', () => openSlotDialog(ed)],
       'sep',
       { sub: t('Textfunktionen'), items: [
         [t('Text auf Pfad'), '', () => ed.applyPathToText()],
