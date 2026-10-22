@@ -32,6 +32,7 @@ import { EditorParams } from './editor/params';
 import { EditorNest } from './editor/nest';
 import { EditorSeries } from './editor/series';
 import { EditorCheck } from './editor/check';
+import { EditorWarp } from './editor/warp';
 import { EditorNotes } from './editor/notes';
 import { EditorTabs, ProjectTab } from './editor/tabs';
 import { t } from './i18n';
@@ -438,6 +439,7 @@ export interface Editor
     EditorNest,
     EditorSeries,
     EditorCheck,
+    EditorWarp,
     EditorNotes,
     EditorImages,
     EditorTabs,
@@ -461,6 +463,7 @@ const PARTS = [
   EditorNest,
   EditorSeries,
   EditorCheck,
+  EditorWarp,
   EditorNotes,
   EditorImages,
   EditorTabs,
