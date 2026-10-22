@@ -144,7 +144,7 @@ const obj = (properties: Record<string, unknown>, required: string[] = []) => ({
 
 const LAYER_KEYS: Record<string, string> = {
   name: 'string', output: 'boolean', visible: 'boolean', mode: 'line|fill', speed: 'number', power: 'number', minPower: 'number',
-  passes: 'integer', airAssist: 'boolean', kerf: 'number', interval: 'number', angle: 'number', crossHatch: 'boolean',
+  passes: 'integer', airAssist: 'boolean', kerf: 'number', fillStyle: 'scan|offset', interval: 'number', angle: 'number', crossHatch: 'boolean',
   bidirectional: 'boolean', overscan: 'number', locked: 'boolean',
 };
 
@@ -1287,11 +1287,11 @@ export const EDIT_TOOLS: ToolDef[] = [
   {
     name: 'set_layer',
     title: 'Layer einstellen',
-    description: `Ändert die Einstellungen eines Layers. Felder: ${Object.entries(LAYER_KEYS).map(([k, v]) => `${k} (${v})`).join(', ')}. speed in mm/min, power/minPower in %, kerf/interval in mm, angle in Grad, overscan in %.`,
+    description: `Ändert die Einstellungen eines Layers. Felder: ${Object.entries(LAYER_KEYS).map(([k, v]) => `${k} (${v})`).join(', ')}. speed in mm/min, power/minPower in %, kerf/interval in mm, fillStyle offset = Füllen in Ringen entlang der Kontur, angle in Grad, overscan in %.`,
     tier: Tier.Edit,
     inputSchema: obj({
       layer: { ...LAYER, description: 'Layer 0–29' },
-      ...Object.fromEntries(Object.entries(LAYER_KEYS).map(([k, v]) => [k, v === 'line|fill' ? { type: 'string', enum: ['line', 'fill'] } : { type: v }])),
+      ...Object.fromEntries(Object.entries(LAYER_KEYS).map(([k, v]) => [k, v.includes('|') ? { type: 'string', enum: v.split('|') } : { type: v }])),
     }, ['layer']),
     run: (ed, a) => {
       const i = num(a, 'layer', { min: 0, max: 31, int: true });
@@ -1301,6 +1301,7 @@ export const EDIT_TOOLS: ToolDef[] = [
       if (a.visible !== undefined) p.show = a.visible === true;
       if (a.locked !== undefined) p.locked = a.locked === true;
       if (a.mode !== undefined) p.mode = oneOf(a, 'mode', ['line', 'fill'] as const);
+      if (a.fillStyle !== undefined) p.fillStyle = oneOf(a, 'fillStyle', ['scan', 'offset'] as const);
       const n = (k: string, opt: { min?: number; max?: number; int?: boolean }, as = k) => {
         const v = optNum(a, k, opt);
         if (v !== undefined) p[as] = v;
