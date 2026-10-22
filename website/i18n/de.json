@@ -57,6 +57,7 @@
         "Linien, Bézierkurven, Rechtecke mit Radius, Ellipsen, Polygone, Sterne und mehrzeiliger Text",
         "Boolesche Operationen, Versatz, Knotenbearbeitung, Trimmen und Fangen an Knoten, Mitten und Schnittpunkten",
         "Text auf Pfad, verschweißte Buchstaben und echte Schrift-Outlines deiner Systemschriften",
+        "Verformen: Text, Formen und Bilder als Bogen, Wölbung, Flagge oder in Perspektive, als saubere Bézierkurven",
         "Raster- und Kreis-Arrays mit Live-Vorschau, mehrseitige Projekte und ein Verlauf zum Zurückspringen",
         "Import von SVG, DXF und Bildern – Farben landen direkt auf der passenden Ebene",
         "Andockbare Fenster, anpassbare Werkzeugleisten, helles und dunkles Theme"
@@ -71,6 +72,8 @@
         "Arbeitsfläche zeigt das gerasterte Ergebnis in Laser-Auflösung",
         "Bilder zuschneiden, maskieren und lokal freistellen, Vektorisieren (Trace) zu sauberen Bézierpfaden",
         "Füllgravur mit Scanwinkel, Kreuzschraffur, Overscan und bidirektional",
+        "Bilder zuschneiden und maskieren, Vektorisieren (Trace) zu sauberen Bézierpfaden",
+        "Füllgravur mit Scanwinkel, Kreuzschraffur, Overscan und bidirektional oder konturfolgend in Ringen",
         "Kamera-Overlay: USB- oder Kopfkamera kalibrieren und Material direkt auf der Arbeitsfläche sehen"
       ]
     },

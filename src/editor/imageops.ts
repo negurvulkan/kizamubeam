@@ -4,6 +4,7 @@ import { addAsset, adjustedGray, assetImage, sourceSize } from '../images';
 import { ImportResult, transformSubs } from '../importers';
 import { traceGray, TraceOptions } from '../trace';
 import { backgroundAlpha, BgOptions, opaqueBounds } from '../bgremove';
+import { centerlineGray } from '../centerline';
 import { bezierPt, boundsOf, segments, shapeSubs, subsToPath2D, textOutline } from '../geom';
 import { dec, t, tn } from '../i18n';
 import type { Editor } from '../editor';
@@ -246,7 +247,7 @@ export class EditorImages {
     const g = adjustedGray(s, cols, rows);
     if (!g) return [];
     // Bildpunkte → lokale mm → Welt
-    const subs = traceGray(g, cols, rows, opt);
+    const subs = (opt.centerline ? centerlineGray : traceGray)(g, cols, rows, opt);
     return transformSubs(subs, mul(o.m, [s.w / cols, 0, 0, s.h / rows, 0, 0]));
   }
   /** Vorschau-Konturen (orange gestrichelt) setzen oder entfernen */
@@ -255,14 +256,16 @@ export class EditorImages {
     this.redraw();
   }
   /** Nachgezeichnete Konturen als neues Objekt über dem Bild einfügen */
-  commitTrace(this: Editor, o: Obj, subs: SubPath[], deleteImage: boolean) {
+  commitTrace(this: Editor, o: Obj, subs: SubPath[], deleteImage: boolean, centerline = false) {
     if (!subs.length) return;
-    this.snapshot(t('Bild nachzeichnen'));
+    this.snapshot(centerline ? t('Mittellinien nachzeichnen') : t('Bild nachzeichnen'));
     const res: Obj = { id: newId(), m: IDENT, layer: o.layer, shape: { kind: 'path', subs } };
     if (deleteImage) this.doc.objs = this.doc.objs.filter((x) => x !== o);
     this.doc.objs.push(res);
     this.setSel([res]);
-    this.hint = tn('{n} Kontur nachgezeichnet.', '{n} Konturen nachgezeichnet.', subs.length);
+    this.hint = centerline
+      ? tn('{n} Mittellinie nachgezeichnet.', '{n} Mittellinien nachgezeichnet.', subs.length)
+      : tn('{n} Kontur nachgezeichnet.', '{n} Konturen nachgezeichnet.', subs.length);
     this.emit('doc');
   }
 }

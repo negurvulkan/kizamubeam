@@ -1,5 +1,5 @@
-// Editor: Pfad-Werkzeuge: Schließen, Verbinden, Zerlegen, Startpunkt, Trimmen.
-import { apply, IDENT, isOff, leaves, Mat, newId, Obj, Pt, SubPath, visibleLeaves } from '../model';
+// Editor: Pfad-Werkzeuge: Schließen, Verbinden, Zerlegen, Startpunkt, Trimmen, Ecken.
+import { apply, IDENT, inv, isOff, leaves, Mat, newId, Obj, Pt, SubPath, visibleLeaves } from '../model';
 import { transformSubs } from '../importers';
 import { loadFont, textToSubs } from '../fonts';
 import { MAX_COPIES } from '../arrays';
@@ -9,6 +9,7 @@ import {
   breakApart, breakAtNode, CLOSE_TOL, copySub, CloseStats, closeSubs, cutParams, extract, JOIN_TOL, joinSubs, nearestParam, pointAt,
   reverseSub, setStart, trimSpan, trimSub,
 } from '../pathtools';
+import { cornerSub, CornerMode, isCorner } from '../corners';
 import type { Editor } from '../editor';
 import { SNAP_COLOR, TOOL_HINTS } from './shared';
 
@@ -172,6 +173,77 @@ export class EditorPaths {
     this.hint = tn('In {n} Teil zerlegt.', 'In {n} Teile zerlegt.', count);
     this.emit('doc');
     return count;
+  }
+
+  /**
+   * Ziele des Eckenwerkzeugs: im Knotenmodus die ausgewählten Knoten (bzw. der Knoten unter dem Mauszeiger),
+   * sonst alle Knoten der ausgewählten Formen. Je Blatt: Weltmatrix und Knotenindizes je Unterpfad.
+   */
+  cornerTargets(this: Editor): { obj: Obj; m: Mat; idx: Map<number, number[]> }[] {
+    const o = this.tool === 'node' ? this.nodeTarget() : null;
+    if (o) {
+      const idx = new Map<number, number[]>();
+      for (const n of this.nodesToEdit(o)) idx.set(n.sub, [...(idx.get(n.sub) ?? []), n.idx]);
+      return idx.size ? [{ obj: o, m: o.m, idx }] : [];
+    }
+    return this.selPathLeaves().map(([obj, m]) => ({ obj, m, idx: new Map(shapeSubs(obj.shape).map((sp, i) => [i, sp.nodes.map((_, k) => k)])) }));
+  }
+
+  /** Wie viele Ecken das Eckenwerkzeug bearbeiten würde (für den Dialog) */
+  cornerCount(this: Editor): number {
+    let n = 0;
+    for (const { obj, m, idx } of this.cornerTargets()) {
+      const world = transformSubs(shapeSubs(obj.shape), m);
+      for (const [i, ks] of idx) n += ks.filter((k) => isCorner(world[i], k)).length;
+    }
+    return n;
+  }
+
+  /**
+   * Ecken runden ('round', Radius r), nach innen runden ('inverse', Bogen um die Ecke) oder fasen ('chamfer', Abstand r).
+   * Wirkt auf die Ziele von cornerTargets(); r in Welt-mm. Liefert die Zahl der bearbeiteten Ecken.
+   */
+  cornerSel(this: Editor, mode: CornerMode, r: number): number {
+    const targets = this.cornerTargets();
+    if (!this.cornerCount()) {
+      this.hint = this.tool === 'node' && this.nodeTarget()
+        ? t('Erst Eckknoten auswählen (Klick, Shift+Klick oder Rahmen).')
+        : t('Keine Ecken in der Auswahl: Pfade oder Formen mit Ecken auswählen.');
+      this.emit('tool');
+      return 0;
+    }
+    this.snapshot(mode === 'round' ? t('Ecken runden') : mode === 'inverse' ? t('Ecken innen runden') : t('Ecken fasen'));
+    let done = 0,
+      limited = 0;
+    for (const { obj, m, idx } of targets) {
+      this.convertObjToPath(obj);
+      const subs = (obj.shape as { subs: SubPath[] }).subs;
+      // In Welt-mm rechnen (Radius unabhängig von Skalierung), dann zurück in lokale Koordinaten
+      const world = transformSubs(subs, m);
+      let changed = false;
+      for (const [i, ks] of idx) {
+        const res = cornerSub(world[i], ks, mode, r);
+        if (!res.done) continue;
+        subs[i] = transformSubs([res.sub], inv(m))[0];
+        done += res.done;
+        limited += res.limited;
+        changed = true;
+      }
+      if (changed) this.touch(obj.shape);
+    }
+    // Knotenindizes haben sich verschoben
+    this.nodeSel.clear();
+    this.nodeHover = this.segHover = null;
+    this.hint =
+      (mode === 'round'
+        ? tn('{n} Ecke gerundet', '{n} Ecken gerundet', done)
+        : mode === 'inverse'
+          ? tn('{n} Ecke innen gerundet', '{n} Ecken innen gerundet', done)
+          : tn('{n} Ecke gefast', '{n} Ecken gefast', done)) +
+      (limited ? tn(', {n} davon kleiner (Kanten zu kurz).', ', {n} davon kleiner (Kanten zu kurz).', limited) : '.');
+    this.emit('doc');
+    this.emit('sel');
+    return done;
   }
 
   /** Laufrichtung der Auswahl umkehren (Startpunkt bleibt) */
