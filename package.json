@@ -26,7 +26,8 @@
     "test:packs": "node scripts/run-ts.mjs scripts/packs-test.ts",
     "test:catalog": "node scripts/run-ts.mjs scripts/catalog-test.ts",
     "test:fluidnc": "node scripts/run-ts.mjs scripts/fluidnc-test.ts",
-    "test:bgremove": "node scripts/run-ts.mjs scripts/bgremove-test.ts"
+    "test:bgremove": "node scripts/run-ts.mjs scripts/bgremove-test.ts",
+    "test:notes": "node scripts/run-ts.mjs scripts/notes-test.ts"
   },
   "license": "GPL-3.0-or-later",
   "devDependencies": {

@@ -2537,5 +2537,13 @@
   "Hintergrund entfernt: {pct} % des Bildes sind jetzt transparent und werden nicht gelasert (Ctrl+Z macht es rückgängig).": "Background removed: {pct} % of the image is now transparent and will not be lasered (Ctrl+Z undoes it).",
   "Hintergrund entfernen …": "Remove Background …",
   "Hintergrund freistellen: ähnliche Farben werden transparent und nicht gelasert": "Remove the background: similar colors become transparent and are not lasered",
-  "Freistellen …": "Remove BG …"
+  "Freistellen …": "Remove BG …",
+  "Aufbau": "Setup",
+  "Bearbeitung": "Processing",
+  "Notiz „{name}“ ändern": "Edit note “{name}”",
+  "z. B. 3 mm Pappel-Sperrholz, Baumarkt, Schutzfolie oben": "e.g. 3 mm poplar plywood, hardware store, protective film on top",
+  "z. B. Fokus 2 mm tiefer, Wabenbett, Ursprung links unten, mit Magneten fixiert": "e.g. focus 2 mm lower, honeycomb bed, origin bottom left, held with magnets",
+  "z. B. Reihenfolge, zweiter Durchgang nötig, Kanten nachschleifen, was beim nächsten Mal anders": "e.g. order, second pass needed, sand the edges, what to change next time",
+  "Notizen": "Notes",
+  "Die Notizen werden mit dem Projekt gespeichert.": "Notes are saved with the project."
 }
