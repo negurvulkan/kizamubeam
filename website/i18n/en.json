@@ -72,6 +72,7 @@
         "The workspace shows the rasterized result at laser resolution",
         "Crop, mask and remove backgrounds locally, trace images into clean Bézier paths",
         "Fill engraving with scan angle, cross-hatch, overscan and bidirectional mode",
+        "Camera overlay: calibrate a USB or head-mounted camera, see your material on the workspace and place a design on every detected workpiece automatically"
         "Crop and mask images, trace them into clean Bézier paths",
         "Fill engraving with scan angle, cross-hatch, overscan and bidirectional mode, or offset fill in rings",
         "Camera overlay: calibrate a USB or head-mounted camera and see your material on the workspace"
