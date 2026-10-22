@@ -1289,7 +1289,8 @@ function layerSummary(L: Layer): string {
   const parts: string[] = [];
   if (L.kerf) parts.push(t('Kerf {kerf} mm', { kerf: fmtNum(L.kerf) }));
   if (L.mode === 'line' && L.tabs.enabled) parts.push(L.tabs.useCount ? t('{count} Stege je Form', { count: L.tabs.count }) : t('Stege alle {spacing} mm', { spacing: fmtNum(L.tabs.spacing) }));
-  if (L.mode === 'fill') {
+  if (L.mode === 'fill' && L.fillStyle === 'offset') parts.push(t('Kontur folgend'));
+  else if (L.mode === 'fill') {
     if (L.angle) parts.push(t('Winkel {angle}°', { angle: fmtNum(L.angle) }));
     if (L.crossHatch) parts.push(t('Kreuzschraffur'));
     if (!L.bidirectional) parts.push(t('nur eine Richtung'));

@@ -169,7 +169,7 @@ export function layerInfo(ed: Editor, i: number) {
     out.kerf = L.kerf;
     out.tabs = L.tabs.enabled ? L.tabs : false;
   } else {
-    Object.assign(out, { interval: L.interval, angle: L.angle, crossHatch: L.crossHatch, bidirectional: L.bidirectional, overscan: L.overscan });
+    Object.assign(out, { fillStyle: L.fillStyle, interval: L.interval, angle: L.angle, crossHatch: L.crossHatch, bidirectional: L.bidirectional, overscan: L.overscan });
   }
   if (parts.img) out.image = ed.imgLayer(i);
   if (L.material) {
