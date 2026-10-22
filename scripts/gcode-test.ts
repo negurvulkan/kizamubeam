@@ -2,7 +2,7 @@
 import './core-fixtures-env';
 import { strict as assert } from 'node:assert';
 import { buildJob, burns, checkBed, DEFAULT_ROTARY, Device, estimate, frameGCode, gcodeFooter, jogLines, Moves, newDevice, Rotary, rotaryTestLines, sameMoves, startHere, writeGCode } from '../src/gcode';
-import { parseStatus, WorkOffset } from '../src/machine';
+import { emptyStatus, parseStatus, WorkOffset } from '../src/machine';
 import { defaultImageLayer, defaultLayer, loadDoc, Obj } from '../src/model';
 
 let failed = 0;
@@ -212,7 +212,7 @@ await test('Arbeitsbereich: Benutzer-Ursprung mit gemeldetem Nullpunkt wird gepr
 
 await test('Statusbericht: Werkstück-Nullpunkt erst bekannt, wenn die Steuerung ihn meldet', () => {
   const wco: WorkOffset = { v: [0, 0, 0], known: false };
-  const empty = { state: '', mpos: null, wpos: null, feed: 0, power: 0 };
+  const empty = emptyStatus();
   let st = parseStatus('<Idle|MPos:150.000,120.000,0.000|FS:0,0>', empty, wco);
   assert.equal(wco.known, false);
   st = parseStatus('<Idle|MPos:150.000,120.000,0.000|FS:0,0|WCO:100.000,80.000,0.000>', st, wco);

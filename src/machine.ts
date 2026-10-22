@@ -2,6 +2,8 @@
 // hier liegen Zustand, Statusauswertung und die Befehle für die Oberfläche.
 import { Device, FIRMWARES, PreparedGCode } from './gcode';
 import { t, tBackend } from './i18n';
+import { configText, FluidFs, OVERRIDE, overrideSteps, parseConfigFile, runCmd } from './fluidnc';
+import { parseFluidConfig } from './setup';
 
 export const isTauri = () => '__TAURI_INTERNALS__' in window;
 
@@ -14,7 +16,19 @@ export interface MachineStatus {
   wpos: [number, number, number] | null;
   feed: number;
   power: number;
+  /** Overrides in Prozent: Vorschub, Eilgang, Leistung (GRBL/FluidNC melden sie nur ab und zu, Ov:) */
+  ov: [number, number, number] | null;
+  /** Aktive Eingänge, z. B. „XP“ = Endschalter X und Taster (Pn:) */
+  pins: string;
+  /** Zubehör: S/C Laser an, F Flood, M Mist (A:) */
+  acc: string;
+  /** FluidNC: Job läuft von SD-Karte oder Flash (SD:Prozent,Datei) */
+  sd: { pct: number; file: string } | null;
+  /** Freie Plätze: Planer-Blöcke und Empfangspuffer in Bytes (Bf:), nur wenn die Steuerung es meldet */
+  bf: [number, number] | null;
 }
+
+export const emptyStatus = (): MachineStatus => ({ state: '', mpos: null, wpos: null, feed: 0, power: 0, ov: null, pins: '', acc: '', sd: null, bf: null });
 
 export interface Progress {
   sent: number;
@@ -28,7 +42,22 @@ export type MachineEvent =
   | { type: 'status' }
   | { type: 'connection' }
   | { type: 'progress' }
-  | { type: 'done'; ok: boolean; message: string };
+  | { type: 'done'; ok: boolean; message: string }
+  /** FluidNC-Konfiguration wurde (neu) gelesen */
+  | { type: 'config' };
+
+/** Gelesene FluidNC-Konfiguration: Pfade (axes/x/max_travel_mm …), Text für Sicherungen, Dateiname */
+export interface FluidConfig {
+  values: Record<string, string>;
+  text: string;
+  file: string;
+}
+
+/** Steuerung mit FluidNC, gefunden bei der Suche im Netzwerk */
+export interface FoundController {
+  host: string;
+  info: string;
+}
 
 export interface PortInfo {
   name: string;
@@ -77,7 +106,8 @@ export interface WorkOffset {
 /** Statusbericht auswerten, z. B. <Idle|MPos:1.000,2.000,0.000|FS:0,0|WCO:0.000,0.000,0.000> */
 export function parseStatus(line: string, prev: MachineStatus, wco: WorkOffset): MachineStatus {
   const body = line.replace(/^<|>$/g, '').split('|');
-  const st: MachineStatus = { ...prev, state: body[0].split(':')[0] };
+  // Pn, A und SD fehlen, wenn nichts aktiv ist; Ov und Bf bleiben bis zur nächsten Meldung
+  const st: MachineStatus = { ...prev, state: body[0].split(':')[0], pins: '', acc: '', sd: null };
   const vec = (s: string) => {
     const v = s.split(',').map(Number);
     return [v[0] || 0, v[1] || 0, v[2] || 0] as [number, number, number];
@@ -95,6 +125,19 @@ export function parseStatus(line: string, prev: MachineStatus, wco: WorkOffset):
       const p = v.split(',').map(Number);
       st.feed = p[0] || 0;
       st.power = p[1] || 0;
+    } else if (k === 'Ov') {
+      const p = v.split(',').map(Number);
+      st.ov = [p[0] || 100, p[1] || 100, p[2] || 100];
+    } else if (k === 'Pn') st.pins = v;
+    else if (k === 'A') st.acc = v;
+    else if (k === 'Bf') {
+      const p = v.split(',').map(Number);
+      st.bf = [p[0] || 0, p[1] || 0];
+    } else if (k === 'SD') {
+      // Dateiname kann Kommas und Doppelpunkte enthalten: nur am ersten Komma trennen
+      const rest = f.slice(3);
+      const i = rest.indexOf(',');
+      st.sd = { pct: Number(i < 0 ? rest : rest.slice(0, i)) || 0, file: i < 0 ? '' : rest.slice(i + 1) };
     }
   }
   const o = wco.v;
@@ -121,7 +164,7 @@ class Machine {
   connecting = false;
   /** Beschreibung der Verbindung, z. B. „COM3“ oder „fluidnc.local:23“ */
   where = '';
-  status: MachineStatus = { state: '', mpos: null, wpos: null, feed: 0, power: 0 };
+  status: MachineStatus = emptyStatus();
   progress: Progress | null = null;
   /** Geschätzte Zeiten je Zeile des laufenden Jobs */
   jobTimes: Float64Array | null = null;
@@ -131,7 +174,14 @@ class Machine {
   private wco: WorkOffset = { v: [0, 0, 0], known: false };
   /** Firmware der aktuellen Verbindung */
   fw = FIRMWARES.fluidnc;
+  /** Konfiguration der verbundenen FluidNC-Steuerung (nach dem Verbinden still gelesen); null = unbekannt */
+  fluid: FluidConfig | null = null;
+  /** Job, der auf der Steuerung von SD-Karte oder Flash läuft (FluidNC meldet SD: im Status) */
+  storedJob: { file: string; started: number; seen: boolean; aborted?: boolean } | null = null;
   private listeners = new Set<(e: MachineEvent) => void>();
+  /** Läuft gerade eine Abfrage (query), gehen die Antworten an sie; quiet = nicht in die Konsole */
+  private capture: { fn: (line: string) => void; quiet: boolean } | null = null;
+  private queryChain: Promise<unknown> = Promise.resolve();
   private unlisten: Unlisten[] = [];
 
   on(fn: (e: MachineEvent) => void) {
@@ -147,6 +197,11 @@ class Machine {
 
   get busy() {
     return !!this.progress;
+  }
+
+  /** Ein Job läuft, gesendet von hier oder von SD-Karte/Flash der Steuerung */
+  get running() {
+    return !!this.progress || !!this.storedJob;
   }
 
   async ports(): Promise<PortInfo[]> {
@@ -175,7 +230,9 @@ class Machine {
       await listen<string>('machine-closed', (e) => {
         this.connected = false;
         this.progress = null;
-        this.status = { state: '', mpos: null, wpos: null, feed: 0, power: 0 };
+        this.fluid = null;
+        this.storedJob = null;
+        this.status = emptyStatus();
         if (e.payload) this.log(tBackend(e.payload), 'error');
         this.log(t('Verbindung getrennt.'));
         this.emit({ type: 'connection' });
@@ -195,8 +252,13 @@ class Machine {
     }
     if (line.startsWith('<')) {
       this.status = parseStatus(line, this.status, this.wco);
+      this.trackStoredJob();
       this.emit({ type: 'status' });
       return;
+    }
+    if (this.capture) {
+      this.capture.fn(line);
+      if (this.capture.quiet) return;
     }
     const isErr = /^(error|alarm)/i.test(line);
     const why = explain(line);
@@ -223,13 +285,15 @@ class Machine {
       this.fw = fw;
       await invoke('machine_connect', {
         kind: d.conn, port: d.port, baud: d.baud, host: d.host, tcpPort: netPort,
-        sync: fw.sync, realtime: fw.realtime, poll: fw.poll,
+        sync: fw.sync, realtime: fw.realtime, poll: fw.poll, rxBuffer: d.rxBuffer || 127,
       });
       this.connected = true;
       this.where = where;
       this.log(t('Verbunden mit {where}.', { where }));
       // Ohne Endschalter nie referenzieren, die Achsen würden bis zum Anschlag fahren
       if (home && d.limitSwitches !== 'no') await this.send(fw.home);
+      // FluidNC: Konfiguration im Hintergrund lesen (Kühlmittel, Ausgänge, Dateiname)
+      if (fw.read === 'fluidnc') this.readFluidConfig().catch(() => {});
     } catch (e) {
       this.log(t('Verbindung fehlgeschlagen: {error}', { error: tBackend(String(e)) }), 'error');
     } finally {
@@ -250,10 +314,10 @@ class Machine {
   }
 
   /** Eine Zeile senden (Konsole, Bewegen, Home …). Wird abgelehnt, solange ein Job läuft. */
-  async send(line: string) {
+  async send(line: string, quiet = false) {
     if (!this.connected) return this.log(t('Nicht verbunden.'), 'error');
     const { invoke } = await import('@tauri-apps/api/core');
-    this.log(line, 'out');
+    if (!quiet) this.log(line, 'out');
     // Nullpunkt oder Koordinatensystem ändert sich: bis zur nächsten Meldung der Steuerung gilt er als unbekannt
     if (/G\s*(10|92|5[4-9])\b/i.test(line)) this.wco.known = false;
     try {
@@ -263,7 +327,114 @@ class Machine {
     }
   }
 
-  /** Echtzeitbefehl: ? Status, ! Halt, ~ Weiter, 0x18 Reset, 0x85 Jog abbrechen */
+  /**
+   * Befehle senden und die Antworten sammeln, bis jede Zeile mit ok/error beantwortet ist oder die Zeit abläuft.
+   * quiet = Antworten nicht in die Konsole schreiben (z. B. die lange Ausgabe von $CD). Abfragen laufen nacheinander.
+   */
+  query(cmds: string[], ms = 2500, quiet = false): Promise<string[]> {
+    const run = () =>
+      new Promise<string[]>((resolve) => {
+        const got: string[] = [];
+        let answered = 0;
+        let timer = 0;
+        const done = () => {
+          this.capture = null;
+          clearTimeout(timer);
+          resolve(got);
+        };
+        this.capture = {
+          quiet,
+          fn: (line) => {
+            got.push(line);
+            if (/^(ok|error)\b/i.test(line) && ++answered >= cmds.length) {
+              clearTimeout(timer);
+              timer = window.setTimeout(done, 150);
+            }
+          },
+        };
+        timer = window.setTimeout(done, ms);
+        if (!this.connected) return done();
+        (async () => {
+          for (const c of cmds) await this.send(c, quiet);
+        })();
+      });
+    const p = this.queryChain.then(run, run);
+    this.queryChain = p.catch(() => {});
+    return p;
+  }
+
+  /** FluidNC-Konfiguration ($CD) und ihren Dateinamen lesen */
+  async readFluidConfig(): Promise<FluidConfig | null> {
+    if (!this.connected || this.busy) return this.fluid;
+    const lines = await this.query(['$CD'], 6000, true);
+    const values = parseFluidConfig(lines);
+    if (!Object.keys(values).length) return this.fluid;
+    const file = parseConfigFile(await this.query(['$Config/Filename'], 2000, true)) ?? this.fluid?.file ?? 'config.yaml';
+    this.fluid = { values, text: configText(lines), file };
+    this.emit({ type: 'config' });
+    return this.fluid;
+  }
+
+  /** Override auf einen Prozentwert bringen (Vorschub oder Laserleistung, 10 … 200 %) */
+  async setOverride(kind: keyof typeof OVERRIDE, pct: number) {
+    const ov = this.status.ov;
+    const cur = ov ? (kind === 'feed' ? ov[0] : ov[2]) : NaN;
+    for (const b of overrideSteps(kind, cur, pct)) await this.realtime(b);
+  }
+
+  /** Datei auf SD-Karte oder Flash starten; Fortschritt kommt über den Statusbericht (SD:) */
+  async runStored(fs: FluidFs, name: string) {
+    if (!this.connected) return this.log(t('Nicht verbunden.'), 'error');
+    if (this.running) return this.log(t('Es läuft bereits ein Auftrag.'), 'error');
+    this.storedJob = { file: name, started: performance.now(), seen: false };
+    this.emit({ type: 'progress' });
+    await this.send(runCmd(fs, name));
+  }
+
+  /** Läuft ein Job von SD/Flash an, ist er im Status zu sehen; verschwindet er wieder, ist er zu Ende */
+  private trackStoredJob() {
+    const j = this.storedJob;
+    if (!j) return;
+    if (this.status.sd) {
+      j.seen = true;
+      return;
+    }
+    const alarm = this.status.state.startsWith('Alarm');
+    // Startet die Datei nicht (z. B. nicht gefunden), meldet die Steuerung nie SD:; nach 5 s aufgeben
+    if (!j.seen && !alarm && performance.now() - j.started < 5000) return;
+    if (this.status.state === 'Run' || this.status.state.startsWith('Hold')) return;
+    this.storedJob = null;
+    this.emit({ type: 'progress' });
+    const secs = Math.round((performance.now() - j.started) / 1000);
+    const time = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+    if (j.aborted) this.emit({ type: 'done', ok: false, message: t('Abgebrochen') });
+    else if (!j.seen) this.emit({ type: 'done', ok: false, message: t('Die Steuerung hat {file} nicht gestartet. Details stehen in der Konsole.', { file: j.file }) });
+    else if (alarm) this.emit({ type: 'done', ok: false, message: t('Alarm, Job abgebrochen') });
+    else this.emit({ type: 'done', ok: true, message: t('Fertig nach {time} min', { time }) });
+  }
+
+  /** G-Code auf die Steuerung hochladen (Weboberfläche von FluidNC); liefert die Größe in Bytes */
+  async upload(d: Device, fs: FluidFs, name: string, g: PreparedGCode, onProgress?: (sent: number, total: number) => void): Promise<number> {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const { listen } = await import('@tauri-apps/api/event');
+    const off = await listen<{ sent: number; total: number }>('fluid-upload-progress', (e) => onProgress?.(e.payload.sent, e.payload.total));
+    try {
+      return await invoke<number>('fluid_upload', { host: d.host, port: d.httpPort || 80, fs, name, id: g.lines ? null : g.id, lines: g.lines });
+    } catch (e) {
+      throw new Error(tBackend(String(e)));
+    } finally {
+      off();
+    }
+  }
+
+  /** FluidNC-Steuerungen im lokalen Netz suchen (fluidnc.local und das eigene /24-Netz) */
+  async discover(httpPort = 80): Promise<FoundController[]> {
+    if (!isTauri()) return [];
+    const { invoke } = await import('@tauri-apps/api/core');
+    return invoke<FoundController[]>('fluid_discover', { port: httpPort });
+  }
+
+  /** Echtzeitbefehl: ? Status, ! Halt, ~ Weiter, 0x18 Reset, 0x85 Jog abbrechen, 0x90 … Overrides */
   async realtime(byte: number) {
     if (!this.connected) return;
     const { invoke } = await import('@tauri-apps/api/core');
@@ -314,6 +485,8 @@ class Machine {
   async stop() {
     if (!this.connected) return;
     const { invoke } = await import('@tauri-apps/api/core');
+    // Ein Job von SD/Flash endet mit dem Reset; Meldung kommt über den Status
+    if (this.storedJob) ((this.storedJob.seen = true), (this.storedJob.aborted = true));
     await invoke('machine_stop');
     this.log(t('Gestoppt.'), 'info');
   }

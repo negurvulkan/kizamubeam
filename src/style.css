@@ -1028,7 +1028,21 @@ label.check {
 
 /* Geräteeinstellungen */
 .device-dialog .form {
-  grid-template-columns: 190px 160px;
+  grid-template-columns: 190px 220px;
+}
+.device-dialog .form .conn-row {
+  margin: 0;
+}
+.device-dialog .form .conn-row .btn {
+  white-space: nowrap;
+}
+.device-dialog .form .conn-row input,
+.device-dialog .form .conn-row select {
+  flex: 1;
+  min-width: 0;
+}
+.device-dialog .form .note:empty {
+  display: none;
 }
 
 /* Vorschau */
@@ -2905,4 +2919,111 @@ input.bound {
   overflow: auto;
   margin: 6px 0;
   padding-left: 20px;
+}
+
+/* Nachsteuern während des Jobs (Overrides), Eingänge */
+.ov-box {
+  margin-top: 6px;
+}
+.ov-box summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.ov-box .form {
+  grid-template-columns: auto 1fr;
+}
+.ov-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  align-items: center;
+}
+.ov-row .btn.small {
+  min-width: 30px;
+  padding: 0 4px;
+}
+.ov-row .ov-val {
+  min-width: 52px;
+  font-variant-numeric: tabular-nums;
+}
+.ov-row .ov-val.changed,
+.ov-row .btn.cur {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.ov-out {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+  margin-right: 6px;
+}
+.note.pins {
+  margin-top: 2px;
+  color: #c07000;
+}
+
+/* FluidNC: Konfiguration, Dateien, Suche */
+.fluid-dialog {
+  width: min(720px, 92vw);
+}
+.fluid-dialog .conn-row input[type='search'],
+.fluid-dialog .conn-row input[type='text'] {
+  flex: 1;
+  min-width: 120px;
+}
+.fluid-config {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) minmax(160px, 1fr);
+  gap: 3px 8px;
+  align-items: center;
+  max-height: 52vh;
+  overflow: auto;
+  margin-top: 6px;
+  padding-right: 4px;
+}
+.fluid-config label {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fluid-config input {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+}
+.fluid-config input.changed {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.fluid-config .wide {
+  grid-column: 1 / -1;
+}
+.fluid-backups-box {
+  margin-top: 8px;
+}
+.fluid-backups-box summary {
+  cursor: pointer;
+}
+.fluid-files {
+  max-height: 50vh;
+  overflow: auto;
+  margin: 6px 0;
+}
+.fluid-file,
+.fluid-backups .conn-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--line);
+}
+.fluid-file .grow,
+.fluid-backups .grow {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

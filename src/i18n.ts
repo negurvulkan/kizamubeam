@@ -75,6 +75,8 @@ const BACKEND_PATTERNS: [RegExp, string][] = [
   [/^Fertig nach (\d+:\d+) min, (\d+) Fehler$/, 'Fertig nach {time} min, {errors} Fehler'],
   [/^Fertig nach (\d+:\d+) min$/, 'Fertig nach {time} min'],
   [/^Port (\d+) nicht verfügbar: (.*)$/s, 'Port {port} nicht verfügbar: {error}'],
+  [/^Hochladen fehlgeschlagen \(HTTP (\d+)\)(.*)$/s, 'Hochladen fehlgeschlagen (HTTP {status}){details}'],
+  [/^Unbekannter Speicher „(.*)“$/, 'Unbekannter Speicher „{fs}“'],
 ];
 const BACKEND_MESSAGES = [
   'Ungültige Daten',
@@ -88,6 +90,9 @@ const BACKEND_MESSAGES = [
   'Alarm, Job abgebrochen',
   'Kein Ordner für Einstellungen',
   'G-Code nicht mehr vorhanden, bitte den Job erneut starten.',
+  'Kein G-Code',
+  'Zeitüberschreitung beim Warten auf die Antwort',
+  'Ungültige Antwort der Steuerung',
 ];
 // i18n-keys-end
 

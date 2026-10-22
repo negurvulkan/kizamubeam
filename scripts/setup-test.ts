@@ -153,13 +153,15 @@ test('Ohne Endschalter: Referenzfahrt ausschalten vorschlagen, nie anbieten', ()
   assert.deepEqual(find(input(facts, { switches: 'no', device: d }), 'homeconnect')?.fix?.app, { homeOnConnect: false });
 });
 
-test('FluidNC: Endschalter aus der Konfiguration, Vorschläge nur als Text', () => {
+test('FluidNC: Endschalter aus der Konfiguration, Vorschlag ändert die config.yaml', () => {
   const fluid = parseFluidConfig(FLUID_CD.map((l) => l.replace(/limit_neg_pin: .*/, 'limit_neg_pin: NO_PIN')));
   const facts: Facts = { ...emptyFacts(), fw: 'fluidnc', fluid };
   const inp = input(facts, { device: newDevice({ fw: 'fluidnc' }) });
   const f = find(inp, 'homing')!;
   assert.equal(f.level, 'warn');
-  assert.equal(f.fix, undefined, 'FluidNC wird über die config.yaml eingestellt');
+  // Gesetzt und in der Konfigurationsdatei gespeichert, Rücknahme mit den alten Werten
+  assert.deepEqual(f.fix?.send, ['$/axes/x/homing/cycle=0', '$/axes/y/homing/cycle=0', '$CD=config.yaml']);
+  assert.deepEqual(f.fix?.undo, ['$/axes/x/homing/cycle=1', '$/axes/y/homing/cycle=2', '$CD=config.yaml']);
   assert.equal(homingAllowed('unknown', machineFacts(facts)), false);
   // Mit Endschaltern im Alarm: Referenzfahrt anbieten
   const ok: Facts = { ...emptyFacts(), fw: 'fluidnc', fluid: parseFluidConfig(FLUID_CD) };
@@ -181,7 +183,9 @@ test('Richtung umkehren: $3 und mit Referenzfahrt auch $23', () => {
   const f = directionFix('y', grblFacts({ 3: 1, 22: 1, 23: 3 }))!;
   assert.deepEqual(f.send, ['$3=3', '$23=1']);
   assert.deepEqual(f.undo, ['$3=1', '$23=3']);
-  assert.equal(directionFix('x', { ...emptyFacts(), fw: 'fluidnc', fluid: parseFluidConfig(FLUID_CD) }), null);
+  // FluidNC: direction_pin des Motors umkehren
+  assert.deepEqual(directionFix('x', { ...emptyFacts(), fw: 'fluidnc', fluid: parseFluidConfig(FLUID_CD) })?.send, ['$/axes/x/motor0/stepstick/direction_pin=i2so.2', '$CD=config.yaml']);
+  assert.equal(directionFix('y', { ...emptyFacts(), fw: 'fluidnc', fluid: parseFluidConfig(FLUID_CD) }), null);
 });
 
 test('Schritte je mm aus dem gemessenen Weg', () => {

@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Empfangspuffer der Steuerung in Bytes (GRBL: 128, FluidNC hat mehr; 127 ist auf jeden Fall sicher).
+/// Größere Werte stellt man je Gerät ein (Protocol::rx_buffer).
 pub const RX_BUFFER: usize = 127;
 const POLL: Duration = Duration::from_millis(200);
 const PROGRESS: Duration = Duration::from_millis(200);
@@ -28,12 +29,14 @@ pub struct Protocol {
     pub realtime: bool,
     /// Ohne Echtzeitstatus: Befehlszeile zur Positionsabfrage im Leerlauf (Marlin: M114)
     pub poll: Option<String>,
+    /// Empfangspuffer der Steuerung in Bytes für die Zeichenzählung
+    pub rx_buffer: usize,
 }
 
 impl Protocol {
     #[cfg(test)]
     pub fn grbl(telnet: bool) -> Self {
-        Protocol { telnet, sync: false, realtime: true, poll: None }
+        Protocol { telnet, sync: false, realtime: true, poll: None, rx_buffer: RX_BUFFER }
     }
 }
 
@@ -277,8 +280,9 @@ impl<P: Read + Write, E: Events> Streamer<P, E> {
             }
             if b == b'\n' {
                 let raw = std::mem::take(&mut self.rx);
-                let line = String::from_utf8_lossy(&raw).trim().to_string();
-                if !line.is_empty() {
+                // Einrückung bleibt erhalten: FluidNC gibt die Konfiguration ($CD) als YAML aus
+                let line = String::from_utf8_lossy(&raw).trim_end().to_string();
+                if !line.trim().is_empty() {
                     self.on_line(&line);
                 }
             } else if b != b'\r' {
@@ -308,7 +312,7 @@ impl<P: Read + Write, E: Events> Streamer<P, E> {
     }
 
     fn on_line(&mut self, line: &str) {
-        let lower = line.to_ascii_lowercase();
+        let lower = line.trim_start().to_ascii_lowercase();
         // Marlin hängt manchmal Text an („ok T:…“ oder „ok P15 B3“)
         if lower == "ok" || lower.starts_with("ok ") {
             match self.pop_inflight() {
@@ -360,7 +364,7 @@ impl<P: Read + Write, E: Events> Streamer<P, E> {
     }
 
     fn fits(&self, len: usize) -> bool {
-        self.inflight.is_empty() || (!self.proto.sync && self.inflight_bytes + len <= RX_BUFFER)
+        self.inflight.is_empty() || (!self.proto.sync && self.inflight_bytes + len <= self.proto.rx_buffer)
     }
 
     fn send_line(&mut self, l: &str, kind: Kind) -> Result<(), String> {
@@ -473,6 +477,30 @@ mod tests {
     fn sent_lines(f: &Fake) -> Vec<String> {
         let w = f.written.lock().unwrap();
         String::from_utf8_lossy(&w).replace('?', "").lines().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn keeps_indentation_of_config_dump() {
+        let fake = Fake::default();
+        let log = Log::default();
+        let mut s = Streamer::new(fake.clone(), log.clone(), Arc::new(AtomicBool::new(false)), Protocol::grbl(false));
+        s.on_bytes(b"axes:\r\n  x:\r\n    max_travel_mm: 365.000\r\n   \r\nok\r\n");
+        let l = log.0.lock().unwrap();
+        assert_eq!(l.as_slice(), ["line axes:", "line   x:", "line     max_travel_mm: 365.000", "line ok"]);
+    }
+
+    #[test]
+    fn larger_buffer_from_device_settings() {
+        let fake = Fake::default();
+        let log = Log::default();
+        let proto = Protocol { rx_buffer: 1024, ..Protocol::grbl(false) };
+        let mut s = Streamer::new(fake.clone(), log.clone(), Arc::new(AtomicBool::new(false)), proto);
+        let line = "G1 X10.000 Y10.000";
+        let len = line.len() + 1;
+        s.handle(Cmd::Job(vec![line.to_string(); 200])).unwrap();
+        s.pump().unwrap();
+        assert_eq!(s.inflight.len(), 1024 / len);
+        assert!(s.inflight_bytes <= 1024 && s.inflight_bytes > RX_BUFFER);
     }
 
     #[test]
@@ -608,7 +636,7 @@ mod tests {
     fn marlin_sends_line_by_line_and_pauses_on_host() {
         let fake = Fake::default();
         let log = Log::default();
-        let proto = Protocol { telnet: false, sync: true, realtime: false, poll: Some("M114".into()) };
+        let proto = Protocol { telnet: false, sync: true, realtime: false, poll: Some("M114".into()), rx_buffer: RX_BUFFER };
         let mut s = Streamer::new(fake.clone(), log.clone(), Arc::new(AtomicBool::new(false)), proto);
         // Im Leerlauf fragt Marlin die Position mit M114 ab; dessen ok wird nicht gemeldet
         s.pump().unwrap();

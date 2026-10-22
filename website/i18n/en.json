@@ -83,7 +83,8 @@
         "Preview with time estimate and scrubber; “Start Here” resumes an interrupted job",
         "Work-area check before every job and frame, including the reported work offset",
         "Material test grid, rotary support (roller or chuck), custom G-code scripts per device",
-        "Save G-code or stream it directly – streaming runs in the Rust core"
+        "Save G-code or stream it directly – streaming runs in the Rust core",
+        "Adjust power and speed during a job; FluidNC: upload jobs to SD card or flash and run them there, edit config.yaml with backups, find the controller on Wi-Fi"
       ]
     },
     "gen": {

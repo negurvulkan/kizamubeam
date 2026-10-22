@@ -261,7 +261,7 @@ class CamUnit {
     const c = this.calib();
     if (!c || !c.head) return t('Kopfkamera nicht kalibriert.');
     if (!machine.connected) return t('Nicht verbunden.');
-    if (machine.busy) return t('Es läuft bereits ein Auftrag.');
+    if (machine.running) return t('Es läuft bereits ein Auftrag.');
     if (!headPos()) return t('Die aktuelle Position ist noch nicht bekannt.');
     const cov = coverRect(c, this.stream.width, this.stream.height);
     const cw = cov.x1 - cov.x0,
@@ -298,7 +298,7 @@ class CamUnit {
           await new Promise((res) => setTimeout(res, 100));
           if (scan.stop) return t('Abgebrochen.');
           if (!machine.connected || !this.stream.open) return t('Verbindung getrennt.');
-          if (machine.busy) return t('Es läuft bereits ein Auftrag.');
+          if (machine.running) return t('Es läuft bereits ein Auftrag.');
           const q = headPos();
           if (q && Math.hypot(q.x - p.x, q.y - p.y) < 0.2 && headStill(300)) break;
           if (performance.now() - t0 > 60000) return t('Der Laserkopf hat die Position nicht erreicht.');
@@ -461,7 +461,7 @@ export function cameraTab(ed: Editor): HTMLElement {
     headRow.hidden = !u.head;
     scanBtn.textContent = u.scan ? t('Erfassen abbrechen') : ed.sel.length ? t('Auswahl erfassen') : t('Bett erfassen');
     scanBtn.title = t('Den Laserkopf über den Bereich fahren und an jeder Stelle ein Bild aufnehmen (ohne Laser)');
-    scanBtn.disabled = !u.scan && (!ok || !machine.connected || machine.busy);
+    scanBtn.disabled = !u.scan && (!ok || !machine.connected || machine.running);
     clearBtn.disabled = !u.covered;
   };
   listeners.add(refresh);
@@ -722,7 +722,7 @@ function openCalibration(ed: Editor, u: CamUnit) {
   const burnBtn = h('button', { class: 'btn primary', title: t('Markierungen mit dem verbundenen Laser auf das Material lasern') }, t('Markierungen lasern')) as HTMLButtonElement;
   burnBtn.disabled = !machine.connected;
   burnBtn.addEventListener('click', async () => {
-    if (!machine.connected || machine.busy) return void (info.textContent = machine.busy ? t('Es läuft bereits ein Auftrag.') : t('Nicht verbunden.'));
+    if (!machine.connected || machine.running) return void (info.textContent = machine.running ? t('Es läuft bereits ein Auftrag.') : t('Nicht verbunden.'));
     const mr = markRect();
     const rr = m.size / 2;
     if (mr.x0 - rr < 0 || mr.y0 - rr < 0 || mr.x1 + rr > bedW || mr.y1 + rr > bedH)
@@ -822,7 +822,7 @@ function openCalibration(ed: Editor, u: CamUnit) {
     ...[1, 5, 10, 20, 50].map((v) => h('option', { value: String(v), selected: v === 10 }, `${v} mm`))) as HTMLSelectElement;
   const jog = (dx: number, dy: number) => {
     if (!machine.connected) return void (info.textContent = t('Nicht verbunden.'));
-    if (machine.busy) return void (info.textContent = t('Es läuft bereits ein Auftrag.'));
+    if (machine.running) return void (info.textContent = t('Es läuft bereits ein Auftrag.'));
     const st = Number(jogStep.value);
     for (const l of FIRMWARES[device.fw].jog(dx * st, dy * st, 3000)) machine.send(l);
   };

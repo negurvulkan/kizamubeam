@@ -7,6 +7,7 @@ import { loadFont, textToSubs } from './fonts';
 import { nativeScanLines, outputGrid, processImage } from './images';
 import { hasNative, native } from './native';
 import { locale, t, tn } from './i18n';
+import { jobOutputsOff, jobOutputsOn } from './fluidnc';
 
 // ---------- Geräte und Firmware ----------
 
@@ -39,13 +40,15 @@ export interface FirmwareInfo {
   clearOrigin: string | null;
   /** Einstellungen der Maschine lesen: FluidNC-Pfade, GRBL-$$ oder gar nicht */
   read: 'fluidnc' | 'grbl' | null;
+  /** Echtzeit-Overrides für Vorschub, Eilgang und Leistung (0x90 …), Kühlmittel umschalten (0xA0/0xA1) */
+  overrides: boolean;
 }
 
 const grblJog = (x: number, y: number, f: number, axis = 'Y') => [`$J=G91 G21${x ? ` X${num(x)}` : ''}${y ? ` ${axis}${num(y)}` : ''} F${Math.round(f)}`];
 const relJog = (x: number, y: number, f: number, axis = 'Y') => ['G91', `G0${x ? ` X${num(x)}` : ''}${y ? ` ${axis}${num(y)}` : ''} F${Math.round(f)}`, 'G90'];
 const GRBL_BASE = {
   sync: false, realtime: true, poll: null, laserOn: ['M4 S0'], frameOn: ['M3 S0'], footer: ['M5', 'M2'],
-  home: '$H', unlock: '$X', jog: grblJog, setOrigin: 'G10 L20 P1 X0 Y0', clearOrigin: 'G10 L2 P1 X0 Y0',
+  home: '$H', unlock: '$X', jog: grblJog, setOrigin: 'G10 L20 P1 X0 Y0', clearOrigin: 'G10 L2 P1 X0 Y0', overrides: true,
 };
 
 export const FIRMWARES: Record<Firmware, FirmwareInfo> = {
@@ -56,13 +59,13 @@ export const FIRMWARES: Record<Firmware, FirmwareInfo> = {
     label: 'Marlin (Laser)', sMax: 255, sync: true, realtime: false, poll: 'M114',
     // Inline-Modus: S an jedem G1 setzt die Leistung, G0 fährt aus
     laserOn: ['M3 I S0'], frameOn: ['M3 I S0'], footer: ['M5', 'M400'],
-    home: 'G28 X Y', unlock: null, jog: relJog, setOrigin: 'G92 X0 Y0', clearOrigin: null, read: null,
+    home: 'G28 X Y', unlock: null, jog: relJog, setOrigin: 'G92 X0 Y0', clearOrigin: null, read: null, overrides: false,
   },
   smoothie: {
     label: 'Smoothieware', sMax: 1, sync: true, realtime: true, poll: null,
     // Smoothieware feuert nur bei G1, S ist der Anteil 0 … 1
     laserOn: [], frameOn: [], footer: [],
-    home: '$H', unlock: '$X', jog: relJog, setOrigin: 'G10 L20 P1 X0 Y0', clearOrigin: 'G10 L2 P1 X0 Y0', read: null,
+    home: '$H', unlock: '$X', jog: relJog, setOrigin: 'G10 L20 P1 X0 Y0', clearOrigin: 'G10 L2 P1 X0 Y0', read: null, overrides: false,
   },
 };
 
@@ -101,6 +104,14 @@ export interface Device {
   host: string;
   tcpPort: number;
   wsPort: number;
+  /** Port der Weboberfläche (FluidNC: Dateien hochladen, Suche im Netzwerk) */
+  httpPort: number;
+  /** Empfangspuffer der Steuerung in Bytes für die Zeichenzählung (GRBL 128 → 127; FluidNC hat mehr) */
+  rxBuffer: number;
+  /** Job vom Rechner senden oder bei FluidNC erst auf SD-Karte/Flash hochladen und dort starten */
+  runFrom: 'stream' | 'sd' | 'localfs';
+  /** Digitale Ausgänge (M64/M65 P…), die während eines Jobs eingeschaltet sind, z. B. Absaugung */
+  jobOutputs: number[];
   /** S-Wert für 100 % Leistung (FluidNC/GRBL meist 1000, Marlin 255, Smoothieware 1) */
   sMax: number;
   /** Eilgang in mm/min (für Zeitschätzung und Leerwege) */
@@ -146,6 +157,10 @@ export const DEFAULT_DEVICE: Device = {
   host: 'fluidnc.local',
   tcpPort: 23,
   wsPort: 81,
+  httpPort: 80,
+  rxBuffer: 127,
+  runFrom: 'stream',
+  jobOutputs: [],
   sMax: 1000,
   rapid: 6000,
   accel: 1500,
@@ -1194,7 +1209,7 @@ function gcodeHeader(job: Job, d: Device, est: Estimate, name: string): string[]
   const fw = FIRMWARES[d.fw];
   out.push(t('; Gerät: {name} ({label})', { name: d.name, label: fw.label }));
   out.push(...rotaryComment(d));
-  out.push('G21', 'G90', ...rotaryZero(d), ...fw.laserOn, ...scriptLines(d.startScript));
+  out.push('G21', 'G90', ...rotaryZero(d), ...fw.laserOn, ...jobOutputsOn(d), ...scriptLines(d.startScript));
   return out;
 }
 
@@ -1217,10 +1232,10 @@ export function scriptLines(s: string | undefined): string[] {
   return (s ?? '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 }
 
-/** Ende des Jobs: Laser aus, dann das eigene End-Skript, dann Programmende der Steuerung (M2, M400) */
+/** Ende des Jobs: Laser aus, Ausgänge aus, dann das eigene End-Skript, dann Programmende der Steuerung (M2, M400) */
 export function gcodeFooter(d: Device): string[] {
   const f = FIRMWARES[d.fw].footer;
-  const end = scriptLines(d.endScript);
+  const end = [...jobOutputsOff(d), ...scriptLines(d.endScript)];
   const k = f.indexOf('M5');
   return k < 0 ? [...f, ...end] : [...f.slice(0, k + 1), ...end, ...f.slice(k + 1)];
 }
