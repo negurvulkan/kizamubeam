@@ -10,6 +10,8 @@ export interface TraceOptions {
   ignoreLess: number;
   /** Glättung 0 … 1 */
   smooth: number;
+  /** Mittellinien statt Umrissen nachzeichnen (centerline.ts) */
+  centerline?: boolean;
 }
 
 /**
@@ -136,7 +138,7 @@ export function marchingSquares(g: Float32Array, w: number, h: number, t: number
 }
 
 /** Douglas-Peucker für geschlossene Linienzüge */
-function rdpClosed(pts: Pt[], tol: number): Pt[] {
+export function rdpClosed(pts: Pt[], tol: number): Pt[] {
   const n = pts.length;
   if (n < 4) return pts;
   // am weitesten vom Startpunkt entfernten Punkt als zweiten Anker nehmen
@@ -151,7 +153,7 @@ function rdpClosed(pts: Pt[], tol: number): Pt[] {
   return [...a.slice(0, -1), ...b.slice(0, -1)];
 }
 
-function rdp(pts: Pt[], tol: number): Pt[] {
+export function rdp(pts: Pt[], tol: number): Pt[] {
   const keep = new Uint8Array(pts.length);
   keep[0] = keep[pts.length - 1] = 1;
   const stack: [number, number][] = [[0, pts.length - 1]];
