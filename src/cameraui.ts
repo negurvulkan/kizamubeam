@@ -354,6 +354,8 @@ export function cameraPhoto(ed: Editor): { url: string; view: { x: number; y: nu
     if (g) return { url: g.toDataURL('image/png'), view: null };
   }
   return null;
+}
+
 /** Kamerabild auf dem Bett für die Werkstückerkennung */
 export interface CameraView {
   id: string;
