@@ -1,5 +1,6 @@
 pub mod agent;
 mod fluid;
+mod library;
 mod machine;
 mod native;
 mod packs;
@@ -107,6 +108,21 @@ async fn pick_file(app: tauri::AppHandle, filters: Vec<(String, Vec<String>)>) -
     path.into_path().ok().map(|p| p.display().to_string())
 }
 
+/// Mehrere Dateien über einen nativen Öffnen-Dialog auswählen. Gibt die Pfade zurück (leer = abgebrochen).
+#[tauri::command]
+async fn pick_files(app: tauri::AppHandle, filters: Vec<(String, Vec<String>)>) -> Vec<String> {
+    let mut dlg = app.dialog().file();
+    for (name, exts) in &filters {
+        let e: Vec<&str> = exts.iter().map(|s| s.as_str()).collect();
+        dlg = dlg.add_filter(name, &e);
+    }
+    dlg.blocking_pick_files()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|p| p.into_path().ok().map(|p| p.display().to_string()))
+        .collect()
+}
+
 /// Inhalt einer Datei als Bytes (für Bilder und Importe).
 #[tauri::command]
 async fn read_file(path: String) -> Result<tauri::ipc::Response, String> {
@@ -193,6 +209,7 @@ pub fn run() {
             save_text_file,
             open_text_file,
             pick_file,
+            pick_files,
             read_file,
             save_binary_file,
             list_fonts,
@@ -229,6 +246,11 @@ pub fn run() {
             packs::pack_write,
             packs::pack_delete,
             packs::pack_open_folder,
+            library::library_list,
+            library::library_read,
+            library::library_write,
+            library::library_delete,
+            library::library_open_folder,
             updater::update_supported,
             updater::update_check,
             updater::update_install

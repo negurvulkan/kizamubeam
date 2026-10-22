@@ -183,6 +183,13 @@ export class EditorImages {
    * zu große Bilder werden auf das Bett verkleinert. Das Bild kommt auf den aktuellen Layer.
    */
   async importImage(this: Editor, dataUrl: string, dpi: number | null, name?: string) {
+    const o = await this.imageObj(dataUrl, dpi, name);
+    const s = o.shape as ImageShape;
+    const shrunk = s.w < (s.pxW / (dpi && dpi > 10 && dpi < 5000 ? dpi : 254)) * 25.4 - 1e-9;
+    this.placeNew([o], t(shrunk ? 'Bild importiert: {pxW} × {pxH} Pixel, {w} × {h} mm (auf das Bett verkleinert).' : 'Bild importiert: {pxW} × {pxH} Pixel, {w} × {h} mm.', { pxW: s.pxW, pxH: s.pxH, w: dec(s.w.toFixed(1)), h: dec(s.h.toFixed(1)) }));
+  }
+  /** Bild-Objekt mittig auf dem Bett auf dem aktuellen Layer, ohne es einzufügen (Größe wie bei importImage) */
+  async imageObj(this: Editor, dataUrl: string, dpi: number | null, name?: string): Promise<Obj> {
     const a = await addAsset(dataUrl);
     const res = dpi && dpi > 10 && dpi < 5000 ? dpi : 254;
     let w = (a.w / res) * 25.4,
@@ -192,9 +199,8 @@ export class EditorImages {
     w *= f;
     h *= f;
     const shape: ImageShape = { kind: 'image', asset: a.id, w, h, pxW: a.w, pxH: a.h, name, adjust: { ...DEFAULT_ADJUST } };
-    const o: Obj = { id: newId(), m: translate((bed.w - w) / 2, (bed.h - h) / 2), layer: this.currentLayer, shape };
     this.imgLayer(this.currentLayer);
-    this.placeNew([o], t(f < 1 ? 'Bild importiert: {pxW} × {pxH} Pixel, {w} × {h} mm (auf das Bett verkleinert).' : 'Bild importiert: {pxW} × {pxH} Pixel, {w} × {h} mm.', { pxW: a.w, pxH: a.h, w: dec(w.toFixed(1)), h: dec(h.toFixed(1)) }));
+    return { id: newId(), m: translate((bed.w - w) / 2, (bed.h - h) / 2), layer: this.currentLayer, shape };
   }
 
   /** Rasterbild an fester Stelle einfügen (Weltkoordinaten), z. B. das entzerrte Kamerabild */
@@ -208,6 +214,18 @@ export class EditorImages {
 
   /** Ergebnis eines Vektor-Imports (SVG/DXF) einfügen */
   async importVectors(this: Editor, res: ImportResult, name: string) {
+    const objs = await this.vectorObjs(res, name);
+    if (!objs.length) {
+      this.hint = t('{name}: keine verwertbaren Formen gefunden. {notes}', { name, notes: res.notes.join(' ') });
+      this.emit('tool');
+      return;
+    }
+    const layers = new Set(objs.map((o) => o.layer));
+    this.placeNew(objs, `${tn('{name}: {n} Objekt', '{name}: {n} Objekte', objs.length, { name })} ${tn('auf {n} Layer.', 'auf {n} Layern.', layers.size)} ${res.notes.join(' ')}`.trim());
+  }
+
+  /** Objekte aus einem Vektor-Import (SVG/DXF), ohne sie einzufügen; Hinweise landen in res.notes */
+  async vectorObjs(this: Editor, res: ImportResult, name: string): Promise<Obj[]> {
     const objs: Obj[] = [];
     const flip: Mat = res.yUp ? [1, 0, 0, -1, 0, this.doc.bed.h] : IDENT;
     for (const it of res.items) {
@@ -223,17 +241,10 @@ export class EditorImages {
         res.notes.push(t('Ein eingebettetes Bild ließ sich nicht lesen.'));
       }
     }
-    if (!objs.length) {
-      this.hint = t('{name}: keine verwertbaren Formen gefunden. {notes}', { name, notes: res.notes.join(' ') });
-      this.emit('tool');
-      return;
-    }
-    const layers = new Set(objs.map((o) => o.layer));
     // Übersprungene Elemente bleiben am Objekt vermerkt und erscheinen in „Konstruktion prüfen“
     if (res.notes.length) for (const o of objs) o.importNote = `${name}: ${res.notes.join(' ')}`;
-    this.placeNew(objs, `${tn('{name}: {n} Objekt', '{name}: {n} Objekte', objs.length, { name })} ${tn('auf {n} Layer.', 'auf {n} Layern.', layers.size)} ${res.notes.join(' ')}`.trim());
+    return objs;
   }
-
   /** Konturen eines Bildes in Weltkoordinaten (für Vorschau und Übernahme) */
   traceImage(this: Editor, o: Obj, opt: TraceOptions): SubPath[] {
     if (o.shape.kind !== 'image') return [];

@@ -6,6 +6,8 @@ import { boundsOf, Box } from './geom';
 import { IDENT } from './model';
 import { library } from './materials';
 import { brokenPacks, ensurePacks, installedPacks } from './packs';
+import { findAssets } from './assetLibrary';
+import { ASSET_CATEGORIES, AssetCategory } from './assetFormat';
 import { systemFonts } from './fonts';
 import { isTauri, machine } from './machine';
 import { bedCheck, deviceList, jobInfo } from './laser';
@@ -104,6 +106,24 @@ const READ_TOOLS: ToolDef[] = [
           materials: p.materials.map((m) => m.id),
         })),
         broken: brokenPacks(),
+      });
+    },
+  },
+  {
+    name: 'list_assets',
+    title: 'Bibliothek durchsuchen',
+    description:
+      'Einträge der Bibliothek (eigene Motive, Bilder, Designelemente und die aus Erweiterungen): Kennung (asset, für insert_asset), Name, Art (motif, image, element), Stichwörter, Größe in mm und ggf. die Erweiterung. query sucht in Name, Stichwörtern und Art (alle Wörter müssen passen); category filtert nach Art.',
+    tier: Tier.Read,
+    inputSchema: { type: 'object', properties: { query: { type: 'string' }, category: { type: 'string', enum: ASSET_CATEGORIES } } },
+    run: async (_ed, a) => {
+      const cat = typeof a.category === 'string' && (ASSET_CATEGORIES as string[]).includes(a.category) ? (a.category as AssetCategory) : '';
+      const list = await findAssets(typeof a.query === 'string' ? a.query : '', cat);
+      return json({
+        assets: list.map((it) => ({
+          asset: it.key, name: it.meta.name, category: it.meta.category, tags: it.meta.tags, size: { w: r3(it.meta.w), h: r3(it.meta.h) },
+          ...(it.pack ? { extension: it.pack } : {}), ...(it.broken ? { broken: it.broken } : {}),
+        })),
       });
     },
   },

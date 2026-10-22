@@ -34,6 +34,7 @@ import { startAgentBridge } from './agent';
 import { buildObjectsPanel } from './objectsPanel';
 import { buildTabBar, closeTabAsk } from './tabsBar';
 import { buildHistoryPanel } from './historyPanel';
+import { buildLibraryPanel, openAddSelectionDialog } from './libraryPanel';
 import { buildCheckPanel, openCheck } from './checkPanel';
 import { openCalibrateDialog } from './calibrateDialog';
 import { buildParamsPanel, openShowIfDialog } from './paramsPanel';
@@ -121,6 +122,7 @@ export function buildUI(ed: Editor) {
   buildLayers(ed);
   buildObjectsPanel(ed);
   buildHistoryPanel(ed);
+  buildLibraryPanel(ed);
   buildParamsPanel(ed);
   buildNotesPanel(ed);
   buildCheckPanel(ed);
@@ -210,6 +212,7 @@ function buildMenu(ed: Editor) {
       [t('In Pfad umwandeln'), 'Ctrl+Shift+C', () => ed.convertSelToPath()],
       'sep',
       [t('Sichtbar, wenn …'), '', () => openShowIfDialog(ed, ed.sel)],
+      [t('Zur Bibliothek hinzufügen …'), '', () => openAddSelectionDialog(ed)],
     ]],
     [t('Werkzeuge'), [
       [t('Auswählen'), 'Esc', () => ed.setTool('select')],

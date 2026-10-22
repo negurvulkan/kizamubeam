@@ -28,6 +28,7 @@
     "test:updates": "node scripts/run-ts.mjs scripts/updates-test.ts",
     "test:packs": "node scripts/run-ts.mjs scripts/packs-test.ts",
     "test:catalog": "node scripts/run-ts.mjs scripts/catalog-test.ts",
+    "test:library": "node scripts/run-ts.mjs scripts/library-test.ts",
     "test:fluidnc": "node scripts/run-ts.mjs scripts/fluidnc-test.ts",
     "test:notes": "node scripts/run-ts.mjs scripts/notes-test.ts",
     "test:testphoto": "node scripts/run-ts.mjs scripts/testphoto-test.ts"
