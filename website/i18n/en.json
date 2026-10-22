@@ -57,6 +57,7 @@
         "Lines, Bézier curves, rounded rectangles, ellipses, polygons, stars and multi-line text",
         "Boolean operations, offset, node editing, trimming, and snapping to nodes, midpoints and intersections",
         "Text on a path, welded letters and true outlines from your system fonts",
+        "Warp text, shapes and images into an arc, bulge, flag or perspective, as clean Bézier curves",
         "Grid and circular arrays with live preview, multi-page projects and a history you can jump back through",
         "Import SVG, DXF and images – colors map straight to the matching layer",
         "Dockable windows, customizable toolbars, light and dark theme"

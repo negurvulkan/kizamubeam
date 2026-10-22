@@ -7,6 +7,7 @@ import { about, apply, BarcodeShape, IDENT, ObjBindKey, leaves, Mat, mul, newId,
 import { qrMatrix } from './barcode';
 import { advanceVarText } from './vartext';
 import { BoolOp, OffsetOptions } from './ops';
+import { WARP_KINDS } from './warp';
 import { circularMatrices, DEFAULT_GRID, gridMatrices, GridOptions } from './arrays';
 import { DEFAULT_HINGE, HingeKind, HingeOptions, suggestHinge } from './hinges';
 import { DEFAULT_JOINT, EdgePick, isStraight, JointKind, JointOptions } from './joints';
@@ -961,6 +962,26 @@ export const EDIT_TOOLS: ToolDef[] = [
         join: oneOf(a, 'join', ['round', 'miter', 'square'] as const, 'round'),
       };
       await ed.offsetSel(opt, bool(a, 'keep_originals', true));
+      return result(ed, before);
+    },
+  },
+  {
+    name: 'warp',
+    title: 'Verformen',
+    description:
+      'Verformt die Objekte gemeinsam über ihren Rahmen: arc (Bogen), arcUpper/arcLower (nur obere/untere Kante), bulge (Wölben), flag (Welle), perspective (Fluchtpunkt). amount -100 … 100 (%), negativ in die andere Richtung; vertical = um 90° gedreht. Formen und Texte werden zu Bézierpfaden (Text ist danach nicht mehr als Text bearbeitbar), Bilder werden neu berechnet.',
+    tier: Tier.Edit,
+    inputSchema: obj({
+      ids: IDS, kind: { type: 'string', enum: [...WARP_KINDS] }, amount: { type: 'number', minimum: -100, maximum: 100 }, vertical: { type: 'boolean' },
+    }, ['ids', 'kind', 'amount']),
+    run: async (ed, a) => {
+      const before = snapshotIds(ed);
+      ed.setSel(topObjs(ed, ids(a)));
+      await ed.warpSel({
+        kind: oneOf(a, 'kind', WARP_KINDS),
+        amount: num(a, 'amount', { min: -100, max: 100 }),
+        vertical: bool(a, 'vertical', false),
+      });
       return result(ed, before);
     },
   },
