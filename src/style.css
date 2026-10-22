@@ -3027,3 +3027,37 @@ input.bound {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.bg-dialog {
+  max-width: 420px;
+}
+.bg-checker {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 8px;
+  background: repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%) 0 0 / 16px 16px;
+  border: 1px solid var(--line);
+}
+.bg-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 300px;
+  cursor: crosshair;
+}
+.bg-colors {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.bg-swatches {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+}
+.bg-swatch {
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
