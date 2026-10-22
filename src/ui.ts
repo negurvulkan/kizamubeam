@@ -1652,7 +1652,7 @@ function assetImageOf(s: ImageShape): HTMLImageElement | null {
 
 // ---------- Bild nachzeichnen ----------
 
-let traceState = { threshold: 128, ignoreLess: 10, smooth: 0.3, deleteImage: false };
+let traceState = { threshold: 128, ignoreLess: 10, smooth: 0.3, deleteImage: false, centerline: false };
 
 function openTraceDialog(ed: Editor) {
   const o = ed.selImages()[0];
@@ -1673,20 +1673,34 @@ function openTraceDialog(ed: Editor) {
       subs = ed.traceImage(o, st);
       ed.setPreview(subs);
       const nodes = subs.reduce((n, sp) => n + sp.nodes.length, 0);
-      info.textContent = t('{contours} Konturen, {nodes} Knoten ({ms} ms). Orange gestrichelt: Vorschau.', { contours: subs.length, nodes, ms: Math.round(performance.now() - t0) });
+      info.textContent = st.centerline
+        ? t('{lines} Linien, {nodes} Knoten ({ms} ms). Orange gestrichelt: Vorschau.', { lines: subs.length, nodes, ms: Math.round(performance.now() - t0) })
+        : t('{contours} Konturen, {nodes} Knoten ({ms} ms). Orange gestrichelt: Vorschau.', { contours: subs.length, nodes, ms: Math.round(performance.now() - t0) });
     }, 120);
   };
   const sT = slider(t('Schwellwert'), 0, 255, 1, st.threshold, (v) => ((st.threshold = v), preview()));
   const sI = slider(t('Kleines ignorieren (px²)'), 0, 500, 1, st.ignoreLess, (v) => ((st.ignoreLess = v), preview()));
   const sS = slider(t('Glättung'), 0, 1, 0.05, st.smooth, (v) => ((st.smooth = v), preview()));
   const del = h('input', { type: 'checkbox', checked: st.deleteImage, onchange: (e: Event) => (st.deleteImage = (e.target as HTMLInputElement).checked) });
+  const note = h('div', { class: 'note' });
+  const showNote = () =>
+    (note.textContent = st.centerline
+      ? t('Striche werden auf ihre Mitte ausgedünnt und als offene Pfade nachgezeichnet, z. B. für Handschrift oder Strichzeichnungen. Kurze Seitenäste werden entfernt.')
+      : t('Dunkler als der Schwellwert wird zur Fläche. Helligkeit, Kontrast und Gamma aus „Bild anpassen“ wirken mit.'));
+  showNote();
+  const mode = h('select', {
+    onchange: (e: Event) => ((st.centerline = (e.target as HTMLSelectElement).value === 'center'), showNote(), preview()),
+  },
+    h('option', { value: 'outline', selected: !st.centerline }, t('Umrisse')),
+    h('option', { value: 'center', selected: st.centerline }, t('Mittellinien')),
+  ) as HTMLSelectElement;
   let applied = false;
   const dlg = h(
     'dialog',
     { class: 'offset-dialog trace-dialog' },
     h('h3', {}, t('Bild nachzeichnen')),
-    h('div', { class: 'form' }, ...sT.el, ...sI.el, ...sS.el, h('span', { class: 'checks' }, h('label', { class: 'check' }, del, t('Bild danach löschen')))),
-    h('div', { class: 'note' }, t('Dunkler als der Schwellwert wird zur Fläche. Helligkeit, Kontrast und Gamma aus „Bild anpassen“ wirken mit.')),
+    h('div', { class: 'form' }, h('label', {}, t('Art')), mode, ...sT.el, ...sI.el, ...sS.el, h('span', { class: 'checks' }, h('label', { class: 'check' }, del, t('Bild danach löschen')))),
+    note,
     info,
     h(
       'div',
@@ -1701,7 +1715,7 @@ function openTraceDialog(ed: Editor) {
     if (applied) {
       traceState = st;
       subs = ed.traceImage(o, st);
-      ed.commitTrace(o, subs, st.deleteImage);
+      ed.commitTrace(o, subs, st.deleteImage, st.centerline);
     }
     dlg.remove();
   });

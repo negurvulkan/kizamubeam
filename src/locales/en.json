@@ -2521,6 +2521,13 @@
   "vor „{fix}“": "before “{fix}”",
   "Die Achse läuft verkehrt herum; Entwürfe kämen gespiegelt heraus. KizamuBeam kehrt dazu den direction_pin des Motors in der config.yaml um; wirksam wird das nach einem Neustart der Steuerung.": "The axis runs backwards; designs would come out mirrored. KizamuBeam reverses the motor's direction_pin in config.yaml; it takes effect after the controller restarts.",
   "Dateien auf der Steuerung …": "Files on the controller …",
+  "Mittellinien nachzeichnen": "Trace Centerlines",
+  "{n} Mittellinie nachgezeichnet.": "{n} centerline traced.",
+  "{n} Mittellinien nachgezeichnet.": "{n} centerlines traced.",
+  "Striche werden auf ihre Mitte ausgedünnt und als offene Pfade nachgezeichnet, z. B. für Handschrift oder Strichzeichnungen. Kurze Seitenäste werden entfernt.": "Strokes are thinned to their center and traced as open paths, e.g. for handwriting or line drawings. Short side branches are removed.",
+  "Umrisse": "Outlines",
+  "Mittellinien": "Centerlines",
+  "{lines} Linien, {nodes} Knoten ({ms} ms). Orange gestrichelt: Vorschau.": "{lines} lines, {nodes} nodes ({ms} ms). Dashed orange: preview."
   "Füllart": "Fill style",
   "Kontur folgend": "Offset fill",
   "Zeilenweise: Fläche Zeile für Zeile abtasten. Kontur folgend: Ringe, die dem Umriss nach innen folgen (gut für schmale Rahmen, Schrift und Ornamente).": "Line by line: scan the area line by line. Offset fill: rings that follow the outline inwards (good for narrow frames, lettering and ornaments).",
