@@ -462,8 +462,26 @@ export interface Doc {
   template?: TemplateInfo;
   /** Tabelle für Serien (Datei → Serie aus Tabelle): Kopfzeile und Zeilen */
   seriesTable?: SeriesTable;
+  /** Projekt-Notizen (Fenster „Notizen“): Material, Aufbau und Bearbeitung als freier Text */
+  notes?: ProjectNotes;
   /** Nur in Projektdateien: Bilddaten (Asset-ID → data:-URL) */
   assets?: Record<string, string>;
+}
+
+/** Abschnitte der Projekt-Notizen; leere Abschnitte werden nicht gespeichert */
+export const NOTE_KEYS = ['material', 'setup', 'process'] as const;
+export type NoteKey = (typeof NOTE_KEYS)[number];
+export type ProjectNotes = Partial<Record<NoteKey, string>>;
+
+/** Nur nicht leere Text-Abschnitte behalten; nichts übrig = undefined */
+export function cleanNotes(raw: unknown): ProjectNotes | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const out: ProjectNotes = {};
+  for (const k of NOTE_KEYS) {
+    const v = (raw as Record<string, unknown>)[k];
+    if (typeof v === 'string' && v.trim()) out[k] = v;
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 export const pageName = (i: number) => t('Seite {n}', { n: i + 1 });
@@ -489,6 +507,9 @@ export function loadDoc(raw: unknown): Doc {
   d.page = Math.min(Math.max(0, Math.floor(Number(d.page) || 0)), pages.length - 1);
   d.bed ??= { w: 400, h: 400 };
   d.layers ??= {};
+  const notes = cleanNotes(d.notes);
+  if (notes) d.notes = notes;
+  else delete d.notes;
   Object.defineProperty(d, 'objs', {
     enumerable: false,
     configurable: true,
