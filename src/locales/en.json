@@ -2522,5 +2522,13 @@
   "Füllart": "Fill style",
   "Kontur folgend": "Offset fill",
   "Zeilenweise: Fläche Zeile für Zeile abtasten. Kontur folgend: Ringe, die dem Umriss nach innen folgen (gut für schmale Rahmen, Schrift und Ornamente).": "Line by line: scan the area line by line. Offset fill: rings that follow the outline inwards (good for narrow frames, lettering and ornaments).",
-  "Zeilenweise": "Line by line"
+  "Zeilenweise": "Line by line",
+  "Aufbau": "Setup",
+  "Bearbeitung": "Processing",
+  "Notiz „{name}“ ändern": "Edit note “{name}”",
+  "z. B. 3 mm Pappel-Sperrholz, Baumarkt, Schutzfolie oben": "e.g. 3 mm poplar plywood, hardware store, protective film on top",
+  "z. B. Fokus 2 mm tiefer, Wabenbett, Ursprung links unten, mit Magneten fixiert": "e.g. focus 2 mm lower, honeycomb bed, origin bottom left, held with magnets",
+  "z. B. Reihenfolge, zweiter Durchgang nötig, Kanten nachschleifen, was beim nächsten Mal anders": "e.g. order, second pass needed, sand the edges, what to change next time",
+  "Notizen": "Notes",
+  "Die Notizen werden mit dem Projekt gespeichert.": "Notes are saved with the project."
 }

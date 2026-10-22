@@ -3,7 +3,7 @@
 // Undo-Schritt (siehe Editor.batch in agent.ts). Koordinaten: Maschine, Ursprung unten links, y nach oben, mm.
 import type { Editor } from './editor';
 import { boundsOf, Box, segments, shapeSubs } from './geom';
-import { about, apply, BarcodeShape, IDENT, ObjBindKey, leaves, Mat, mul, newId, Obj, QrLevel, rotate, scale, Shape, SubPath, TextShape, translate } from './model';
+import { about, apply, BarcodeShape, IDENT, NOTE_KEYS, ObjBindKey, leaves, Mat, mul, newId, Obj, QrLevel, rotate, scale, Shape, SubPath, TextShape, translate } from './model';
 import { qrMatrix } from './barcode';
 import { advanceVarText } from './vartext';
 import { BoolOp, OffsetOptions } from './ops';
@@ -491,6 +491,26 @@ export const EDIT_TOOLS: ToolDef[] = [
         parameters: ed.paramList().map((p) => ({ ...p, usedBy: ed.paramUsers(p).map((o) => o.id) })),
         problems: problems.map(({ obj, issues }) => ({ id: obj.id, issues: issues.map((i) => `${i.level}: ${i.msg}`) })),
       };
+    },
+  },
+  {
+    name: 'project_notes',
+    title: 'Projekt-Notizen',
+    description:
+      'Liest und ändert die Projekt-Notizen (Fenster „Notizen“, in der Projektdatei gespeichert): material (Material, Dicke, Bezugsquelle), setup (Aufbau: Fokus, Auflage, Ursprung, Fixierung) und process (Bearbeitung: Reihenfolge, Durchgänge, Nachbearbeitung, Erfahrungen). Übergebene Abschnitte ersetzen den bisherigen Text, ein leerer Text löscht den Abschnitt. Ohne Angaben nur lesen. Auch in get_document als notes.',
+    tier: Tier.Edit,
+    inputSchema: obj({
+      material: { type: 'string' },
+      setup: { type: 'string' },
+      process: { type: 'string' },
+    }),
+    run: (ed, a) => {
+      for (const k of NOTE_KEYS) {
+        if (a[k] === undefined) continue;
+        if (typeof a[k] !== 'string') throw new ToolError(`„${k}“ muss ein Text sein`);
+        ed.setNote(k, a[k] as string);
+      }
+      return { notes: ed.doc.notes ?? {} };
     },
   },
   {
