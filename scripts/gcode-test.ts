@@ -1,7 +1,7 @@
 // Tests der Maschinenausgabe: Start-/End-Skripte, „Start Here“, Vorschau gegen Job. Aufruf: npm run test:gcode
 import './core-fixtures-env';
 import { strict as assert } from 'node:assert';
-import { buildJob, burns, checkBed, DEFAULT_ROTARY, Device, estimate, frameGCode, gcodeFooter, jogLines, Moves, newDevice, Rotary, rotaryTestLines, sameMoves, startHere, writeGCode } from '../src/gcode';
+import { buildJob, burns, checkBed, DEFAULT_ROTARY, Device, estimate, frameGCode, gcodeFooter, jogLines, Moves, newDevice, Rotary, rotaryMoves, rotaryTestLines, sameMoves, startHere, writeGCode } from '../src/gcode';
 import { emptyStatus, parseStatus, WorkOffset } from '../src/machine';
 import { defaultImageLayer, defaultLayer, loadDoc, Obj } from '../src/model';
 
@@ -250,6 +250,74 @@ await test('Warnung, wenn der Job höher ist als der Objektumfang', async () => 
   const job = (od: number) => buildJob({ doc, layer: (i: number) => ({ ...defaultLayer(i), mode: 'line' as const }), imgLayer: () => defaultImageLayer(), device: rotDev({ objectDiam: od }) });
   assert.equal((await job(20)).warnings.length, 1);
   assert.equal((await job(40)).warnings.length, 0);
+});
+
+// Becher mit Futter auf A: links Umfang 360 mm (1 mm = 1°), rechts 180 mm (1 mm = 2°), Job X 0 … 100, Mitte Y 10
+const cup = (r: Partial<Rotary> = {}) => rotDev({ kind: 'chuck', axis: 'A', perRev: 360, taper: true, taperLeft: 360 / Math.PI, taperRight: 180 / Math.PI, ...r });
+const cupJob = (mv: Moves) => ({ ...jobOf(mv), bounds: { x0: 0, y0: 0, x1: 100, y1: 20 } });
+/** Sollwert auf A: (y − Mitte) · 360 / Umfang an der Stelle x */
+const cupA = (x: number, y: number) => ((y - 10) * 360) / (360 - 1.8 * x);
+
+await test('Konisch: Achsweg hängt vom Durchmesser an der Stelle ab, Mitte in Y bleibt gerade', () => {
+  const d = cup();
+  const mv = new Moves(0, 10);
+  mv.push(100, 10, 600, 1, 1);
+  mv.push(0, 20, 0, 0, 1);
+  mv.push(100, 20, 600, 1, 1);
+  const est = estimate(mv, d);
+  const r = rotaryMoves(mv, d, cupJob(mv).bounds, est.t);
+  // Mittellinie: ein einziges Stück auf A0
+  assert.deepEqual([r.mv.x[0], r.mv.y[0]], [100, 0]);
+  assert.deepEqual([r.mv.x[1], r.mv.y[1]], [0, 10]);
+  // Linie am Rand: unterteilt, jeder Punkt auf der Sollkurve, Ende bei 20°
+  assert.ok(r.mv.n > 5, String(r.mv.n));
+  for (let i = 2; i < r.mv.n; i++) assert.ok(Math.abs(r.mv.y[i] - cupA(r.mv.x[i], 20)) < 1e-9);
+  assert.ok(Math.abs(r.mv.y[r.mv.n - 1] - 20) < 1e-9);
+  // Zwischen den Stützpunkten weicht die Gerade höchstens 0,01 mm auf der Oberfläche ab
+  for (let i = 3; i < r.mv.n; i++) {
+    const mx = (r.mv.x[i - 1] + r.mv.x[i]) / 2,
+      soll = cupA(mx, 20),
+      ist = (r.mv.y[i - 1] + r.mv.y[i]) / 2;
+    assert.ok((Math.abs(soll - ist) * (360 - 1.8 * mx)) / 360 <= 0.0100001);
+  }
+  // Zeiten wurden mit aufgeteilt
+  assert.equal(r.t!.length, r.mv.n);
+  assert.equal(r.t![r.mv.n - 1], est.t[mv.n - 1]);
+  for (let i = 1; i < r.mv.n; i++) assert.ok(r.t![i] >= r.t![i - 1]);
+  const g = writeGCode(cupJob(mv), d, est).lines;
+  assert.ok(g.some((l) => /^; (Konisch|Tapered):/.test(l)), g.slice(0, 9).join('\n'));
+  assert.ok(g.some((l) => /^X100 A20( F\d+)?$/.test(l)), g.join('\n'));
+});
+
+await test('Konisch mit Walzen: am dicken Ende wie ohne Ausgleich', () => {
+  // Walze Ø 10, 360° je Umdrehung; dickes Ende rechts
+  const plain = rotDev({ kind: 'roller', axis: 'A', rollerDiam: 10, perRev: 360 });
+  const d = rotDev({ ...plain.rotary, taper: true, taperLeft: 50, taperRight: 100 });
+  const mv = new Moves(100, 10);
+  mv.push(100, 20, 600, 1, 1);
+  mv.push(0, 20, 0, 0, 1);
+  const a = rotaryMoves(mv, plain).mv,
+    b = rotaryMoves(mv, d, cupJob(mv).bounds).mv;
+  assert.ok(Math.abs(a.y[0] - b.y[0]) < 1e-9);
+  // Am dünnen Ende (halber Durchmesser) dreht die Walze doppelt so weit
+  assert.ok(Math.abs(b.y[1] - 2 * a.y[0]) < 1e-9);
+});
+
+await test('Konisch aus oder ohne Drehachse: Ausgabe unverändert', () => {
+  const mv = sampleMoves();
+  const off = writeGCode(jobOf(mv), rotDev({ kind: 'chuck', axis: 'A', objectDiam: 360 / Math.PI, perRev: 360 }), estimate(mv, newDevice({ fw: 'fluidnc' }))).lines;
+  const d = rotDev({ kind: 'chuck', axis: 'A', objectDiam: 360 / Math.PI, perRev: 360, taper: false, taperLeft: 10, taperRight: 90 });
+  assert.deepEqual(writeGCode(jobOf(mv), d, estimate(mv, d)).lines.slice(4), off.slice(4));
+  const none = { ...newDevice({ fw: 'fluidnc' }), rotary: { ...DEFAULT_ROTARY, taper: true } };
+  assert.equal(rotaryMoves(mv, none).mv, mv);
+});
+
+await test('Konisch: Umfang-Warnung richtet sich nach dem dünneren Rand', async () => {
+  const objs: Obj[] = [{ id: 1, m: [1, 0, 0, 1, 50, 50], layer: 1, shape: { kind: 'rect', w: 20, h: 100, r: 0 } as never }];
+  const doc = loadDoc({ bed: { w: 400, h: 400 }, objs, layers: {} });
+  const device = rotDev({ objectDiam: 40, taper: true, taperLeft: 40, taperRight: 30 });
+  const job = await buildJob({ doc, layer: (i: number) => ({ ...defaultLayer(i), mode: 'line' as const }), imgLayer: () => defaultImageLayer(), device });
+  assert.equal(job.warnings.length, 1);
 });
 
 await test('Arbeitsbereich: Benutzer-Ursprung mit gemeldetem Nullpunkt wird geprüft', () => {

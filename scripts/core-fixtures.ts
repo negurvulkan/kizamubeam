@@ -61,7 +61,7 @@ function gcodeCase(fw: 'fluidnc' | 'smoothie', axis?: 'A') {
   }
   const est = estimate(mv, d);
   // Mit Drehachse: Bewegungen wie in prepareGCode umgerechnet, Y-Richtung als A ausgegeben
-  const out = rotaryMoves(mv, d);
+  const out = rotaryMoves(mv, d).mv;
   const g = gcodeLines(out, d, est, [1], ['; Kopf', 'G21', 'G90', 'M4 S0']);
   const params = { x0: out.x0, y0: out.y0, sMax: d.sMax, air: [1], airCmd: 'M8', header: ['; Kopf', 'G21', 'G90', 'M4 S0'], footer: FIRMWARES[fw].footer, total: est.total, ...(axis ? { yAxis: outAxis(d) } : {}) };
   return {
