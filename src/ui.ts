@@ -31,6 +31,7 @@ import { buildHistoryPanel } from './historyPanel';
 import { buildCheckPanel, openCheck } from './checkPanel';
 import { openCalibrateDialog } from './calibrateDialog';
 import { buildParamsPanel, openShowIfDialog } from './paramsPanel';
+import { buildNotesPanel } from './notesPanel';
 import { buildView3dPanel } from './view3d/panel';
 import { dockWindow, initDock, isHidden, resetLayout, toggleWindow, windowList } from './dock';
 import { Action, BarKey, barNames, initToolbars, isBarHidden, openToolbarDialog, refreshBars, SEP, showAllBars, toggleBar } from './toolbars';
@@ -115,6 +116,7 @@ export function buildUI(ed: Editor) {
   buildObjectsPanel(ed);
   buildHistoryPanel(ed);
   buildParamsPanel(ed);
+  buildNotesPanel(ed);
   buildCheckPanel(ed);
   buildView3dPanel(ed);
   buildLaser(ed);
