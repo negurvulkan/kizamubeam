@@ -1,5 +1,6 @@
 // Oberfläche: Menü, Leisten, Panels, Palette, Statusleiste.
 import { Editor, Tool } from './editor';
+import type { CornerMode } from './corners';
 import { ICONS } from './icons';
 import { DITHER_MODES, DitherMode, ImageAdjust, ImageLayer, ImageShape, isCellMode, Layer, layerLabel, Obj, ObjBindKey, pageName, PALETTE, SubPath, TextShape, BarcodeShape, GenShape } from './model';
 import { evaluate, formatNumber, namesIn } from './params';
@@ -239,6 +240,7 @@ function buildMenu(ed: Editor) {
         [t('Ausgewählte Formen verbinden'), 'Alt+J', () => ed.joinSel()],
         [t('Zerlegen'), 'Alt+B', () => ed.breakApartSel()],
         [t('Richtung umkehren'), '', () => ed.reverseSel()],
+        [t('Ecken runden oder fasen …'), '', () => openCornerDialog(ed)],
         'sep',
         [t('Formen trimmen'), 'Ctrl+K', () => ed.setTool('trim')],
         [t('Startpunkt setzen'), '', () => ed.setTool('start')],
@@ -676,6 +678,7 @@ function buildNumbar(ed: Editor) {
     nodeBtn(t('Ecke'), t('Ausgewählte Knoten zu Ecken machen, Anfasser entfernen (E)'), () => ed.setNodeType(false)),
     nodeBtn(t('Glatt'), t('Ausgewählte Knoten glätten (S)'), () => ed.setNodeType(true)),
     nodeBtn(t('Löschen'), t('Ausgewählte Knoten löschen (Entf)'), () => ed.deleteNodes()),
+    nodeBtn(t('Ecken …'), t('Ausgewählte Ecken runden, innen runden oder fasen'), () => openCornerDialog(ed)),
   );
   const sepNode = sep();
 
@@ -839,6 +842,7 @@ function buildBars(ed: Editor) {
     { id: 'join', cat: M, short: t('Verbinden|Pfade'), label: t('Ausgewählte Formen verbinden (Alt+J)'), run: () => ed.joinSel(), enabled: sel2 },
     { id: 'breakapart', cat: M, short: t('Zerlegen'), label: t('Zerlegen (Alt+B)'), run: () => ed.breakApartSel(), enabled: sel1 },
     { id: 'reverse', cat: M, short: t('Umkehren'), label: t('Richtung umkehren'), run: () => ed.reverseSel(), enabled: sel1 },
+    { id: 'corners', cat: M, short: t('Ecken'), label: t('Ecken runden oder fasen …'), run: () => openCornerDialog(ed), enabled: sel1 },
     { id: 'zoomin', cat: V, icon: 'zoomin', label: t('Vergrößern (+)'), run: () => ed.zoomAt(1.25) },
     { id: 'zoomout', cat: V, icon: 'zoomout', label: t('Verkleinern (-)'), run: () => ed.zoomAt(0.8) },
     { id: 'zoompage', cat: V, icon: 'zoompage', label: t('Ganze Seite (Ctrl+0)'), run: () => ed.zoomPage() },
@@ -928,7 +932,7 @@ function buildBars(ed: Editor) {
     { id: 'grp:bool', cat: M, label: t('Boolesche Operationen (Gruppe)'), items: ['union', 'subtract', 'intersect', 'boolopts'], run: () => {} },
     { id: 'grp:gen', cat: W, label: t('Generatoren (Gruppe)'), items: ['gear', 'rack', 'pulley', 'cam', 'gearpair', 'box', 'drawer', 'insert', 'shelf'], run: () => {} },
     { id: 'grp:array', cat: M, label: t('Arrays (Gruppe)'), items: ['gridarray', 'circarray'], run: () => {} },
-    { id: 'grp:path', cat: M, label: t('Pfad-Werkzeuge (Gruppe)'), items: ['tool:trim', 'tool:start', 'closepath', 'join', 'breakapart', 'reverse'], run: () => {} },
+    { id: 'grp:path', cat: M, label: t('Pfad-Werkzeuge (Gruppe)'), items: ['tool:trim', 'tool:start', 'closepath', 'join', 'breakapart', 'reverse', 'corners'], run: () => {} },
   ];
   initToolbars(
     list,
@@ -1086,6 +1090,68 @@ function openCloseDialog(ed: Editor) {
   document.body.append(dlg);
   dlg.showModal();
   update();
+}
+
+// ---------- Ecken runden oder fasen ----------
+
+let cornerState = { mode: 'round' as CornerMode, r: 3 };
+
+function openCornerDialog(ed: Editor) {
+  if (!ed.sel.length) return;
+  const st = { ...cornerState };
+  const n = ed.cornerCount();
+  const info = h('div', { class: 'note' });
+  info.textContent = n
+    ? ed.tool === 'node'
+      ? tn('{n} ausgewählte Ecke wird bearbeitet.', '{n} ausgewählte Ecken werden bearbeitet.', n)
+      : tn('{n} Ecke in der Auswahl wird bearbeitet.', '{n} Ecken in der Auswahl werden bearbeitet.', n)
+    : ed.tool === 'node'
+      ? t('Erst Eckknoten auswählen (Klick, Shift+Klick oder Rahmen).')
+      : t('Keine Ecken in der Auswahl: Pfade oder Formen mit Ecken auswählen.');
+  const rLabel = h('label', { for: 'corner-r' });
+  const setLabel = () => (rLabel.textContent = st.mode === 'chamfer' ? t('Abstand von der Ecke (mm)') : t('Radius (mm)'));
+  setLabel();
+  const val = h('input', { type: 'text', id: 'corner-r', value: dec(String(st.r)), style: 'width: 64px' }) as HTMLInputElement;
+  val.onchange = () => {
+    const v = evalExpr(val.value);
+    if (v && v > 0) st.r = v;
+    val.value = dec(String(st.r));
+  };
+  const radio = (value: CornerMode, label: string) =>
+    h('label', {}, h('input', { type: 'radio', name: 'corner-mode', value, checked: st.mode === value, onchange: () => ((st.mode = value), setLabel()) }), label);
+  const dlg = h(
+    'dialog',
+    { class: 'offset-dialog corner-dialog' },
+    h('h3', {}, t('Ecken runden oder fasen')),
+    h(
+      'div',
+      { class: 'form' },
+      h('label', {}, t('Ecke')),
+      h('div', { class: 'radios column' }, radio('round', t('Runden')), radio('inverse', t('Innen runden (Bogen um die Ecke)')), radio('chamfer', t('Fasen'))),
+      rLabel, h('div', { class: 'radios' }, val),
+    ),
+    info,
+    h(
+      'div',
+      { class: 'dialog-buttons' },
+      h('button', { class: 'btn', onclick: () => dlg.close() }, t('Abbrechen')),
+      h('button', {
+        class: 'btn primary',
+        disabled: !n,
+        onclick: () => {
+          val.onchange!(new Event('change'));
+          cornerState = st;
+          dlg.close();
+          ed.cornerSel(st.mode, st.r);
+        },
+      }, t('Übernehmen')),
+    ),
+  );
+  dlg.addEventListener('close', () => dlg.remove());
+  dlg.addEventListener('keydown', (e) => e.stopPropagation());
+  document.body.append(dlg);
+  dlg.showModal();
+  val.select();
 }
 
 // ---------- Offset-Dialog ----------

@@ -732,10 +732,12 @@ dialog kbd {
   width: auto;
   justify-self: start;
 }
-.close-dialog .form {
+.close-dialog .form,
+.corner-dialog .form {
   grid-template-columns: 120px 260px;
 }
-.close-dialog .form .radios input[type='radio'] {
+.close-dialog .form .radios input[type='radio'],
+.corner-dialog .form .radios input[type='radio'] {
   width: auto;
 }
 .radios label {

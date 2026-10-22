@@ -1002,17 +1002,21 @@ export const EDIT_TOOLS: ToolDef[] = [
       'op "break_apart": in einzelne Geraden und Kurven zerlegen (Texte über ihre Konturen). op "reverse": Laufrichtung umkehren. ' +
       'op "set_start": Startpunkt des Schnitts auf den Knoten legen, der x/y am nächsten liegt (ein Objekt in ids); reverse kehrt dabei die Richtung um, reset überlässt Startpunkt und Richtung wieder der Optimierung. Offene Pfade beginnen nur an einem Ende. ' +
       'op "trim": den Abschnitt der Kurve bei x/y bis zu den nächsten Schnittpunkten mit anderen Kurven entfernen (ids nicht nötig); ohne Schnittpunkt wird der ganze Pfad entfernt. Reste werden an den Schnittpunkten verbunden, außer no_join; keep_piece behält das entfernte Stück auf dem aktuellen Layer. ' +
+      'op "corners": Ecken der Objekte in ids runden (corner_mode "round", Radius radius mm), nach innen runden ("inverse", Bogen um die Ecke mit Radius radius) oder fasen ("chamfer", radius = Abstand von der Ecke); ' +
+      'points beschränkt das auf die Ecken, die diesen Punkten {x, y} am nächsten liegen (ein Objekt in ids), sonst alle Ecken. Zu kurze Kanten verkleinern den Radius. ' +
       'Ergebnisse bleiben Bézierkurven; Grundformen werden dabei zu Pfaden.',
     tier: Tier.Edit,
     inputSchema: obj({
-      op: { type: 'string', enum: ['close', 'join', 'break_apart', 'reverse', 'set_start', 'trim'] }, ids: IDS,
+      op: { type: 'string', enum: ['close', 'join', 'break_apart', 'reverse', 'set_start', 'trim', 'corners'] }, ids: IDS,
+      corner_mode: { type: 'string', enum: ['round', 'inverse', 'chamfer'] }, radius: { type: 'number', exclusiveMinimum: 0 },
+      points: { type: 'array', items: obj({ x: { type: 'number' }, y: { type: 'number' } }, ['x', 'y']) },
       tolerance: { type: 'number', exclusiveMinimum: 0 }, close_mode: { type: 'string', enum: ['line', 'move'] },
       x: { type: 'number' }, y: { type: 'number' }, reverse: { type: 'boolean' }, reset: { type: 'boolean' },
       keep_piece: { type: 'boolean' }, no_join: { type: 'boolean' },
     }, ['op']),
     run: async (ed, a) => {
       const before = snapshotIds(ed);
-      const op = oneOf(a, 'op', ['close', 'join', 'break_apart', 'reverse', 'set_start', 'trim'] as const);
+      const op = oneOf(a, 'op', ['close', 'join', 'break_apart', 'reverse', 'set_start', 'trim', 'corners'] as const);
       ed.hint = '';
       if (op === 'trim') {
         const p = W(ed, num(a, 'x'), num(a, 'y'));
@@ -1034,6 +1038,37 @@ export const EDIT_TOOLS: ToolDef[] = [
         const n = await ed.breakApartSel();
         if (!n) throw new ToolError(ed.hint || 'Nichts zu zerlegen');
         return result(ed, before);
+      }
+      if (op === 'corners') {
+        const points = Array.isArray(a.points) ? (a.points as { x: number; y: number }[]) : [];
+        const prevTool = ed.tool;
+        if (points.length) {
+          if (objs.length !== 1) throw new ToolError('points braucht genau ein Objekt in ids');
+          const o = objs[0];
+          if (!['path', 'rect', 'ellipse', 'polygon'].includes(o.shape.kind)) throw new ToolError(`Objekt ${o.id} (${o.shape.kind}) hat keine Ecken`);
+          ed.setTool('node');
+          ed.setSel(objs);
+          const sel = ed.nodeSelection(o);
+          sel.clear();
+          const world = transformSubs(shapeSubs(o.shape), o.m);
+          for (const pt of points) {
+            const p = W(ed, Number(pt.x), Number(pt.y));
+            let best = Infinity,
+              key = '';
+            world.forEach((sp, si) => sp.nodes.forEach((nd, ni) => {
+              const d = Math.hypot(nd.x - p.x, nd.y - p.y);
+              if (d < best) [best, key] = [d, `${si}:${ni}`];
+            }));
+            if (key) sel.add(key);
+          }
+        }
+        try {
+          const n = ed.cornerSel(oneOf(a, 'corner_mode', ['round', 'inverse', 'chamfer'] as const, 'round'), num(a, 'radius', { min: 0.001, max: 1000 }));
+          if (!n) throw new ToolError(ed.hint || 'Keine Ecken bearbeitet');
+          return result(ed, before, { corners: n, message: ed.hint, objects: describeAll(ed, objs) });
+        } finally {
+          if (ed.tool !== prevTool) ed.setTool(prevTool);
+        }
       }
       if (op === 'reverse') {
         ed.reverseSel();
