@@ -11,6 +11,7 @@
     "test:core": "node scripts/core-fixtures.mjs && cd src-tauri && cargo test -p kizamubeam-core",
     "test:gcode": "node scripts/run-ts.mjs scripts/gcode-test.ts",
     "test:paths": "node scripts/run-ts.mjs scripts/pathtools-test.ts",
+    "test:corners": "node scripts/run-ts.mjs scripts/corners-test.ts",
     "test:vartext": "node scripts/run-ts.mjs scripts/vartext-test.ts",
     "test:history": "node scripts/run-ts.mjs scripts/history-test.ts",
     "test:joints": "node scripts/run-ts.mjs scripts/joints-test.ts",
@@ -20,6 +21,7 @@
     "test:3d": "node scripts/run-ts.mjs scripts/view3d-test.ts",
     "test:nest": "node scripts/run-ts.mjs scripts/nest-test.ts",
     "test:boolean": "node scripts/run-ts.mjs scripts/boolean-test.ts",
+    "test:warp": "node scripts/run-ts.mjs scripts/warp-test.ts",
     "test:check": "node scripts/run-ts.mjs scripts/check-test.ts",
     "test:setup": "node scripts/run-ts.mjs scripts/setup-test.ts",
     "test:updates": "node scripts/run-ts.mjs scripts/updates-test.ts",
@@ -27,6 +29,8 @@
     "test:catalog": "node scripts/run-ts.mjs scripts/catalog-test.ts",
     "test:fluidnc": "node scripts/run-ts.mjs scripts/fluidnc-test.ts",
     "test:centerline": "node scripts/run-ts.mjs scripts/centerline-test.ts"
+    "test:textwrap": "node scripts/run-ts.mjs scripts/textwrap-test.ts",
+    "test:notes": "node scripts/run-ts.mjs scripts/notes-test.ts"
   },
   "license": "GPL-3.0-or-later",
   "devDependencies": {

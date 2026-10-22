@@ -243,7 +243,7 @@ function parseClb(xml: string): MaterialEntry[] {
       };
       const type = (cs.getAttribute('type') ?? 'Cut').toLowerCase();
       const isImg = type === 'image' || cs.tagName === 'CutSetting_Img';
-      const mode = type === 'scan' || isImg ? 'fill' : 'line';
+      const mode = type === 'scan' || type === 'offset' || isImg ? 'fill' : 'line';
       const d = defaultCutSettings(mode);
       const speed = Math.round(num(d.speed / 60, 'speed') * 60 * 100) / 100;
       const settings: CutSettings = {
@@ -254,6 +254,7 @@ function parseClb(xml: string): MaterialEntry[] {
         passes: Math.max(1, Math.round(num(d.passes, 'numPasses'))),
         air: bool(d.air, 'enableAir', 'airAssist', 'air'),
         kerf: num(d.kerf, 'kerf'),
+        fillStyle: type === 'offset' ? 'offset' : 'scan',
         interval: num(d.interval, 'interval'),
         angle: num(d.angle, 'angle'),
         crossHatch: bool(d.crossHatch, 'crossHatch'),

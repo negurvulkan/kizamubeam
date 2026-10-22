@@ -200,8 +200,11 @@ export interface TextShape {
   maxW?: number;
   /** Höchsthöhe in mm: ein höherer Textblock wird gleichmäßig verkleinert (0/fehlt = aus) */
   maxH?: number;
-  /** shrink: zu breiter Text wird gleichmäßig verkleinert statt gestaucht (Text in Rahmen einpassen) */
-  fit?: 'shrink';
+  /**
+   * shrink: zu breiter Text wird gleichmäßig verkleinert statt gestaucht (Text in Rahmen einpassen).
+   * wrap: Textrahmen mit fester Breite maxW; Zeilen brechen an Wortgrenzen um, die Höhe wächst mit.
+   */
+  fit?: 'shrink' | 'wrap';
 }
 
 /** Variabler Text an einem Objekt (Text oder Barcode) */
@@ -364,7 +367,9 @@ export interface CutSettings {
   kerf: number;
   /** Nur Linie: Haltestege */
   tabs: TabSettings;
-  /** Füllen: Zeilenabstand in mm */
+  /** Füllen: 'scan' = Zeile für Zeile, 'offset' = Ringe, die der Kontur nach innen folgen */
+  fillStyle: FillStyle;
+  /** Füllen: Zeilenabstand in mm (bei 'offset' Abstand der Ringe) */
   interval: number;
   /** Füllen: Scanwinkel in Grad (0 = waagerecht) */
   angle: number;
@@ -376,8 +381,10 @@ export interface CutSettings {
   overscan: number;
 }
 
+export type FillStyle = 'scan' | 'offset';
+
 export const CUT_KEYS: (keyof CutSettings)[] = [
-  'mode', 'speed', 'power', 'minPower', 'passes', 'air', 'kerf', 'tabs', 'interval', 'angle', 'crossHatch', 'bidirectional', 'overscan',
+  'mode', 'speed', 'power', 'minPower', 'passes', 'air', 'kerf', 'tabs', 'fillStyle', 'interval', 'angle', 'crossHatch', 'bidirectional', 'overscan',
 ];
 
 export function defaultTabs(): TabSettings {
@@ -394,6 +401,7 @@ export function defaultCutSettings(mode: LayerMode = 'line'): CutSettings {
     air: false,
     kerf: 0,
     tabs: defaultTabs(),
+    fillStyle: 'scan',
     interval: 0.1,
     angle: 0,
     crossHatch: false,
@@ -426,7 +434,7 @@ export interface Layer extends CutSettings {
 
 /** Ältere Dateien kennen nicht alle Einstellungen: fehlende mit Standardwerten auffüllen */
 export function normalizeLayer(L: Layer): Layer {
-  if (L.tabs && L.overscan !== undefined) return L;
+  if (L.tabs && L.fillStyle !== undefined) return L;
   const d = defaultCutSettings(L.mode);
   for (const k of CUT_KEYS) if (L[k] === undefined) (L as unknown as Record<string, unknown>)[k] = d[k];
   L.tabs = { ...defaultTabs(), ...L.tabs };
@@ -459,8 +467,26 @@ export interface Doc {
   template?: TemplateInfo;
   /** Tabelle für Serien (Datei → Serie aus Tabelle): Kopfzeile und Zeilen */
   seriesTable?: SeriesTable;
+  /** Projekt-Notizen (Fenster „Notizen“): Material, Aufbau und Bearbeitung als freier Text */
+  notes?: ProjectNotes;
   /** Nur in Projektdateien: Bilddaten (Asset-ID → data:-URL) */
   assets?: Record<string, string>;
+}
+
+/** Abschnitte der Projekt-Notizen; leere Abschnitte werden nicht gespeichert */
+export const NOTE_KEYS = ['material', 'setup', 'process'] as const;
+export type NoteKey = (typeof NOTE_KEYS)[number];
+export type ProjectNotes = Partial<Record<NoteKey, string>>;
+
+/** Nur nicht leere Text-Abschnitte behalten; nichts übrig = undefined */
+export function cleanNotes(raw: unknown): ProjectNotes | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const out: ProjectNotes = {};
+  for (const k of NOTE_KEYS) {
+    const v = (raw as Record<string, unknown>)[k];
+    if (typeof v === 'string' && v.trim()) out[k] = v;
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 export const pageName = (i: number) => t('Seite {n}', { n: i + 1 });
@@ -486,6 +512,9 @@ export function loadDoc(raw: unknown): Doc {
   d.page = Math.min(Math.max(0, Math.floor(Number(d.page) || 0)), pages.length - 1);
   d.bed ??= { w: 400, h: 400 };
   d.layers ??= {};
+  const notes = cleanNotes(d.notes);
+  if (notes) d.notes = notes;
+  else delete d.notes;
   Object.defineProperty(d, 'objs', {
     enumerable: false,
     configurable: true,
