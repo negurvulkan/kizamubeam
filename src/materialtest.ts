@@ -10,6 +10,8 @@ import {
 } from './model';
 import { library, entryLabel } from './materials';
 import { openEntryDialog } from './materialui';
+import type { GridLayout } from './testphoto';
+import { openTestPhotoDialog } from './testphotoDialog';
 import { dec, t } from './i18n';
 
 export type TestParam = 'speed' | 'power' | 'passes' | 'interval';
@@ -49,6 +51,7 @@ export interface TestOptions {
 
 export const MAX_STEPS = 20;
 const KEY = 'kizamubeam.materialtest';
+const LAST_KEY = 'kizamubeam.materialtest.last';
 
 function defaults(): TestOptions {
   return {
@@ -72,12 +75,24 @@ function load(): TestOptions {
   }
   return d;
 }
-function save(o: TestOptions) {
+function save(o: TestOptions, key = KEY) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(o));
+    localStorage.setItem(key, JSON.stringify(o));
   } catch {
     /* nicht speicherbar */
   }
+}
+
+/** Einstellungen des zuletzt gelaserten bzw. als G-Code gespeicherten Tests, sonst die zuletzt eingestellten */
+export function lastTestOptions(): TestOptions {
+  const d = load();
+  try {
+    const s = JSON.parse(localStorage.getItem(LAST_KEY) ?? 'null');
+    if (s) return { ...d, ...s, rows: { ...d.rows, ...s.rows }, cols: { ...d.cols, ...s.cols }, base: { ...d.base, ...s.base } };
+  } catch {
+    /* zuletzt eingestellte */
+  }
+  return d;
 }
 
 /** Gestufte Werte einer Achse (gleichmäßig von min bis max) */
@@ -113,7 +128,7 @@ export function cellSettings(o: TestOptions, r: number, c: number): CutSettings 
 }
 
 /** Grobe Energie je Fläche, für die Reihenfolge nach Brandrisiko */
-const energy = (s: CutSettings) => (s.power * s.passes) / Math.max(1, s.speed) / (s.mode === 'fill' ? Math.max(0.01, s.interval) : 1);
+export const energy = (s: CutSettings) => (s.power * s.passes) / Math.max(1, s.speed) / (s.mode === 'fill' ? Math.max(0.01, s.interval) : 1);
 
 export interface TestDoc {
   doc: Doc;
@@ -188,6 +203,52 @@ export function buildTestDoc(o: TestOptions, bed: { w: number; h: number }, font
     grid: { x: dx, y: dy, w: gw, h: gh },
     bounds: { x: dx + left, y: dy + top, w: gw - left, h: gh - top },
   };
+}
+
+/** Aufbau des Zellrasters für die Auswertung per Foto */
+export const gridLayout = (o: TestOptions): GridLayout => ({
+  rows: axisValues(o.rows).length, cols: axisValues(o.cols).length, cellW: o.cellW, cellH: o.cellH, gap: o.gap,
+});
+
+/** Kurzbeschreibung einer Zelle, z. B. „Geschw. (mm/min) 3000, Leistung (%) 40“ */
+export const cellCaption = (o: TestOptions, r: number, c: number) =>
+  t('{row}, {col}', {
+    row: `${PARAMS[o.rows.param].short} ${fmt(o.rows.param, axisValues(o.rows)[r])}`,
+    col: `${PARAMS[o.cols.param].short} ${fmt(o.cols.param, axisValues(o.cols)[c])}`,
+  });
+
+/** Beschreibung des Rasters, z. B. „6 Zeilen Geschw. (mm/min) 1000 … 6000 × 10 Spalten Leistung (%) 10 … 100“ */
+export function testSummary(o: TestOptions) {
+  const ax = (a: Axis) => {
+    const v = axisValues(a);
+    return `${PARAMS[a.param].short} ${fmt(a.param, v[0])} … ${fmt(a.param, v[v.length - 1])}`;
+  };
+  return t('{rows} Zeilen {rowAxis} × {cols} Spalten {colAxis}, Zellen {w} × {h} mm, Abstand {gap} mm', {
+    rows: axisValues(o.rows).length, rowAxis: ax(o.rows), cols: axisValues(o.cols).length, colAxis: ax(o.cols),
+    w: dec(String(o.cellW)), h: dec(String(o.cellH)), gap: dec(String(o.gap)),
+  });
+}
+
+const targetLayer = (ed: Editor) => ed.activeLayer ?? ed.currentLayer;
+export const targetLayerLabel = (ed: Editor) => layerLabel(targetLayer(ed));
+
+/** Werte der Zelle auf den aktiven Layer übernehmen; die übrigen Einstellungen des Layers bleiben */
+export function applyCell(ed: Editor, o: TestOptions, r: number, c: number) {
+  const L = targetLayer(ed);
+  const { mode, speed, power, minPower, passes, interval, air } = cellSettings(o, r, c);
+  ed.updateLayer(L, { ...cutSettings(ed.layer(L)), mode, speed, power, minPower, passes, interval, air, material: undefined });
+  ed.hint = t('Werte der Testzelle auf Layer {layer} übernommen.', { layer: layerLabel(L) });
+  ed.emit('tool');
+}
+
+/** Werte der Zelle als Eintrag in der Material-Bibliothek speichern (Dialog zum Benennen) */
+export function saveCell(ed: Editor, o: TestOptions, r: number, c: number, desc = '') {
+  const s = cellSettings(o, r, c);
+  openEntryDialog({ material: '', thickness: null, title: o.mode === 'fill' ? t('Gravieren') : t('Schneiden'), desc, settings: s }, (e) => {
+    const n = library.add(e);
+    ed.hint = t('„{entry}“ in der Material-Bibliothek gespeichert.', { entry: entryLabel(n) });
+    ed.emit('tool');
+  });
 }
 
 /** Farbe einer Testzelle in der Vorschau: von blass (wenig Energie) nach kräftig */
@@ -346,35 +407,18 @@ export function openMaterialTestDialog(ed: Editor) {
       ...(picked
         ? [
             h('span', {}, t('Gewählt: {row}, {col}', { row: `${PARAMS[o.rows.param].short} ${fmt(o.rows.param, rows[picked.r])}`, col: `${PARAMS[o.cols.param].short} ${fmt(o.cols.param, cols[picked.c])}` })),
-            h('button', { class: 'btn', title: t('Werte dieser Zelle auf den aktiven Layer übernehmen'), onclick: () => applyPicked() }, t('Auf Layer {layer}', { layer: layerLabel(target()) })),
+            h('button', { class: 'btn', title: t('Werte dieser Zelle auf den aktiven Layer übernehmen'), onclick: () => applyPicked() }, t('Auf Layer {layer}', { layer: targetLayerLabel(ed) })),
             h('button', { class: 'btn', title: t('Werte dieser Zelle als Eintrag in der Material-Bibliothek speichern'), onclick: () => savePicked() }, t('In Bibliothek …')),
           ]
         : [h('span', { class: 'muted' }, t('Nach dem Lasern die beste Zelle anklicken, um ihre Werte zu übernehmen.'))]),
+      h('button', { class: 'btn', title: t('Foto des gelaserten Tests laden und die Zellen direkt im Bild anklicken'), onclick: () => openTestPhotoDialog(ed, structuredClone(o)) }, t('Foto auswerten …')),
     );
   };
 
-  const target = () => ed.activeLayer ?? ed.currentLayer;
-  const pickedSettings = (): CutSettings => {
-    const s = cellSettings(o, picked!.r, picked!.c);
-    // Gestufte und feste Werte aus dem Test, die übrigen Einstellungen des Layers bleiben
-    const { mode, speed, power, minPower, passes, interval, air } = s;
-    return { ...cutSettings(ed.layer(target())), mode, speed, power, minPower, passes, interval, air };
-  };
-  const applyPicked = () => {
-    if (!picked) return;
-    ed.updateLayer(target(), { ...pickedSettings(), material: undefined });
-    ed.hint = t('Werte der Testzelle auf Layer {layer} übernommen.', { layer: layerLabel(target()) });
-    ed.emit('tool');
-  };
-  const savePicked = () => {
-    if (!picked) return;
-    const s = cellSettings(o, picked.r, picked.c);
-    openEntryDialog({ material: '', thickness: null, title: o.mode === 'fill' ? t('Gravieren') : t('Schneiden'), desc: '', settings: s }, (e) => {
-      const n = library.add(e);
-      ed.hint = t('„{entry}“ in der Material-Bibliothek gespeichert.', { entry: entryLabel(n) });
-      ed.emit('tool');
-    });
-  };
+  const applyPicked = () => picked && applyCell(ed, o, picked.r, picked.c);
+  const savePicked = () => picked && saveCell(ed, o, picked.r, picked.c);
+  /** Gelaserter Test: Einstellungen für die Auswertung per Foto merken */
+  const ran = () => save(o, LAST_KEY);
 
   const source = (): JobSource => {
     const test = buildTestDoc(o, ed.doc.bed, font);
@@ -399,10 +443,10 @@ export function openMaterialTestDialog(ed: Editor) {
     h('div', { class: 'dialog-buttons' },
       h('button', { class: 'btn', title: t('Ablauf und Dauer ansehen'), onclick: () => openPreview(ed, source()) }, t('Vorschau')),
       h('button', { class: 'btn', title: t('Umriss des Tests abfahren'), onclick: () => frameJob(ed, false, source()) }, t('Rahmen')),
-      h('button', { class: 'btn', onclick: () => saveGCode(ed, source()) }, t('G-Code speichern')),
+      h('button', { class: 'btn', onclick: () => (ran(), saveGCode(ed, source())) }, t('G-Code speichern')),
       h('span', { style: 'flex:1' }),
       h('button', { class: 'btn', onclick: () => dlg.close() }, t('Schließen')),
-      h('button', { class: 'btn primary', title: t('Test an den verbundenen Laser senden'), onclick: () => startJob(ed, source()) }, t('Starten')),
+      h('button', { class: 'btn primary', title: t('Test an den verbundenen Laser senden'), onclick: () => (ran(), startJob(ed, source())) }, t('Starten')),
     ),
   );
   render();

@@ -232,6 +232,35 @@ function sniffImage(b: Uint8Array): string | null {
   return null;
 }
 
+/** Bilddatei auswählen und als Data-URL lesen (TIFF wird zu PNG); null bei Abbruch, Fehler werden geworfen */
+export async function pickImage(): Promise<{ name: string; dataUrl: string } | null> {
+  const read = async (name: string, bytes: Uint8Array) => {
+    const ext = (/\.([a-z0-9]+)$/i.exec(name)?.[1] ?? '').toLowerCase();
+    if (ext === 'tif' || ext === 'tiff' || isTiff(bytes)) return { name, dataUrl: (await decodeTiff(bytes)).dataUrl };
+    const mime = MIME[ext] ?? sniffImage(bytes);
+    if (!mime) throw new Error(t('Dateiformat wird nicht unterstützt (PNG, JPG, BMP, GIF, WebP, TIFF).'));
+    return { name, dataUrl: await bytesToDataUrl(bytes, mime) };
+  };
+  if (isTauri()) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const path = await invoke<string | null>('pick_file', { filters: [[t('Bilder'), IMAGE_EXT]] });
+    if (!path) return null;
+    const buf = await invoke<ArrayBuffer>('read_file', { path });
+    return read(path.split(/[\\/]/).pop() ?? path, new Uint8Array(buf));
+  }
+  return new Promise((res, rej) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = IMAGE_EXT.map((e) => '.' + e).join(',');
+    input.onchange = async () => {
+      const f = input.files?.[0];
+      if (!f) return res(null);
+      read(f.name, new Uint8Array(await f.arrayBuffer())).then(res, rej);
+    };
+    input.click();
+  });
+}
+
 /** Datei > Importieren (Ctrl+I) */
 export async function importFile(ed: Editor) {
   if (isTauri()) {

@@ -334,6 +334,25 @@ function dropOtherDevices(ed: Editor) {
     }
 }
 
+/**
+ * Kamerabild für die Auswertung eines Materialtests, von der gewählten Kamera zuerst. Kalibrierte Kameras liefern
+ * das entzerrte Bettbild samt gezeigtem Bereich (Dokument-mm), andere das Rohbild (view = null).
+ * null, wenn keine Kamera verbunden ist.
+ */
+export function cameraPhoto(ed: Editor): { url: string; view: { x: number; y: number; w: number; h: number } | null } | null {
+  const d = devCams();
+  const order = [d.cams[d.cur], ...d.cams.filter((_, i) => i !== d.cur)];
+  for (const s of order) {
+    const u = units.get(s.id);
+    if (!u?.stream.open) continue;
+    const snap = u.calib() ? u.snapshot(ed) : null;
+    if (snap) return { url: snap.url, view: { x: snap.x, y: snap.y, w: snap.w, h: snap.h } };
+    const g = u.stream.grab();
+    if (g) return { url: g.toDataURL('image/png'), view: null };
+  }
+  return null;
+}
+
 // ---------- Tab im Laser-Panel ----------
 
 export function cameraTab(ed: Editor): HTMLElement {
