@@ -263,11 +263,13 @@ export interface SearchItem {
   meta: AssetMeta;
   /** Name der Erweiterung, aus der der Eintrag kommt */
   pack?: string;
+  /** Reihenfolge bei gleichem Rang (z. B. eigene vor mitgelieferten) */
+  source?: number;
 }
 
 /**
  * Einträge filtern: Jedes Wort der Suche muss im Namen, in einem Stichwort, in der Art oder im Namen der
- * Erweiterung vorkommen. Treffer am Namensanfang zuerst, sonst nach Name.
+ * Erweiterung vorkommen. Treffer am Namensanfang zuerst, dann nach Herkunft (source) und Name.
  */
 export function searchAssets<T extends SearchItem>(items: T[], query: string, category: AssetCategory | '' = ''): T[] {
   const words = fold(query).split(/[\s,]+/).filter(Boolean);
@@ -279,5 +281,5 @@ export function searchAssets<T extends SearchItem>(items: T[], query: string, ca
     return words.every((w) => hay.includes(w));
   });
   const rank = (it: T) => (q && fold(it.meta.name).startsWith(q) ? 0 : q && it.meta.tags.some((tg) => fold(tg) === q) ? 1 : 2);
-  return hits.sort((a, b) => rank(a) - rank(b) || a.meta.name.localeCompare(b.meta.name));
+  return hits.sort((a, b) => rank(a) - rank(b) || (a.source ?? 0) - (b.source ?? 0) || a.meta.name.localeCompare(b.meta.name));
 }

@@ -2792,5 +2792,10 @@
   "„{name}“ hat ungespeicherte Änderungen. Trotzdem schließen?": "“{name}” has unsaved changes. Close anyway?",
   "{name} (ungespeicherte Änderungen)": "{name} (unsaved changes)",
   "Tab schließen": "Close tab",
-  "Neues Projekt in neuem Tab (Ctrl+N)": "New project in a new tab (Ctrl+N)"
+  "Neues Projekt in neuem Tab (Ctrl+N)": "New project in a new tab (Ctrl+N)",
+  "Mitgelieferte Einträge lassen sich nicht ändern. Füge den Eintrag ein und speichere ihn mit „+ Auswahl“ als eigenen.": "Built-in entries cannot be changed. Insert the entry and save it as your own with “+ Selection”.",
+  "Mitgelieferte Einträge lassen sich nicht löschen.": "Built-in entries cannot be deleted.",
+  "Gruppe": "Group",
+  "mitgeliefert": "built-in",
+  "Eigene": "My own"
 }
