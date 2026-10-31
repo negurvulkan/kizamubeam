@@ -228,7 +228,8 @@ export const area = (p: Path) => Math.abs(Clipper.Area(p)) / K / K;
  * kleine Splitter entfernen und Bézierkurven einpassen.
  */
 export function finish(s: Shape, size: number | { w: number } | { h: number }): { subs: SubPath[]; w: number; h: number } {
-  s = U(s);
+  // Haarfeine Stege und Splitter (unter etwa 0,4 Einheiten) entfernen: lasern sich nicht sauber
+  s = off(off(U(s), -0.2, 'miter'), 0.2, 'miter');
   const b = bounds(s);
   const k = typeof size === 'number' ? size / Math.max(b.w, b.h) : 'w' in size ? size.w / b.w : size.h / b.h;
   const minArea = (0.05 / k) ** 2; // Teile unter etwa 0,05 × 0,05 mm fallen weg
@@ -314,7 +315,7 @@ export function heart(cx: number, cy: number, w: number): Shape {
 /** Archimedische Spirale als Punkte */
 export function spiralPts(cx: number, cy: number, r0: number, r1: number, turns: number, start = 0): Pt[] {
   const out: Pt[] = [];
-  const n = Math.ceil(turns * 72);
+  const n = Math.max(2, Math.ceil(Math.abs(turns) * 72));
   for (let i = 0; i <= n; i++) {
     const t = i / n;
     const a = ((start + t * turns * 360) * Math.PI) / 180;

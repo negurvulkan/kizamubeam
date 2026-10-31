@@ -1,17 +1,23 @@
 // Bibliothek: eigene Motive, Bilder und Designelemente zum Wiederverwenden. Die Einträge (.kza, Format in
 // assetFormat.ts) liegen in der Desktop-App im Bibliotheks-Ordner im Einstellungsordner (Rust: library.rs),
 // im Browser in IndexedDB (Bilder sind für den lokalen Speicher zu groß). Dazu kommen die Einträge aus
-// installierten Erweiterungen; die lassen sich nicht ändern oder löschen.
+// installierten Erweiterungen und die mitgelieferten (builtinLibrary.ts); beide lassen sich nicht ändern oder
+// löschen.
 import { AssetData, AssetMeta, assetFileName, assetJson, assetMeta, parseAsset, searchAssets, AssetCategory } from './assetFormat';
 import { ensurePacks, onPacksChanged, packAssets } from './packs';
+import { builtinAsset, builtinAssets } from './builtinLibrary';
 import { t } from './i18n';
 
 export interface LibraryItem {
-  /** Kennung: Dateiname im Ordner (z. B. „Rose.kza“) oder „pack:Paket/Eintrag“ */
+  /** Kennung: Dateiname im Ordner (z. B. „Rose.kza“), „pack:Paket/Eintrag“ oder „builtin:Eintrag“ */
   key: string;
   meta: AssetMeta;
   /** Name der Erweiterung, aus der der Eintrag kommt (nicht änderbar) */
   pack?: string;
+  /** Mitgelieferter Eintrag (nicht änderbar) mit seiner Gruppe (GROUPS in builtinFormat.ts) */
+  builtin?: string;
+  /** Reihenfolge in der Liste: eigene (0), aus Erweiterungen (1), mitgelieferte (2) */
+  source?: number;
   /** Datei ließ sich nicht lesen */
   broken?: string;
 }
@@ -120,8 +126,14 @@ export async function libraryItems(): Promise<LibraryItem[]> {
     /* Ordner nicht lesbar: nur Erweiterungen */
   }
   own.sort((a, b) => a.meta.name.localeCompare(b.meta.name));
-  const packs = packAssets().map(({ asset, key, pack }): LibraryItem => ({ key: `pack:${key}`, meta: assetMeta(asset), pack }));
-  cache = [...own, ...packs];
+  const packs = packAssets().map(({ asset, key, pack }): LibraryItem => ({ key: `pack:${key}`, meta: assetMeta(asset), pack, source: 1 }));
+  let builtin: LibraryItem[] = [];
+  try {
+    builtin = (await builtinAssets()).map(({ key, asset, group }): LibraryItem => ({ key, meta: assetMeta(asset), builtin: group, source: 2 }));
+  } catch {
+    /* mitgelieferte Einträge nicht ladbar: ohne sie */
+  }
+  cache = [...own, ...packs, ...builtin];
   return cache;
 }
 
@@ -132,6 +144,11 @@ export async function findAssets(query = '', category: AssetCategory | '' = ''):
 
 /** Vollständigen Eintrag laden */
 export async function loadLibraryAsset(key: string): Promise<AssetData> {
+  if (key.startsWith('builtin:')) {
+    const a = await builtinAsset(key);
+    if (!a) throw new Error(t('Eintrag „{name}“ nicht gefunden', { name: key }));
+    return a;
+  }
   if (key.startsWith('pack:')) {
     await ensurePacks();
     const p = packAssets().find((x) => `pack:${x.key}` === key);
@@ -145,7 +162,7 @@ export async function loadLibraryAsset(key: string): Promise<AssetData> {
 
 /** Neuen Eintrag speichern; liefert den Dateinamen (aus dem Namen, bei Gleichheit mit Nummer) */
 export async function addToLibrary(a: AssetData): Promise<string> {
-  const own = (await libraryItems()).filter((x) => !x.pack).map((x) => x.key);
+  const own = (await libraryItems()).filter((x) => !x.source).map((x) => x.key);
   const file = assetFileName(a.name, own);
   await writeFile(file, assetJson({ ...a, created: a.created ?? new Date().toISOString() }));
   return file;
@@ -154,6 +171,7 @@ export async function addToLibrary(a: AssetData): Promise<string> {
 /** Eigenen Eintrag ersetzen (z. B. Name, Art, Stichwörter geändert) */
 export async function updateLibraryAsset(file: string, a: AssetData) {
   if (file.startsWith('pack:')) throw new Error(t('Einträge aus Erweiterungen lassen sich nicht ändern.'));
+  if (file.startsWith('builtin:')) throw new Error(t('Mitgelieferte Einträge lassen sich nicht ändern. Füge den Eintrag ein und speichere ihn mit „+ Auswahl“ als eigenen.'));
   await writeFile(file, assetJson(a));
 }
 
@@ -165,6 +183,7 @@ async function writeFile(file: string, json: string) {
 
 export async function removeFromLibrary(file: string) {
   if (file.startsWith('pack:')) throw new Error(t('Einträge aus Erweiterungen lassen sich nicht löschen. Entferne dazu die Erweiterung.'));
+  if (file.startsWith('builtin:')) throw new Error(t('Mitgelieferte Einträge lassen sich nicht löschen.'));
   if (isTauri()) await invoke<void>('library_delete', { file });
   else await idbPut(file, null);
   changed();

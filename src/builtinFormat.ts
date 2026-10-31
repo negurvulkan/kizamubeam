@@ -58,8 +58,11 @@ export function encodeSubs(subs: SubPath[]): string {
   const q = (v: number) => Math.round(v * 100);
   let d = '';
   for (const sp of subs) {
-    const n = sp.nodes;
+    let n = sp.nodes;
     if (!n.length) continue;
+    // Geschlossener Pfad, dessen letzter Knoten auf dem ersten liegt: zusammenlegen (wie decodeD)
+    const z = n[n.length - 1];
+    if (sp.closed && n.length > 2 && q(z.x) === q(n[0].x) && q(z.y) === q(n[0].y)) n = [{ ...n[0], ...(z.cin ? { cin: z.cin } : {}) }, ...n.slice(1, -1)];
     let cx = q(n[0].x),
       cy = q(n[0].y);
     d += 'M' + nums([cx / 100, cy / 100]);

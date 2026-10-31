@@ -2,7 +2,7 @@
 import { Def, group } from './defs';
 import {
   arc, arcPts, blob, circle, cr, D, edge, ellipse, heart, hollow, I, leaf, mirror, ngon, off, over, poly, polar, rect, ring, round, star, stroke,
-  sym, symPoly, T, taper, U, Pt, Shape,
+  sym, T, taper, U, Pt, Shape,
 } from './kit';
 
 const wheel = (cx: number, cy: number, r: number) => U(ring(cx, cy, r * 0.72, r * 0.56), circle(cx, cy, r * 0.22));
@@ -533,4 +533,3 @@ export const THINGS: Def[] = [
     ['shooting-star', 'Sternschnuppe', 'Shooting star', 'Stern/star, Wunsch/wish, Nacht/night', shootingStar],
   )),
 ];
-void [blob, ellipse, ngon, off, symPoly, I, leaf, edge];

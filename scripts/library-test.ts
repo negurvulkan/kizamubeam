@@ -142,15 +142,15 @@ await test('Bibliothek: speichern, auflisten, laden, ändern, löschen', async (
   assert.equal(file, 'Rahmen.kza');
   assert.equal(await L.addToLibrary(a), 'Rahmen (2).kza');
   let items = await L.libraryItems();
-  assert.deepEqual(items.filter((x) => !x.pack).map((x) => x.key), ['Rahmen.kza', 'Rahmen (2).kza']);
+  assert.deepEqual(items.filter((x) => !x.source).map((x) => x.key), ['Rahmen.kza', 'Rahmen (2).kza']);
   const loaded = await L.loadLibraryAsset(file);
   assert.ok(loaded.created);
   assert.deepEqual(loaded.objs, a.objs);
   await L.updateLibraryAsset(file, { ...loaded, name: 'Schildrahmen', tags: ['Tür'] });
-  assert.deepEqual((await L.findAssets('tür')).map((x) => x.meta.name), ['Schildrahmen']);
+  assert.deepEqual((await L.findAssets('tür')).filter((x) => !x.source).map((x) => x.meta.name), ['Schildrahmen']);
   await L.removeFromLibrary('Rahmen (2).kza');
   items = await L.libraryItems();
-  assert.deepEqual(items.filter((x) => !x.pack).map((x) => x.key), ['Rahmen.kza']);
+  assert.deepEqual(items.filter((x) => !x.source).map((x) => x.key), ['Rahmen.kza']);
   await assert.rejects(() => L.loadLibraryAsset('Fehlt.kza'), /nicht gefunden/);
 });
 
@@ -168,6 +168,40 @@ await test('Bibliothek: Einträge aus installierten Erweiterungen, nicht änderb
   await assert.rejects(() => L.updateLibraryAsset(heart.key, a), /Erweiterungen/);
   await P.removePack('org.kizamubeam.example.kzp');
   assert.ok(!(await L.libraryItems()).some((x) => x.pack));
+});
+
+await test('Mitgelieferte Bibliothek: 200 Motive und 200 Designelemente, gültig und nicht änderbar', async () => {
+  const B = await import('../src/builtinLibrary');
+  const Fm = await import('../src/builtinFormat');
+  const list = await B.builtinAssets();
+  assert.equal(list.filter((x) => x.asset.category === 'motif').length, 200);
+  assert.equal(list.filter((x) => x.asset.category === 'element').length, 200);
+  assert.equal(new Set(list.map((x) => x.key)).size, list.length);
+  const raw = JSON.parse(readFileSync(new URL('../src/library/builtin.json', import.meta.url), 'utf8')).items as { id: string; d: string; w: number; h: number; g: string }[];
+  for (const r of raw) {
+    assert.ok(Fm.GROUPS[r.g], `${r.id}: Gruppe ${r.g}`);
+    // Pfaddaten verlustfrei lesen und wieder schreiben
+    assert.equal(Fm.encodeSubs(Fm.decodeD(r.d)), r.d, r.id);
+    const a = await L.loadLibraryAsset(`builtin:${r.id}`);
+    // Wie ein Eintrag aus einer Datei prüfen; Pfade geschlossen und im Rahmen w × h
+    const parsed = F.parseAsset(F.assetJson(a));
+    assert.equal(parsed.objs.length, 1);
+    const shape = parsed.objs[0].shape;
+    assert.ok(shape.kind === 'path' && shape.subs.length > 0 && shape.subs.every((sp) => sp.closed && sp.nodes.length >= 2), r.id);
+    for (const sp of shape.kind === 'path' ? shape.subs : [])
+      for (const n of sp.nodes) assert.ok(n.x >= -0.05 && n.y >= -0.05 && n.x <= r.w + 0.05 && n.y <= r.h + 0.05, `${r.id}: Knoten außerhalb`);
+  }
+  // In der Liste nach den eigenen Einträgen; Suche auch in der anderen Sprache
+  const items = await L.libraryItems();
+  assert.ok(items.findIndex((x) => x.builtin) > items.findIndex((x) => !x.source));
+  const cat = await L.findAssets('katze');
+  assert.ok(cat.some((x) => x.key === 'builtin:cat-head'));
+  assert.ok((await L.findAssets('cat')).some((x) => x.key === 'builtin:cat-head'));
+  assert.ok((await L.findAssets('rahmen', 'element')).length >= 30);
+  const a = await L.loadLibraryAsset('builtin:heart');
+  await assert.rejects(() => L.removeFromLibrary('builtin:heart'), /Mitgelieferte/);
+  await assert.rejects(() => L.updateLibraryAsset('builtin:heart', a), /Mitgelieferte/);
+  await assert.rejects(() => L.loadLibraryAsset('builtin:gibt-es-nicht'), /nicht gefunden/);
 });
 
 if (failed) {

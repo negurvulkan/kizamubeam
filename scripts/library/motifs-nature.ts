@@ -1,7 +1,7 @@
 // Motive: Pflanzen, Essen & Trinken, Natur & Wetter, Feste
 import { Def, group } from './defs';
 import {
-  arc, arcPts, blob, circle, D, edge, ellipse, heart, hollow, I, leaf, mirror, ngon, off, over, poly, polar, rect, ring, round, spiralPts,
+  arc, arcPts, blob, circle, D, edge, ellipse, heart, hollow, I, leaf, ngon, off, over, poly, polar, rect, ring, round, spiralPts,
   star, stroke, sym, symPoly, T, taper, U, Pt, Shape, cr,
 } from './kit';
 
@@ -454,10 +454,6 @@ function volcano() {
   return s;
 }
 
-function snowmanTree() {
-  return fir();
-}
-void snowmanTree;
 
 // ---------- Feste ----------
 
@@ -728,4 +724,3 @@ export const NATURE: Def[] = [
     ['wedding-rings', 'Eheringe', 'Wedding rings', 'Hochzeit/wedding, Ringe/rings, Liebe/love', weddingRings],
   )),
 ];
-void [hollow, rect, ring, mirror, ngon, edge];

@@ -1,7 +1,7 @@
 // Motive: Tiere, Vögel, Meer, Insekten
 import { Def, group } from './defs';
 import {
-  arc, arcPts, blob, circle, cut, D, edge, ellipse, flipX, hollow, mirror, ngon, off, over, poly, polar, rect, ring, round, star, stroke, sym,
+  arcPts, blob, circle, D, edge, ellipse, hollow, mirror, ngon, off, over, poly, polar, rect, ring, round, star, stroke, sym,
   T, U, I, Pt, Shape,
 } from './kit';
 
@@ -205,10 +205,6 @@ function whale() {
   return s;
 }
 
-function elephantKid() {
-  return elephant();
-}
-void elephantKid;
 
 function turtle() {
   const shell = ellipse(50, 52, 26, 30);
@@ -568,10 +564,6 @@ function seaTurtle() {
   return s;
 }
 
-function anchorFish() {
-  return fish();
-}
-void anchorFish;
 
 function coral() {
   const branches = U(
@@ -738,4 +730,3 @@ export const ANIMALS: Def[] = [
     ['beetle', 'Hirschkäfer', 'Stag beetle', 'Käfer/beetle', beetle],
   )),
 ];
-void [arc, flipX, ngon, rect, star, cut];

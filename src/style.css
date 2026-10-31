@@ -3119,8 +3119,9 @@ input.bound {
   flex: 1;
   min-width: 0;
 }
-.lib-cat {
-  max-width: 45%;
+.lib-cat,
+.lib-grp {
+  max-width: 32%;
 }
 .lib-grid {
   flex: 1;

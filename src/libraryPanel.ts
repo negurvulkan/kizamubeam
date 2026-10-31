@@ -10,6 +10,7 @@ import { decodeImage, scaledPng } from './images';
 import {
   ASSET_CATEGORIES, ASSET_EXT, AssetCategory, AssetData, assetJson, categoryLabel, categoryPlural, parseAsset, parseTags, searchAssets,
 } from './assetFormat';
+import { groupLabel } from './builtinLibrary';
 import {
   addToLibrary, hasLibraryFolder, LibraryItem, libraryItems, loadLibraryAsset, onLibraryChanged, openLibraryFolder, reloadLibrary, removeFromLibrary,
   updateLibraryAsset,
@@ -188,6 +189,8 @@ export function buildLibraryPanel(ed: Editor) {
     h('option', { value: '' }, t('Alle')),
     ...ASSET_CATEGORIES.map((c) => h('option', { value: c }, categoryPlural(c))),
   ) as HTMLSelectElement;
+  // Herkunft bzw. Gruppe: eigene, aus Erweiterungen oder eine Gruppe der mitgelieferten Einträge
+  const grp = h('select', { class: 'lib-grp', title: t('Gruppe') }) as HTMLSelectElement;
   const btnAdd = h('button', { class: 'small', title: t('Auswahl zur Bibliothek hinzufügen'), onclick: () => openAddSelectionDialog(ed) }, t('+ Auswahl'));
   const btnFiles = h('button', { class: 'small', title: t('SVG, DXF, Bilder oder .kza-Dateien übernehmen (oder hierher ziehen)'), onclick: () => pickFiles(ed) }, t('Dateien …'));
   const btnFolder = hasLibraryFolder()
@@ -202,7 +205,7 @@ export function buildLibraryPanel(ed: Editor) {
   const info = h('div', { class: 'lib-info muted' });
   const foot = h('div', { class: 'lib-foot' }, info, h('div', { class: 'lib-actions' }, btnInsert, btnEdit, btnExport, btnDelete));
   body.append(
-    h('div', { class: 'lib-bar' }, search, cat),
+    h('div', { class: 'lib-bar' }, search, cat, grp),
     h('div', { class: 'lib-bar' }, btnAdd, btnFiles, btnFolder, btnReload),
     grid,
     foot,
@@ -217,12 +220,27 @@ export function buildLibraryPanel(ed: Editor) {
     const it = current();
     foot.hidden = !it;
     if (!it) return;
-    const own = !it.pack;
+    const own = !it.source;
     btnEdit.disabled = btnDelete.disabled = !own || !!it.broken;
     btnInsert.disabled = btnExport.disabled = !!it.broken;
     const size = it.meta.w ? `${it.meta.w.toFixed(1)} × ${it.meta.h.toFixed(1)} mm` : '';
-    info.textContent = [it.meta.name, categoryLabel(it.meta.category), size, it.pack ? t('aus „{name}“', { name: it.pack }) : '', it.broken ?? ''].filter(Boolean).join(' · ');
+    info.textContent = [it.meta.name, categoryLabel(it.meta.category), size, origin(it), it.broken ?? ''].filter(Boolean).join(' · ');
     info.title = it.meta.tags.join(', ');
+  };
+
+  const origin = (it: LibraryItem) => (it.pack ? t('aus „{name}“', { name: it.pack }) : it.builtin ? t('mitgeliefert') : '');
+  const inGroup = (it: LibraryItem, g: string) => !g || (g === 'own' ? !it.source : g === 'packs' ? !!it.pack : it.builtin === g);
+  /** Auswahl der Gruppen passend zur Art; die gewählte bleibt, solange es sie gibt */
+  const fillGroups = () => {
+    const c = cat.value;
+    const prev = grp.value;
+    const groups: string[] = [];
+    for (const it of items) if (it.builtin && (!c || it.meta.category === c) && !groups.includes(it.builtin)) groups.push(it.builtin);
+    const opts: [string, string][] = [['', t('Alle')], ['own', t('Eigene')]];
+    if (items.some((x) => x.pack)) opts.push(['packs', t('Aus Erweiterungen')]);
+    for (const g of groups) opts.push([g, groupLabel(g)]);
+    grp.replaceChildren(...opts.map(([v, label]) => h('option', { value: v }, label)));
+    grp.value = opts.some(([v]) => v === prev) ? prev : '';
   };
 
   const render = async () => {
@@ -236,18 +254,21 @@ export function buildLibraryPanel(ed: Editor) {
     } catch {
       items = [];
     }
-    setBadge('library', items.length ? String(items.length) : '');
-    const shown = searchAssets(items, search.value, cat.value as AssetCategory | '');
+    // Zahl im Reiter: eigene Einträge und die aus Erweiterungen (die mitgelieferten sind immer da)
+    const ownCount = items.filter((x) => !x.builtin).length;
+    setBadge('library', ownCount ? String(ownCount) : '');
+    fillGroups();
+    const shown = searchAssets(items, search.value, cat.value as AssetCategory | '').filter((it) => inGroup(it, grp.value));
     if (sel && !shown.some((x) => x.key === sel)) sel = null;
     grid.replaceChildren(
       ...shown.map((it) => {
-        const img = h('img', { alt: '', draggable: false });
+        const img = h('img', { alt: '', draggable: false, loading: 'lazy' });
         const pv = previewOf(it);
         if (typeof pv === 'string') img.src = svgUrl(pv);
         else if (pv) pv.then((s) => s && (img.src = svgUrl(s)));
         const tile = h('div', {
           class: `lib-tile${it.key === sel ? ' sel' : ''}${it.broken ? ' broken' : ''}`,
-          title: [it.meta.name, it.meta.tags.join(', '), it.pack ? t('aus „{name}“', { name: it.pack }) : ''].filter(Boolean).join('\n'),
+          title: [it.meta.name, it.meta.tags.join(', '), origin(it)].filter(Boolean).join('\n'),
           draggable: !it.broken,
           tabindex: 0,
           onclick: () => {
@@ -279,7 +300,7 @@ export function buildLibraryPanel(ed: Editor) {
 
   const editSelected = async () => {
     const it = current();
-    if (!it || it.pack) return;
+    if (!it || it.source) return;
     try {
       const a = await loadLibraryAsset(it.key);
       editDialog(t('Eintrag bearbeiten'), a, t('Speichern'), (x) => updateLibraryAsset(it.key, x));
@@ -300,7 +321,7 @@ export function buildLibraryPanel(ed: Editor) {
   };
   const deleteSelected = async () => {
     const it = current();
-    if (!it || it.pack) return;
+    if (!it || it.source) return;
     if (!confirm(t('„{name}“ aus der Bibliothek löschen?', { name: it.meta.name }))) return;
     try {
       await removeFromLibrary(it.key);
@@ -312,6 +333,7 @@ export function buildLibraryPanel(ed: Editor) {
 
   search.oninput = () => render();
   cat.onchange = () => render();
+  grp.onchange = () => render();
   search.addEventListener('keydown', (e) => e.stopPropagation());
   onLibraryChanged(() => render());
   onWindowShow('library', () => stale && render());

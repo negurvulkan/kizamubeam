@@ -113,16 +113,18 @@ const READ_TOOLS: ToolDef[] = [
     name: 'list_assets',
     title: 'Bibliothek durchsuchen',
     description:
-      'Einträge der Bibliothek (eigene Motive, Bilder, Designelemente und die aus Erweiterungen): Kennung (asset, für insert_asset), Name, Art (motif, image, element), Stichwörter, Größe in mm und ggf. die Erweiterung. query sucht in Name, Stichwörtern und Art (alle Wörter müssen passen); category filtert nach Art.',
+      'Einträge der Bibliothek (eigene Motive, Bilder, Designelemente, die aus Erweiterungen und 400 mitgelieferte, Kennung „builtin:…“): Kennung (asset, für insert_asset), Name, Art (motif, image, element), Stichwörter, Größe in mm und ggf. die Erweiterung oder builtin: true. query sucht in Name, Stichwörtern und Art (alle Wörter müssen passen, deutsch oder englisch); category filtert nach Art. Höchstens limit Treffer (Standard 100), total nennt die Gesamtzahl.',
     tier: Tier.Read,
-    inputSchema: { type: 'object', properties: { query: { type: 'string' }, category: { type: 'string', enum: ASSET_CATEGORIES } } },
+    inputSchema: { type: 'object', properties: { query: { type: 'string' }, category: { type: 'string', enum: ASSET_CATEGORIES }, limit: { type: 'number' } } },
     run: async (_ed, a) => {
       const cat = typeof a.category === 'string' && (ASSET_CATEGORIES as string[]).includes(a.category) ? (a.category as AssetCategory) : '';
       const list = await findAssets(typeof a.query === 'string' ? a.query : '', cat);
+      const limit = typeof a.limit === 'number' && a.limit > 0 ? Math.floor(a.limit) : 100;
       return json({
-        assets: list.map((it) => ({
+        total: list.length,
+        assets: list.slice(0, limit).map((it) => ({
           asset: it.key, name: it.meta.name, category: it.meta.category, tags: it.meta.tags, size: { w: r3(it.meta.w), h: r3(it.meta.h) },
-          ...(it.pack ? { extension: it.pack } : {}), ...(it.broken ? { broken: it.broken } : {}),
+          ...(it.pack ? { extension: it.pack } : {}), ...(it.builtin ? { builtin: true } : {}), ...(it.broken ? { broken: it.broken } : {}),
         })),
       });
     },
