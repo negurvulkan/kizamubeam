@@ -3708,3 +3708,71 @@ input.bound {
   margin-top: 10px;
   border: 1px solid var(--border, #888);
 }
+
+/* Fenster „Schriften“ (Font-Manager) */
+.font-dialog {
+  width: min(680px, 96vw);
+}
+.font-tabs,
+.font-tools {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.font-search {
+  flex: 1;
+  min-width: 160px;
+}
+.font-sample-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.font-sample-in {
+  flex: 1;
+}
+.font-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  height: 48vh;
+  overflow: auto;
+}
+.font-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.font-text {
+  flex: 1;
+  min-width: 0;
+}
+.font-sample {
+  font-size: 22px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-height: 29px;
+}
+.font-star {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: var(--muted);
+  padding: 0 2px;
+}
+.font-star.on {
+  color: #e0a800;
+}
+.font-more {
+  align-self: center;
+  margin: 6px 0;
+}

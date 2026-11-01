@@ -107,7 +107,7 @@ export function onFontLoaded(cb: () => void) {
   fontListeners.push(cb);
 }
 
-/** Liste der installierten Schriften (nur Desktop), sonst null. */
+/** Liste der installierten Schriften (nur Desktop), sonst null. Enthält auch die im Font-Manager geladenen. */
 export async function systemFonts(): Promise<string[] | null> {
   if (!isTauri()) return null;
   try {
@@ -117,6 +117,38 @@ export async function systemFonts(): Promise<string[] | null> {
     return null;
   }
 }
+
+const listListeners: (() => void)[] = [];
+/** Wird aufgerufen, wenn Schriften dazukommen oder entfernt werden (Font-Manager) */
+export function onFontListChanged(cb: () => void) {
+  listListeners.push(cb);
+}
+
+/**
+ * Nach Installieren oder Entfernen: Schriften, für die Roboto eingesprungen ist (oder die genannten Familien),
+ * neu laden. Texte werden danach mit der richtigen Schrift gezeichnet; Schriftlisten erneuern sich.
+ */
+export function refreshFonts(families: string[] = []) {
+  const names = new Set(families.map((f) => f.toLowerCase()));
+  for (const key of [...cache.keys()]) {
+    const r = ready.get(key);
+    if ((r && r.fallback) || names.has(key.split('|')[0].toLowerCase())) {
+      cache.delete(key);
+      ready.delete(key);
+    }
+  }
+  fontListeners.forEach((cb) => cb());
+  listListeners.forEach((cb) => cb());
+}
+
+/** Wurde für diese Schrift Roboto als Ersatz genommen? (null = noch nicht geladen) */
+export function isFallbackFont(family: string, bold = false, italic = false): boolean | null {
+  const f = ready.get(fontKey(family, bold, italic));
+  return f ? f.fallback : null;
+}
+
+/** Desktop-App? Nur dort gibt es den Font-Manager mit eigenem Schriftordner. */
+export const hasFontManager = isTauri;
 
 /**
  * Text in Unterpfade umwandeln (lokale Koordinaten des Textobjekts, mm).

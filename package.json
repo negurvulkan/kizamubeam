@@ -1,6 +1,6 @@
 {
   "name": "kizamubeam",
-  "version": "1.12.0-beta",
+  "version": "1.13.0-beta",
   "description": "Freie Laser-Software, angelehnt an die Bedienung von LightBurn (Prototyp)",
   "scripts": {
     "dev": "vite",
@@ -32,6 +32,7 @@
     "test:library": "node scripts/run-ts.mjs scripts/library-test.ts",
     "test:fluidnc": "node scripts/run-ts.mjs scripts/fluidnc-test.ts",
     "test:notes": "node scripts/run-ts.mjs scripts/notes-test.ts",
+    "test:fonts": "node scripts/run-ts.mjs scripts/fonts-test.ts",
     "test:testphoto": "node scripts/run-ts.mjs scripts/testphoto-test.ts",
     "test:workpieces": "node scripts/run-ts.mjs scripts/workpieces-test.ts",
     "test:bgremove": "node scripts/run-ts.mjs scripts/bgremove-test.ts",

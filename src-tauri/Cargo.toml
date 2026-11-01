@@ -1,6 +1,6 @@
 [package]
 name = "kizamubeam"
-version = "1.12.0-beta"
+version = "1.13.0-beta"
 description = "Freie Laser-Software (Prototyp)"
 license = "GPL-3.0-or-later"
 edition = "2021"
@@ -25,6 +25,9 @@ serde_json = "1"
 getrandom = "0.3"
 dirs = "7"
 fontdb = "0.23"
+# Google Fonts laden (src/fonts.rs); dieselben Bibliotheken wie im Updater, keine zusätzlichen Pakete
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "system-proxy"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 kizamubeam-core = { path = "core" }
 # ohne libudev, damit unter Linux keine zusätzliche Systembibliothek nötig ist
 serialport = { version = "4", default-features = false }
