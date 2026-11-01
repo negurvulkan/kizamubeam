@@ -124,3 +124,26 @@ export function searchApps(list: AppInfo[], query: string): AppInfo[] {
   const inName = (a: AppInfo) => words.some((w) => fold(a.name).includes(w));
   return [...hits.filter(inName), ...hits.filter((a) => !inName(a))];
 }
+
+/** Haupt- und Nebenversion als vergleichbare Zahl: „1.7.0-beta“ → 1007 */
+function minorOf(v: string): number | null {
+  const m = /^(\d+)\.(\d+)/.exec(v);
+  return m ? Number(m[1]) * 1000 + Number(m[2]) : null;
+}
+
+/** Wie viele Nebenversionen ein Werkzeug als „NEU“ gilt (die aktuelle und die zwei davor) */
+export const NEW_FOR = 3;
+
+/** Ist ein Werkzeug mit dieser Einführungsversion in der laufenden Version noch neu? */
+export function isNewIn(since: string | undefined, appVersion: string): boolean {
+  if (!since) return false;
+  const s = minorOf(since);
+  const a = minorOf(appVersion);
+  if (s === null || a === null || s > a) return false;
+  return Math.floor(s / 1000) === Math.floor(a / 1000) && a - s < NEW_FOR;
+}
+
+/** Zuletzt benutzt: Kennung nach vorne, ohne Doppelte, höchstens max Einträge */
+export function pushRecent(list: string[], id: string, max = 6): string[] {
+  return [id, ...list.filter((x) => x !== id)].slice(0, max);
+}
