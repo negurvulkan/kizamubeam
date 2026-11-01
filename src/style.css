@@ -1242,11 +1242,25 @@ table.devices .actions {
   gap: 4px;
   margin-bottom: 8px;
 }
-.sub-tabs .btn.active {
+.sub-tabs .btn.active,
+.sub-tab.active .btn {
   border-color: var(--accent);
   color: var(--accent);
 }
-.sub-tabs .btn.off {
+.sub-tab {
+  display: inline-flex;
+}
+.sub-tab .btn:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.sub-tab .sub-del {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: none;
+  padding: 0 6px;
+}
+.sub-tab.off .btn:first-child {
   opacity: 0.6;
   text-decoration: line-through;
 }
