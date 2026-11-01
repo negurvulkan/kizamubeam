@@ -34,18 +34,35 @@ export function openLayerDialog(ed: Editor, i: number) {
   const row = (label: string, el: HTMLElement, title?: string) => [h('label', { title }, label), el];
 
   const tabBar = h('div', { class: 'sub-tabs' });
+  /** Sub-Layer k entfernen; danach den benachbarten Reiter (oder den Layer) zeigen */
+  const removeSub = (k: number) => {
+    if (k < 0 || k >= subs.length) return;
+    subs.splice(k, 1);
+    if (tab === k) tab = Math.min(k, subs.length - 1);
+    else if (tab > k) tab--;
+    render();
+  };
   const general = h('div', { class: 'form' });
   const modeBox = h('div');
   const render = () => {
     const e = cur();
     tabBar.replaceChildren(
-      h('button', { class: `btn small${tab < 0 ? ' active' : ''}`, onclick: () => ((tab = -1), render()) }, t('Layer')),
+      h('button', { type: 'button', class: `btn small${tab < 0 ? ' active' : ''}`, onclick: () => ((tab = -1), render()) }, t('Layer')),
       ...subs.map((s, k) =>
-        h('button', {
-          class: `btn small${tab === k ? ' active' : ''}${s.output ? '' : ' off'}`,
-          title: s.output ? '' : t('Nicht ausgegeben'),
-          onclick: () => ((tab = k), render()),
-        }, t('Sub-Layer {n}', { n: k + 1 })),
+        h('span', { class: `sub-tab${tab === k ? ' active' : ''}${s.output ? '' : ' off'}` },
+          h('button', {
+            type: 'button',
+            class: 'btn small',
+            title: s.output ? '' : t('Nicht ausgegeben'),
+            onclick: () => ((tab = k), render()),
+          }, t('Sub-Layer {n}', { n: k + 1 })),
+          h('button', {
+            type: 'button',
+            class: 'btn small sub-del',
+            title: t('Sub-Layer entfernen'),
+            onclick: (ev: Event) => (ev.stopPropagation(), removeSub(k)),
+          }, '×'),
+        ),
       ),
       h('button', {
         class: 'btn small',
@@ -80,14 +97,7 @@ export function openLayerDialog(ed: Editor, i: number) {
       sub
         ? h('span', { class: 'checks' },
             check(t('Ausgabe'), () => sub.output, (v) => (sub.output = v), t('Sub-Layer beim Lasern ausgeben'), render),
-            h('button', {
-              class: 'btn small',
-              onclick: () => {
-                subs.splice(tab, 1);
-                tab = Math.min(tab, subs.length - 1);
-                render();
-              },
-            }, t('Sub-Layer entfernen')),
+            h('button', { type: 'button', class: 'btn small', onclick: () => removeSub(tab) }, t('Sub-Layer entfernen')),
           )
         : h('span', { class: 'checks' },
             check(t('Air Assist'), () => c.air, (v) => (c.air = v), t('Luftunterstützung während dieses Layers einschalten (M8/M7, aus mit M9). Gilt auch für Bilder und Sub-Layer auf diesem Layer.')),
