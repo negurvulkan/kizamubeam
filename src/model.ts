@@ -71,7 +71,8 @@ export type Shape =
   | { kind: 'rect'; w: number; h: number; r: number }
   | { kind: 'ellipse'; rx: number; ry: number }
   | { kind: 'polygon'; sides: number; r: number; star: boolean; inner: number }
-  | { kind: 'path'; subs: SubPath[] }
+  /** mark: Gravur eines Generator-Teils („Baugruppe/Teil“), wird mit dem Teil neu berechnet */
+  | { kind: 'path'; subs: SubPath[]; mark?: string }
   | TextShape
   | ImageShape
   | BarcodeShape
@@ -488,6 +489,8 @@ export interface Doc {
   notes?: ProjectNotes;
   /** Nur in Projektdateien: Bilddaten (Asset-ID → data:-URL) */
   assets?: Record<string, string>;
+  /** Nur in Projektdateien: 3D-Modelle der Generatoren (Kennung → Daten, siehe model3d/store.ts) */
+  meshes?: Record<string, string>;
 }
 
 /** Abschnitte der Projekt-Notizen; leere Abschnitte werden nicht gespeichert */
@@ -612,6 +615,11 @@ export function cloneObjs(objs: Obj[]): Obj[] {
     if (x.shape.kind === 'gen' && x.shape.asm) {
       if (!asms.has(x.shape.asm)) asms.set(x.shape.asm, newAsmId());
       x.shape.asm = asms.get(x.shape.asm);
+    }
+    if (x.shape.kind === 'path' && x.shape.mark) {
+      const [a, part] = x.shape.mark.split('/');
+      if (!asms.has(a)) asms.set(a, newAsmId());
+      x.shape.mark = `${asms.get(a)}/${part}`;
     }
     if (x.shape.kind === 'text' && x.shape.path?.link !== undefined) texts.push(x.shape);
     if (x.mates) mated.push(x);

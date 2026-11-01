@@ -28,7 +28,7 @@ const UNIT: Record<string, string> = { length: 'mm', angle: '°' };
 const fmtNum = (v: number) => (Number.isInteger(v) ? String(v) : f2(v));
 
 /** Generator-Dialog: neues Bauteil erzeugen (ohne o) oder die Parameter eines vorhandenen ändern */
-export function openGenDialog(ed: Editor, genId: string, o?: Obj) {
+export function openGenDialog(ed: Editor, genId: string, o?: Obj, init?: Params) {
   const old = o?.shape.kind === 'gen' ? o.shape : null;
   const g = getGenerator(old?.gen ?? genId);
   if (!g) {
@@ -36,7 +36,7 @@ export function openGenDialog(ed: Editor, genId: string, o?: Obj) {
     ed.emit('tool');
     return;
   }
-  const p: Params = old ? normalizeParams(g, old.params) : lastParams(g);
+  const p: Params = old ? normalizeParams(g, old.params) : init ? normalizeParams(g, init, lastParams(g)) : lastParams(g);
   // Felder mit Formel aus Projekt-Parametern (z. B. Dicke); beim Erstellen ohne Formeln
   const binds: Record<string, string> = { ...(old?.bind ?? {}) };
   const hasParams = projectParams().length > 0;
@@ -61,6 +61,7 @@ export function openGenDialog(ed: Editor, genId: string, o?: Obj) {
   const rows = new Map<string, HTMLElement[]>();
   const field = (s: ParamSpec): HTMLElement[] => {
     const id = `gen-${s.key}`;
+    if (s.type === 'data') return [];
     const unit = s.type === 'length' || s.type === 'angle' ? ` (${UNIT[s.type]})` : '';
     let input: HTMLElement;
     if (s.type === 'enum' || s.type === 'bool') {

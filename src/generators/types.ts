@@ -26,7 +26,9 @@ export type ParamSpec =
       def: number;
     })
   | (SpecBase & { type: 'enum'; options: [string, string][]; def: string })
-  | (SpecBase & { type: 'bool'; def: boolean });
+  | (SpecBase & { type: 'bool'; def: boolean })
+  /** Text, der nicht im Dialog erscheint (z. B. Kennung eines eingelesenen 3D-Modells) */
+  | (SpecBase & { type: 'data'; def: string });
 
 export interface Issue {
   /** Betroffenes Feld (fehlt bei Problemen, die mehrere Felder betreffen) */
@@ -44,6 +46,11 @@ export interface GenPart {
   subs: SubPath[];
   /** Vorschlag für die Lage der Teilmitte beim ersten Anlegen (Koordinaten der Baugruppe, mm) */
   at: Pt;
+  /**
+   * Gravur auf dem Teil (lokale Koordinaten wie subs), z. B. die Teilnummer als Strichschrift. Der Editor legt sie
+   * als eigenes Objekt auf einen Beschriftungs-Layer und gruppiert sie mit dem Teil.
+   */
+  marks?: SubPath[];
 }
 
 export interface GenResult {

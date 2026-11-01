@@ -1,6 +1,6 @@
 // Editor: parametrische Bauteile und Baugruppen aus Generatoren (Zahnrad, Box …) einfügen, ändern und vor
 // ungewollter Umwandlung schützen.
-import { GenShape, leaves, mul, newAsmId, newId, Obj, translate } from '../model';
+import { defaultCutSettings, GenShape, IDENT, leaves, mul, newAsmId, newId, Obj, SubPath, translate } from '../model';
 import { boundsOf } from '../geom';
 import { BuildResult, GenPart, genLabel, getGenerator, normalizeParams } from '../generators';
 import { t } from '../i18n';
@@ -12,6 +12,16 @@ export const genLeaves = (objs: Obj[]): Obj[] => [...leaves(objs)].map(([l]) => 
 
 /** Name der ganzen Baugruppe (ohne Teil) bzw. des Bauteils */
 const groupLabel = (s: GenShape) => genLabel({ ...s, part: undefined });
+
+/** Kennung der Gravur eines Teils */
+const markId = (asm: string, part: string | undefined) => `${asm}/${part ?? ''}`;
+
+/** Gruppe aus einem Generator-Teil und seiner Gravur (so legt addGen Teile mit Nummer an) */
+export function isMarkGroup(o: Obj): boolean {
+  if (o.shape.kind !== 'group') return false;
+  const ch = o.shape.children;
+  return ch.length === 2 && ch.some((c) => c.shape.kind === 'gen') && ch.some((c) => c.shape.kind === 'path' && !!c.shape.mark);
+}
 
 interface Member {
   o: Obj;
@@ -39,25 +49,50 @@ export class EditorGenerators {
    * Erzeugte Teile mittig in der sichtbaren Fläche auf dem aktuellen Layer einfügen (lokaler Ursprung = Teilmitte).
    * Teile einer Baugruppe werden einzelne Objekte mit gemeinsamer Kennung, damit sie zusammen neu berechnet werden.
    */
+  /**
+   * Layer für Gravuren von Generator-Teilen (z. B. Schichtnummern): der schon dafür benutzte, sonst ein freier,
+   * der als feine Linien-Gravur eingestellt wird.
+   */
+  markLayer(this: Editor, cut: number): number {
+    for (const pg of this.doc.pages) for (const [o] of leaves(pg.objs)) if (o.shape.kind === 'path' && o.shape.mark) return o.layer;
+    const used = new Set<number>();
+    for (const pg of this.doc.pages) for (const [o] of leaves(pg.objs)) used.add(o.layer);
+    let i = -1;
+    for (let k = 0; k < 30 && i < 0; k++) if (k !== cut && !used.has(k) && !this.doc.layers[k]) i = k;
+    for (let k = 0; k < 30 && i < 0; k++) if (k !== cut && !used.has(k)) i = k;
+    if (i < 0) return cut;
+    Object.assign(this.layer(i), defaultCutSettings('line'), { mode: 'line', speed: 3000, power: 15, name: t('Beschriftung'), output: true });
+    return i;
+  }
+  /** Teil (lokal, m = Lage) mit seiner Gravur zu einer Gruppe verbinden; ohne Gravur bleibt es, wie es ist */
+  withMark(this: Editor, part: Obj, marks: SubPath[] | undefined, markLayer: number): Obj {
+    const s = part.shape as GenShape;
+    if (!marks?.length || !s.asm) return part;
+    const mark: Obj = { id: newId(), m: IDENT, layer: markLayer, shape: { kind: 'path', subs: marks, mark: markId(s.asm, s.part) } };
+    const g: Obj = { id: newId(), m: part.m, layer: part.layer, shape: { kind: 'group', children: [{ ...part, m: IDENT }, mark] } };
+    return g;
+  }
   addGen(this: Editor, r: BuildResult, layer = this.currentLayer, center?: { x: number; y: number }): Obj[] {
     if (!r.parts.length) return [];
     let c = center ?? this.toWorld(RULER + (this.w - RULER) / 2, RULER + (this.h - RULER) / 2);
     const bed = this.doc.bed;
     if (!center && (c.x < 0 || c.y < 0 || c.x > bed.w || c.y > bed.h)) c = { x: bed.w / 2, y: bed.h / 2 };
     const asm = r.parts.some((p) => p.shape.part) ? newAsmId() : undefined;
-    const objs: Obj[] = r.parts.map((p) => ({
-      id: newId(), m: translate(c.x + p.at.x, c.y + p.at.y), layer, shape: asm ? { ...p.shape, asm } : p.shape,
-    }));
+    // Vor dem Beschriftungs-Layer, damit Rückgängig auch seine Einstellungen zurücknimmt
+    this.snapshot(t('Objekt hinzufügen'));
+    const markLayer = r.parts.some((p) => p.marks?.length) ? this.markLayer(layer) : layer;
+    const objs: Obj[] = r.parts.map((p) =>
+      this.withMark({ id: newId(), m: translate(c.x + p.at.x, c.y + p.at.y), layer, shape: asm ? { ...p.shape, asm } : p.shape }, p.marks, markLayer),
+    );
     // Ragt die Baugruppe über das Bett, kommt sie in die Bettmitte
     const b = boundsOf(objs);
     if (!center && b && (b.x < -1e-6 || b.y < -1e-6 || b.x + b.w > bed.w + 1e-6 || b.y + b.h > bed.h + 1e-6))
       for (const o of objs) o.m = mul(translate(bed.w / 2 - (b.x + b.w / 2), bed.h / 2 - (b.y + b.h / 2)), o.m);
-    this.snapshot(t('Objekt hinzufügen'));
     this.layer(layer);
     this.doc.objs.push(...objs);
     if (!this.agentCall) this.setTool('select');
     this.setSel(objs);
-    const name = groupLabel(objs[0].shape as GenShape);
+    const name = groupLabel(r.parts[0].shape);
     this.hint = asm
       ? t('{name} eingefügt ({n} Teile). Doppelklick auf ein Teil öffnet die Parameter der ganzen Baugruppe.', { name, n: objs.length })
       : t('{name} eingefügt. Doppelklick öffnet die Parameter wieder.', { name });
@@ -101,23 +136,50 @@ export class EditorGenerators {
         const want = mul(origin, translate(at.x, at.y));
         return x.m.every((v, i) => Math.abs(v - want[i]) < 1e-6);
       };
-      const relayout = members.every((m) => m.list === this.doc.objs && placed(m.o, oldAt.get((m.o.shape as GenShape).part!) ?? { x: NaN, y: NaN }));
+      // Teil oben auf der Seite oder in seiner Gruppe mit Gravur: dieses Objekt trägt die Lage
+      const holder = (m: Member): Obj | null => {
+        if (m.list === this.doc.objs) return m.o;
+        const g = this.doc.objs.find((x) => x.shape.kind === 'group' && x.shape.children === m.list);
+        return g && isMarkGroup(g) && m.o.m.every((v, i) => Math.abs(v - IDENT[i]) < 1e-9) ? g : null;
+      };
+      const relayout = members.every((m) => {
+        const hd = holder(m);
+        return !!hd && placed(hd, oldAt.get((m.o.shape as GenShape).part!) ?? { x: NaN, y: NaN });
+      });
+      const needMarks = r.parts.some((p) => p.marks?.length);
+      const markLayer = needMarks ? this.markLayer(o.layer) : o.layer;
       const present = new Set<string | undefined>();
       for (const m of members) {
         const key = (m.o.shape as GenShape).part;
         present.add(key);
         const np = byKey.get(key);
+        const mid = markId(asm, key);
+        const sib = m.list.find((x) => x.shape.kind === 'path' && x.shape.mark === mid);
+        const hd = holder(m);
         if (np) {
           m.o.shape = { ...np.shape, asm };
           this.touch(m.o.shape);
-          if (relayout) m.o.m = mul(origin, translate(np.at.x, np.at.y));
-        } else m.list.splice(m.list.indexOf(m.o), 1);
+          if (relayout && hd) hd.m = mul(origin, translate(np.at.x, np.at.y));
+          // Gravur nachführen: ändern, entfernen oder (oben auf der Seite) als Gruppe neu anlegen
+          if (sib && np.marks?.length && sib.shape.kind === 'path') {
+            sib.shape = { ...sib.shape, subs: np.marks };
+            sib.m = m.o.m;
+            this.touch(sib.shape);
+          } else if (sib) m.list.splice(m.list.indexOf(sib), 1);
+          else if (np.marks?.length && m.list === this.doc.objs) m.list.splice(m.list.indexOf(m.o), 1, this.withMark(m.o, np.marks, markLayer));
+          else if (np.marks?.length)
+            m.list.splice(m.list.indexOf(m.o) + 1, 0, { id: newId(), m: m.o.m, layer: markLayer, shape: { kind: 'path', subs: np.marks, mark: mid } });
+        } else if (hd && hd !== m.o) this.doc.objs.splice(this.doc.objs.indexOf(hd), 1);
+        else {
+          m.list.splice(m.list.indexOf(m.o), 1);
+          if (sib) m.list.splice(m.list.indexOf(sib), 1);
+        }
       }
       // Neu hinzukommende Teile (z. B. Deckel) an ihren Platz in der Anordnung; vom Nutzer gelöschte nicht wiederholen
       const added: Obj[] = [];
       for (const p of r.parts) {
         if (present.has(p.shape.part) || oldKeys.has(p.shape.part!)) continue;
-        added.push({ id: newId(), m: mul(origin, translate(p.at.x, p.at.y)), layer: o.layer, shape: { ...p.shape, asm } });
+        added.push(this.withMark({ id: newId(), m: mul(origin, translate(p.at.x, p.at.y)), layer: o.layer, shape: { ...p.shape, asm } }, p.marks, markLayer));
       }
       this.doc.objs.push(...added);
       const alive = new Set(this.doc.objs);

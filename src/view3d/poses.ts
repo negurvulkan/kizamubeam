@@ -12,6 +12,7 @@ import { ShelfParams, shelfHeights, sideCenters } from '../generators/shelf';
 import { centerDistance, GearPairParams, pairGear } from '../generators/gearpair';
 import { gearGeometry, GearParams } from '../generators/gear';
 import { sphereLayout } from '../generators/discsphere';
+import { stackPoses } from '../generators/stack';
 
 export type V3 = [number, number, number];
 
@@ -155,6 +156,10 @@ export function assemblyPoses(gen: string, params: Params, th: number): AsmPoses
       return gearPairPoses(params, th);
     case 'discsphere':
       return discSpherePoses(params, th);
+    case 'stack': {
+      const poses = stackPoses(params);
+      return poses ? { poses } : null;
+    }
     default:
       return null;
   }

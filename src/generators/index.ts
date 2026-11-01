@@ -1,5 +1,5 @@
 // Verzeichnis der Generatoren und gemeinsame Abläufe: Parameter prüfen, normalisieren und Geometrie erzeugen.
-import type { GenShape, Pt } from '../model';
+import type { GenShape, Pt, SubPath } from '../model';
 import { t } from '../i18n';
 import { BOX } from './box';
 import { CAM } from './cam';
@@ -11,12 +11,13 @@ import { GEARPAIR } from './gearpair';
 import { PULLEY } from './pulley';
 import { RACK } from './rack';
 import { DISCSPHERE } from './discsphere';
+import { STACK } from './stack';
 import type { Generator, Issue, Params, ParamSpec, ParamValue } from './types';
 import { evaluate, ExprError, scopeOf, type Scope } from '../params';
 
 export type { GenPart, Generator, Issue, Params, ParamSpec } from './types';
 
-export const GENERATORS: Generator[] = [GEAR, RACK, PULLEY, CAM, GEARPAIR, BOX, DRAWER, INSERT, SHELF, DISCSPHERE];
+export const GENERATORS: Generator[] = [GEAR, RACK, PULLEY, CAM, GEARPAIR, BOX, DRAWER, INSERT, SHELF, DISCSPHERE, STACK];
 
 export const getGenerator = (id: string): Generator | undefined => GENERATORS.find((g) => g.id === id);
 
@@ -41,6 +42,7 @@ export function normalizeParams(g: Generator, raw: Record<string, unknown>, base
     let out: ParamValue = s.def;
     if (s.type === 'bool') out = typeof v === 'boolean' ? v : v === 'true' || v === 1;
     else if (s.type === 'enum') out = s.options.some(([k]) => k === v) ? (v as string) : s.def;
+    else if (s.type === 'data') out = typeof v === 'string' ? v : s.def;
     else {
       const n = Number(v);
       out = isFinite(n) ? Math.min(s.max, Math.max(s.min, s.type === 'int' ? Math.round(n) : n)) : s.def;
@@ -60,7 +62,9 @@ export function checkInput(g: Generator, raw: Record<string, unknown>): Issue[] 
     if (s.type === 'bool' && typeof v !== 'boolean') out.push({ key: s.key, level: 'error', msg: t('„{key}“ muss true oder false sein', { key: s.key }) });
     else if (s.type === 'enum' && !s.options.some(([k]) => k === v))
       out.push({ key: s.key, level: 'error', msg: t('„{key}“ muss einer von {values} sein', { key: s.key, values: s.options.map(([k]) => k).join(', ') }) });
-    else if (s.type !== 'bool' && s.type !== 'enum') {
+    else if (s.type === 'data') {
+      if (typeof v !== 'string') out.push({ key: s.key, level: 'error', msg: t('„{key}“ muss ein Text sein', { key: s.key }) });
+    } else if (s.type !== 'bool' && s.type !== 'enum') {
       const n = Number(v);
       if (typeof v !== 'number' || !isFinite(n)) out.push({ key: s.key, level: 'error', msg: t('„{key}“ ist keine Zahl', { key: s.key }) });
       else if (n < s.min || n > s.max) out.push({ key: s.key, level: 'error', msg: t('„{key}“ muss zwischen {min} und {max} liegen', { key: s.key, min: s.min, max: s.max }) });
@@ -73,6 +77,8 @@ export interface BuiltPart {
   shape: GenShape;
   /** Vorgeschlagene Lage der Teilmitte in der Baugruppe */
   at: Pt;
+  /** Gravur auf dem Teil (siehe GenPart.marks) */
+  marks?: SubPath[];
 }
 
 export interface BuildResult {
@@ -91,7 +97,7 @@ export function buildGen(g: Generator, params: Params): BuildResult {
     const parts = r.parts.map((p) => {
       const shape: GenShape = { kind: 'gen', gen: g.id, v: g.version, params: { ...params }, subs: p.subs };
       if (g.kind === 'assembly') shape.part = p.key;
-      return { shape, at: p.at };
+      return p.marks?.length ? { shape, at: p.at, marks: p.marks } : { shape, at: p.at };
     });
     return { parts, issues, info: r.info };
   } catch (e) {
@@ -131,7 +137,7 @@ export function resolveBinds(g: Generator, params: Params, bind: Record<string, 
   const issues: Issue[] = [];
   for (const [key, src] of Object.entries(bind ?? {})) {
     const s = g.schema.find((x) => x.key === key);
-    if (!s) continue;
+    if (!s || s.type === 'data') continue;
     try {
       const v = evaluate(src, scope);
       if (s.type === 'bool') raw[key] = typeof v === 'string' ? v !== '' : !!v;

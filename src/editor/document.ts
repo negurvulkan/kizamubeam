@@ -4,6 +4,7 @@ import {
   Shape,
 } from '../model';
 import { assetUrl, registerAsset, restoreAssets } from '../images';
+import { meshData, registerMesh, restoreMeshes } from '../model3d/store';
 import { invalidate, invalidateText } from '../geom';
 import { t } from '../i18n';
 import { loadGen } from '../generators';
@@ -134,6 +135,7 @@ export class EditorDocument {
         bumpIds(allObjs(this.doc));
         migrateGens(allObjs(this.doc));
         restoreAssets(this.assetIds());
+        restoreMeshes(this.meshIds());
       }
     } catch {
       this.doc = newDoc();
@@ -148,23 +150,40 @@ export class EditorDocument {
     for (const [o] of leaves(objs)) if (o.shape.kind === 'image') ids.add(o.shape.asset);
     return [...ids];
   }
-  /** Projektdatei: Dokument samt Bilddaten */
+  /** Kennungen aller 3D-Modelle, die Generator-Teile benutzen (Parameter „model“) */
+  meshIds(this: Editor, objs: Obj[] = allObjs(this.doc)): string[] {
+    const ids = new Set<string>();
+    for (const [o] of leaves(objs)) if (o.shape.kind === 'gen' && typeof o.shape.params.model === 'string' && o.shape.params.model) ids.add(o.shape.params.model);
+    return [...ids];
+  }
+  /** Projektdatei: Dokument samt Bilddaten und 3D-Modellen */
   serialize(this: Editor) {
     const assets: Record<string, string> = {};
     for (const id of this.assetIds()) {
       const url = assetUrl(id);
       if (url) assets[id] = url;
     }
-    return JSON.stringify(Object.keys(assets).length ? { ...this.doc, assets } : this.doc, null, 1);
+    const meshes: Record<string, string> = {};
+    for (const id of this.meshIds()) {
+      const data = meshData(id);
+      if (data) meshes[id] = data;
+    }
+    const extra: Record<string, unknown> = {};
+    if (Object.keys(assets).length) extra.assets = assets;
+    if (Object.keys(meshes).length) extra.meshes = meshes;
+    return JSON.stringify(Object.keys(extra).length ? { ...this.doc, ...extra } : this.doc, null, 1);
   }
   /** Projektdatei lesen: Bilddaten anmelden, IDs und alte Generator-Parameter anpassen */
   parseProject(this: Editor, json: string): Doc {
     const d = loadDoc(JSON.parse(json));
     if (d.assets) for (const [id, url] of Object.entries(d.assets)) registerAsset(id, url);
     delete d.assets;
+    if (d.meshes) for (const [id, data] of Object.entries(d.meshes)) if (typeof data === 'string') registerMesh(id, data);
+    delete d.meshes;
     // Vorschau nur in Vorlagen-Dateien (wird beim Speichern als Vorlage neu erzeugt)
     delete d.template?.preview;
     restoreAssets(this.assetIds(allObjs(d)));
+    restoreMeshes(this.meshIds(allObjs(d)));
     bumpIds(allObjs(d));
     migrateGens(allObjs(d));
     return d;

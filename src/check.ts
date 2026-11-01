@@ -223,6 +223,8 @@ function collect(inp: CheckInput): Contour[] {
     const text = o.shape.kind === 'text';
     const subs = o.shape.kind === 'text' ? (textOutline(o.shape)?.subs ?? []) : shapeSubs(o.shape);
     const fill = L.mode === 'fill';
+    // Beschriftung eines Generator-Teils (z. B. Schichtnummer) wird nur geritzt, nie ausgeschnitten
+    const mark = o.shape.kind === 'path' && !!o.shape.mark;
     subs.forEach((sp, si) => {
       if (sp.nodes.length < 2) return;
       const { pts, us } = flattenU(sp, m);
@@ -242,7 +244,7 @@ function collect(inp: CheckInput): Contour[] {
         box.y1 = Math.max(box.y1, p.y);
       }
       out.push({
-        idx: out.length, top, leaf: o, sub: si, closed: sp.closed, layer: o.layer, fill, cut: !fill && !engrave.has(o.layer),
+        idx: out.length, top, leaf: o, sub: si, closed: sp.closed, layer: o.layer, fill, cut: !fill && !engrave.has(o.layer) && !mark,
         kerf: fill ? 0 : L.kerf, beam: L.kerf > 0 ? 2 * L.kerf : inp.settings.beam, text, pts, us, cum, len, box,
       });
     });

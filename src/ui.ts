@@ -6,7 +6,8 @@ import { DITHER_MODES, DitherMode, ImageAdjust, ImageLayer, ImageShape, isCellMo
 import { evaluate, formatNumber, namesIn } from './params';
 import { deletePreset, loadPresets, presetOutput, savePreset } from './imagePresets';
 import { openFillDialog, openSaveTemplateDialog, openSeriesDialog, openTemplateLibrary } from './templateDialogs';
-import { exportSvg, importFile, installDropAndPaste, openProject, saveProcessedBitmap, saveProject } from './files';
+import { exportSvg, importFile, importModel, installDropAndPaste, openProject, saveProcessedBitmap, saveProject } from './files';
+import { onMeshReady } from './model3d/store';
 import { assetImage, displayCanvas, onImageReady, outputGrid } from './images';
 import { systemFonts } from './fonts';
 import { $, evalExpr, f2, h, iconBtn, numInput, sep, setVal } from './dom';
@@ -147,6 +148,8 @@ export function buildUI(ed: Editor) {
   startAgentBridge(ed);
   buildTextEditor(ed);
   ed.onImport = () => importFile(ed);
+  // 3D-Modelle aus der automatischen Sicherung kommen etwas später: 3D-Ansicht und Prüfung neu zeichnen
+  onMeshReady(() => ed.emit('doc'));
   ed.onGridArray = () => openGridArrayDialog(ed);
   ed.onBarcodeEdit = (o) => editBarcode(ed, o);
   ed.onGenEdit = (o) => openGenDialog(ed, '', o);
@@ -202,6 +205,7 @@ function buildMenu(ed: Editor) {
       [t('Serie aus Tabelle (CSV) …'), '', () => openSeriesDialog(ed)],
       'sep',
       [t('Importieren …'), 'Ctrl+I', () => importFile(ed)],
+      [t('3D-Modell importieren …'), '', () => importModel(ed)],
       [t('Als SVG exportieren …'), '', () => exportSvg(ed)],
       [t('Bearbeitetes Bild speichern …'), '', () => saveProcessedBitmap(ed)],
       'sep',
@@ -248,6 +252,7 @@ function buildMenu(ed: Editor) {
         [t('Steckregal …'), '', () => openGenDialog(ed, 'shelf')],
         'sep',
         [t('Scheibenkugel …'), '', () => openGenDialog(ed, 'discsphere')],
+        [t('Schichtmodell aus 3D-Modell …'), '', () => importModel(ed)],
       ] },
       'sep',
       { sub: t('Boolesche Operationen'), items: [
@@ -502,7 +507,7 @@ function showHelp() {
     [t('Ctrl beim Ziehen'), t('Fangen vorübergehend umkehren (aus, wenn eingeschaltet)')],
     [t('Alt beim Ziehen'), t('Stärker fangen und Ausrichtungshilfen an anderen Objekten')],
     [t('Aus dem Lineal ziehen'), t('Hilfslinie auf T1 (zurück ins Lineal: verwerfen)')],
-    ['Ctrl+I', t('Importieren (Bilder, SVG, DXF); Dateien auch auf die Arbeitsfläche ziehen oder mit Ctrl+V einfügen')],
+    ['Ctrl+I', t('Importieren (Bilder, SVG, DXF, 3D-Modelle); Dateien auch auf die Arbeitsfläche ziehen oder mit Ctrl+V einfügen')],
     ['Ctrl+Shift+A', t('Rasterarray')],
     ['Alt++ / Alt+- / Alt+*', t('Vereinen / Abziehen / Schnittmenge')],
     ['Alt+T', t('Bild nachzeichnen')],
@@ -862,7 +867,7 @@ function buildBars(ed: Editor) {
     { id: 'new', cat: F, icon: 'new', label: t('Neues Projekt in neuem Tab (Ctrl+N)'), run: () => ed.newTab() },
     { id: 'open', cat: F, icon: 'open', label: t('Öffnen'), run: () => openProject(ed) },
     { id: 'save', cat: F, icon: 'save', label: t('Speichern'), run: () => saveProject(ed) },
-    { id: 'import', cat: F, icon: 'import', label: t('Importieren: Bilder, SVG, DXF, LightBurn (Ctrl+I)'), run: () => importFile(ed) },
+    { id: 'import', cat: F, icon: 'import', label: t('Importieren: Bilder, SVG, DXF, LightBurn, 3D-Modelle (Ctrl+I)'), run: () => importFile(ed) },
     { id: 'export', cat: F, icon: 'export', label: t('Als SVG exportieren'), run: () => exportSvg(ed) },
     { id: 'undo', cat: B, icon: 'undo', label: t('Rückgängig (Ctrl+Z)'), run: () => ed.doUndo() },
     { id: 'redo', cat: B, icon: 'redo', label: t('Wiederholen (Ctrl+Y)'), run: () => ed.doRedo() },
@@ -926,6 +931,7 @@ function buildBars(ed: Editor) {
     { id: 'drawer', cat: W, icon: 'drawer', label: t('Schublade erstellen (Korpus, Schubkasten und Blende als Baugruppe)'), run: () => openGenDialog(ed, 'drawer') },
     { id: 'insert', cat: W, icon: 'insert', label: t('Einsatz mit Fächern erstellen (gesteckte Stege für Box oder Schublade)'), run: () => openGenDialog(ed, 'insert') },
     { id: 'shelf', cat: W, icon: 'shelf', label: t('Steckregal erstellen (Seiten und Böden gesteckt)'), run: () => openGenDialog(ed, 'shelf') },
+    { id: 'stack', cat: W, icon: 'stack', label: t('Schichtmodell aus einem 3D-Modell (STL, OBJ) erstellen'), run: () => importModel(ed) },
     { id: 'discsphere', cat: W, icon: 'discsphere', label: t('Scheibenkugel erstellen (Lampe aus gesteckten Scheiben)'), run: () => openGenDialog(ed, 'discsphere') },
     { id: 'box', cat: W, icon: 'box', label: t('Box mit Fingerzinken erstellen (Baugruppe, Parameter bleiben erhalten)'), run: () => openGenDialog(ed, 'box') },
     { id: 'vartext', cat: W, icon: 'vartext', short: t('Var. Text'), label: t('Variabler Text …'), run: () => openVarTextDialog(ed) },
@@ -977,7 +983,7 @@ function buildBars(ed: Editor) {
     { id: 'grp:align', cat: A, label: t('Ausrichten und verteilen (Gruppe)'), items: ['alignl', 'alignhc', 'alignr', 'alignt', 'alignvc', 'alignb', 'disth', 'distv'], run: () => {} },
     { id: 'grp:zoom', cat: V, label: t('Zoom (Gruppe)'), items: ['zoompage', 'zoomsel', 'zoomin', 'zoomout'], run: () => {} },
     { id: 'grp:bool', cat: M, label: t('Boolesche Operationen (Gruppe)'), items: ['union', 'subtract', 'intersect', 'boolopts'], run: () => {} },
-    { id: 'grp:gen', cat: W, label: t('Generatoren (Gruppe)'), items: ['gear', 'rack', 'pulley', 'cam', 'gearpair', 'box', 'drawer', 'insert', 'shelf', 'discsphere'], run: () => {} },
+    { id: 'grp:gen', cat: W, label: t('Generatoren (Gruppe)'), items: ['gear', 'rack', 'pulley', 'cam', 'gearpair', 'box', 'drawer', 'insert', 'shelf', 'discsphere', 'stack'], run: () => {} },
     { id: 'grp:array', cat: M, label: t('Arrays (Gruppe)'), items: ['gridarray', 'circarray'], run: () => {} },
     { id: 'grp:path', cat: M, label: t('Pfad-Werkzeuge (Gruppe)'), items: ['tool:trim', 'tool:start', 'closepath', 'join', 'breakapart', 'reverse', 'corners'], run: () => {} },
   ];
