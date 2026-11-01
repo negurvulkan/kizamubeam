@@ -1432,6 +1432,41 @@ table.layers input[type='checkbox'] {
 .mt-left .form {
   grid-template-columns: 1fr 180px;
 }
+.ft-steps {
+  margin: 0;
+  padding-left: 1.3em;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.ft-preview .ft-bed {
+  stroke: var(--muted, #888);
+  stroke-width: 1;
+}
+.ft-preview .ft-material {
+  fill: #d9b98c;
+  stroke: #a07a48;
+}
+.ft-preview .ft-shim {
+  fill: #9a9a9a;
+}
+.ft-preview .ft-tick {
+  stroke: var(--text);
+}
+.ft-preview .ft-pick {
+  fill: var(--accent);
+  stroke: #fff;
+}
+.ft-preview .ft-zline {
+  stroke: #d05020;
+  stroke-linecap: round;
+}
+.ft-preview .ft-zline.picked {
+  stroke: var(--accent);
+}
+.ft-preview .ft-hit {
+  fill: transparent;
+  cursor: pointer;
+}
 .tp-dialog {
   width: min(1180px, 96vw);
 }

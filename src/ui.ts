@@ -40,6 +40,7 @@ import { buildHistoryPanel } from './historyPanel';
 import { buildLibraryPanel, openAddSelectionDialog } from './libraryPanel';
 import { buildCheckPanel, openCheck } from './checkPanel';
 import { openCalibrateDialog } from './calibrateDialog';
+import { openFocusTestDialog } from './focustestDialog';
 import { buildParamsPanel, openShowIfDialog } from './paramsPanel';
 import { buildNotesPanel } from './notesPanel';
 import { buildView3dPanel } from './view3d/panel';
@@ -351,6 +352,7 @@ function buildMenu(ed: Editor) {
       'sep',
       [t('Materialtest …'), '', () => openMaterialTestDialog(ed)],
       [t('Materialtest auswerten …'), '', () => openTestPhotoDialog(ed)],
+      [t('Fokustest …'), '', () => openFocusTestDialog(ed)],
       [t('Passung kalibrieren …'), '', () => openCalibrateDialog(ed)],
       'sep',
       [t('Laser einrichten …'), '', () => openSetupWizard(ed)],
@@ -966,6 +968,7 @@ function buildBars(ed: Editor) {
     { id: 'setup', cat: L, icon: 'setup', short: t('Einrichten'), label: t('Laser einrichten: Schritt für Schritt von der Verbindung bis zum ersten Testauftrag'), run: () => openSetupWizard(ed) },
     { id: 'materialtest', cat: L, icon: 'mattest', short: t('Test'), label: t('Materialtest …'), run: () => openMaterialTestDialog(ed) },
     { id: 'testphoto', cat: L, icon: 'testphoto', short: t('Auswerten'), label: t('Materialtest auswerten: Foto des gelaserten Tests laden und die beste Zelle anklicken'), run: () => openTestPhotoDialog(ed) },
+    { id: 'focustest', cat: L, icon: 'focus', short: t('Fokus'), label: t('Fokustest: richtigen Abstand zwischen Laserkopf und Material finden'), run: () => openFocusTestDialog(ed) },
     { id: 'calibrate', cat: L, icon: 'calibrate', short: t('Passung'), label: t('Passung kalibrieren: Schnittfuge und Steckspiel für ein Material ermitteln'), run: () => openCalibrateDialog(ed) },
     { id: 'devsettings', cat: L, icon: 'settings', label: t('Geräteeinstellungen'), run: () => openDeviceDialog(ed) },
     { id: 'devices', cat: L, short: t('Geräte'), label: t('Geräte …'), run: () => openDevicesDialog(ed) },
