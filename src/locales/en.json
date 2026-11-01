@@ -2885,5 +2885,12 @@
   "{n} Treffer": "{n} results",
   "Nichts gefunden. Andere Wörter versuchen oder den Filter auf „Alle“ stellen.": "Nothing found. Try other words or set the filter to “All”.",
   "Neu: der Werkzeugkasten mit allen Generatoren und Werkzeugen. Einblenden über Fenster → Werkzeugkasten oder den Knopf in der Werkzeugleiste.": "New: the Toolbox with all generators and tools. Show it via Window → Toolbox or the button in the tools toolbar.",
-  "Werkzeugkasten: alle Generatoren und Werkzeuge mit Suche": "Toolbox: all generators and tools with search"
+  "Werkzeugkasten: alle Generatoren und Werkzeuge mit Suche": "Toolbox: all generators and tools with search",
+  "Erweiterungen verwalten": "Manage Extensions",
+  "Pakete mit Vorlagen, Materialien, Gerätevorlagen und Motiven installieren oder entfernen.": "Install or remove packs with templates, materials, device presets and motifs.",
+  "Rechtsklick: aus den Favoriten entfernen": "Right-click: remove from favorites",
+  "Rechtsklick: zu den Favoriten": "Right-click: add to favorites",
+  "NEU": "NEW",
+  "Favoriten": "Favorites",
+  "Zuletzt benutzt": "Recently Used"
 }

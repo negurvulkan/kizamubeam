@@ -2,7 +2,7 @@
 import './core-fixtures-env';
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
-const { appGroups, appList, fold, searchApps } = await import('../src/apps');
+const { appGroups, appList, fold, isNewIn, pushRecent, searchApps } = await import('../src/apps');
 const { ICONS } = await import('../src/icons');
 
 let failed = 0;
@@ -66,6 +66,23 @@ test('Suche findet auch englische Wörter und ignoriert Umlaute', () => {
 test('Mehrere Wörter müssen alle passen', () => {
   const ids = searchApps(apps, 'kopien kreis').map((a) => a.id);
   assert.deepEqual(ids, ['circarray']);
+});
+
+test('NEU gilt für die aktuelle und die zwei vorigen Nebenversionen', () => {
+  assert.equal(isNewIn(undefined, '1.7.0-beta'), false);
+  assert.equal(isNewIn('1.7.0', '1.7.0-beta'), true);
+  assert.equal(isNewIn('1.5.0', '1.7.0-beta'), true);
+  assert.equal(isNewIn('1.4.0', '1.7.0-beta'), false);
+  assert.equal(isNewIn('1.8.0', '1.7.0'), false, 'aus der Zukunft');
+  assert.equal(isNewIn('1.9.0', '2.0.0'), false, 'neue Hauptversion');
+  assert.equal(isNewIn('kaputt', '1.7.0'), false);
+  for (const a of apps) if (a.since) assert.match(a.since, /^\d+\.\d+\.\d+$/, a.id);
+});
+
+test('Zuletzt benutzt: vorne, ohne Doppelte, begrenzt', () => {
+  assert.deepEqual(pushRecent(['a', 'b', 'c'], 'b'), ['b', 'a', 'c']);
+  assert.deepEqual(pushRecent(['a', 'b', 'c'], 'd', 3), ['d', 'a', 'b']);
+  assert.deepEqual(pushRecent([], 'x'), ['x']);
 });
 
 if (failed) {

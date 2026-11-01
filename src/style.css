@@ -3525,9 +3525,49 @@ input.bound {
   color: var(--app-fg, var(--icon));
   border: 1px solid transparent;
 }
-.app-art svg {
+.app-icon {
+  display: flex;
+}
+.app-icon svg {
   width: 32px;
   height: 32px;
+}
+.app-art.img {
+  background: #fff;
+  border-color: var(--line);
+  overflow: hidden;
+}
+.app-art.img img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 4px;
+  box-sizing: border-box;
+}
+.app-new {
+  position: absolute;
+  top: -5px;
+  right: -3px;
+  background: #e8742c;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 8px;
+  letter-spacing: 0.3px;
+}
+.app-fav {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  display: flex;
+  color: #e0a020;
+}
+.app-fav svg {
+  width: 12px;
+  height: 12px;
+  fill: #e0a020;
 }
 .app-tile:hover .app-art,
 .app-tile:focus-visible .app-art {
