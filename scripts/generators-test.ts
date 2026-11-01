@@ -1,4 +1,4 @@
-// Tests der Generatoren (Zahnrad, Zahnstange, Riemenscheibe, Nocken, Zahnradpaar, Box, Schublade, Einsatz, Steckregal). Aufruf: npm run test:generators
+// Tests der Generatoren (Zahnrad, Zahnstange, Riemenscheibe, Nocken, Zahnradpaar, Box, Schublade, Einsatz, Steckregal, Scheibenkugel). Aufruf: npm run test:generators
 import './core-fixtures-env';
 import { strict as assert } from 'node:assert';
 import type { Pt, SubPath } from '../src/model';
@@ -20,6 +20,7 @@ const { GEARPAIR, centerDistance } = await import('../src/generators/gearpair');
 const { DRAWER, drawerDims } = await import('../src/generators/drawer');
 const { INSERT, dividerCenters } = await import('../src/generators/insert');
 const { SHELF, shelfHeights, sideCenters } = await import('../src/generators/shelf');
+const { DISCSPHERE, sphereLayout, sphereNormals } = await import('../src/generators/discsphere');
 const { buildGen, checkInput, defaultParams, normalizeParams } = await import('../src/generators/index');
 const { bezierPt, segments } = await import('../src/curves');
 const ClipperLib = (await import('clipper-lib')).default;
@@ -630,6 +631,68 @@ test('Steckregal: Seiten und Böden greifen ohne Überschneidung und ohne Lücke
   const top = shelfHeights(shelfP());
   near(top[top.length - 1] + 4, 300 - 20, 1e-9, 'oberster Boden');
   assert.ok(SHELF.validate(shelfP({ shelves: 30, height: 100 }) as never).some((i) => i.level === 'error'), 'zu viele Böden nicht erkannt');
+});
+
+// Scheibenkugel
+
+const sphereP = (o: Raw = {}): Raw => ({ ...defaultParams(DISCSPHERE), kerf: 0, play: 0, ...o });
+const polyArea = (pts: Pt[]) => Math.abs(pts.reduce((s, a, i) => { const b = pts[(i + 1) % pts.length]; return s + a.x * b.y - b.x * a.y; }, 0)) / 2;
+
+test('Scheibenkugel: Polyeder, Schlitze, gleiche Scheiben', () => {
+  const counts: Record<string, number> = { cube: 6, octa: 8, dodeca: 12, cubocta: 14, icosa: 20, rhombi: 26, tico: 32 };
+  for (const [shape, n] of Object.entries(counts)) {
+    const ns = sphereNormals(shape);
+    assert.equal(ns.length, n, shape);
+    near(ns[0][2], 1, 1e-12, `${shape}: oben`);
+    near(ns[n - 1][2], -1, 1e-12, `${shape}: unten`);
+    const L = sphereLayout(sphereP({ shape }));
+    assert.ok(L, `${shape}: keine Aufteilung`);
+    // Außendurchmesser: Rand der Scheiben auf der Kugel
+    near(2 * Math.hypot(L!.d, L!.r), 250, 1e-9, `${shape}: Durchmesser`);
+    // Jeder Schlitz hat sein Gegenstück in der anderen Scheibe, in Gegenrichtung
+    for (const [i, d] of L!.discs.entries())
+      for (const s of d.slots) assert.ok(L!.discs[s.other].slots.some((x) => x.other === i), `${shape}: Gegenstück fehlt`);
+  }
+  // Regelmäßige Polyeder: alle Scheiben gleich (gleiche Fläche, gleiche Schlitzzahl), oben mit Öffnung
+  for (const shape of ['dodeca', 'icosa']) {
+    const parts = partsOf(DISCSPHERE, sphereP({ shape, topHole: 0 }), 24);
+    const areas = [...parts.values()].map((subs) => polyArea(subs[0]));
+    for (const [k, subs] of parts) {
+      assert.equal(subs.length, 1, `${shape} ${k}`);
+      assertSimple(subs[0], `${shape} ${k}`);
+    }
+    for (const a of areas) near(a, areas[0], 1e-3 * areas[0], `${shape}: Fläche`);
+  }
+  const withHole = partsOf(DISCSPHERE, sphereP({ topHole: 40, bottomHole: 30 }));
+  assert.equal(withHole.get('d1')!.length, 2, 'Öffnung oben');
+  assert.equal(withHole.get('d20')!.length, 2, 'Öffnung unten');
+  assert.equal(withHole.get('d2')!.length, 1);
+});
+
+test('Scheibenkugel: Schlitzbreite je Winkel, Schnittfuge, Prüfung', () => {
+  // Würfel: senkrecht, Breite = Dicke + Spiel
+  const cube = sphereLayout(sphereP({ shape: 'cube', thickness: 3, play: 0.2 }))!;
+  for (const d of cube.discs) for (const s of d.slots) near(s.w, 3.2, 1e-9, 'Würfel');
+  // Ikosaeder-Anordnung (Dodekaeder-Ecken): 41,8° zwischen Nachbarn
+  const ico = sphereLayout(sphereP({ shape: 'icosa', thickness: 1, play: 0.1 }))!;
+  const s0 = ico.discs[0].slots[0];
+  const a = (s0.angle * Math.PI) / 180;
+  near(s0.angle, 41.81, 0.01, 'Winkel');
+  near(s0.w, 1.1 / Math.sin(a) + Math.cos(a) / Math.sin(a), 1e-9, 'Breite');
+  // Mehr Überlappung = größere Scheiben
+  const r0 = sphereLayout(sphereP({ overlap: 0 }))!.r,
+    r1 = sphereLayout(sphereP({ overlap: 100 }))!.r;
+  assert.ok(r1 > r0 + 5, `${r0} ${r1}`);
+  // Schnittfuge: Kontur um k/2 nach außen
+  const area = (o: Raw) => polyArea(partsOf(DISCSPHERE, sphereP({ topHole: 0, ...o }), 24).get('d2')![0]);
+  assert.ok(area({ kerf: 0.2 }) > area({}), 'Kerf');
+  // Fehler: zu klein für die Dicke, Öffnung zu groß, Schlitze schmaler als Fuge
+  const errs = (o: Raw) => DISCSPHERE.validate(normalizeParams(DISCSPHERE, sphereP(o))).filter((i) => i.level === 'error').map((i) => i.key);
+  assert.deepEqual(errs({ diameter: 40, thickness: 6, shape: 'tico' }), ['thickness']);
+  assert.deepEqual(errs({ topHole: 300 }), ['topHole']);
+  assert.deepEqual(errs({ thickness: 0.1, play: 0, kerf: 0.2 }), ['play']);
+  assert.deepEqual(errs({}), []);
+  assert.ok(DISCSPHERE.validate(normalizeParams(DISCSPHERE, sphereP({ thickness: 3, diameter: 600 }))).some((i) => i.level === 'warn'), 'starres Material');
 });
 
 if (failed) {

@@ -9,6 +9,7 @@ const { defaultParams, getGenerator } = await import('../src/generators/index');
 const { computeJoint, jointMate, DEFAULT_JOINT } = await import('../src/joints');
 const { assembleMates } = await import('../src/view3d/mates');
 const { subsPolys } = await import('../src/view3d/solids');
+const { sphereLayout } = await import('../src/generators/discsphere');
 import type { Obj, Mate } from '../src/model';
 import type { JointOptions } from '../src/joints';
 
@@ -304,6 +305,36 @@ test('Aussehen: Material-Bibliothek speichert es mit', () => {
   assert.deepEqual(e.settings.look, { id: 'slate', color: '#000000' });
   const bad = sanitizeEntry({ material: 'X', settings: { mode: 'line', look: { id: 'nix' } } })!;
   assert.equal('look' in bad.settings, false);
+});
+
+test('Scheibenkugel: schräge Schlitze ohne Durchdringung', () => {
+  for (const o of [{ shape: 'dodeca' }, { shape: 'icosa', overlap: 0 }, { shape: 'icosa', overlap: 100, thickness: 2 }, { shape: 'rhombi' }, { shape: 'tico', diameter: 300 }] as Params[]) {
+    // Ganz ohne Spiel liegen die Flächen genau aufeinander; die Rundung der Konturen auf 0,001 mm kann dann winzige
+    // Überdeckungen ergeben. Deshalb mit 0,02 mm Spiel prüfen.
+    const s = solids('discsphere', { ...o, play: 0.02, kerf: 0 });
+    assert.deepEqual(pairs(s), [], JSON.stringify(o));
+    // Mit Presspassung überdecken sich genau die gesteckten Paare
+    const press = findOverlaps(solids('discsphere', { ...o, play: -0.2, kerf: 0 }));
+    const L = sphereLayout({ ...defaultParams(getGenerator('discsphere')!), ...o, play: -0.2 })!;
+    assert.equal(press.length, L.discs.reduce((n, d) => n + d.slots.length, 0) / 2, `${JSON.stringify(o)}: Presspassung`);
+  }
+  // Rand der Scheiben auf der Kugel, die Plattendicke (1 mm) steht etwas über
+  const b = bounds(solids('discsphere', { diameter: 200, shape: 'icosa' }));
+  assert.ok(b.every(([lo, hi]) => hi - lo <= 202 && hi - lo > 190), JSON.stringify(b));
+});
+
+test('Schräge Platten: Durchdringung wird gefunden', () => {
+  // Zwei volle Rechtecke, die sich im Winkel von 60° kreuzen
+  const rect = [[{ x: -20, y: -20 }, { x: 20, y: -20 }, { x: 20, y: 20 }, { x: -20, y: 20 }]];
+  const c = Math.cos(Math.PI / 3),
+    sn = Math.sin(Math.PI / 3);
+  const A: Solid = { key: 'a', label: 'a', polys: rect, th: 2, pose: { o: [0, 0, -1], u: [1, 0, 0], v: [0, 1, 0], n: [0, 0, 1] } };
+  const n: [number, number, number] = [0, -sn, c];
+  const B: Solid = { key: 'b', label: 'b', polys: rect, th: 2, pose: { o: [0, -n[1], -n[2]], u: [1, 0, 0], v: [0, c, sn], n } };
+  const ov = findOverlaps([A, B]);
+  assert.equal(ov.length, 1);
+  // Querschnitt = Raute mit Seiten 2/sin 60°, Fläche 4/sin 60°, über 40 mm Länge
+  near(ov[0].volume, (40 * 4) / sn, 0.5, 'Volumen');
 });
 
 if (failed) {

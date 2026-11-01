@@ -10,12 +10,13 @@ import { GEAR } from './gear';
 import { GEARPAIR } from './gearpair';
 import { PULLEY } from './pulley';
 import { RACK } from './rack';
+import { DISCSPHERE } from './discsphere';
 import type { Generator, Issue, Params, ParamSpec, ParamValue } from './types';
 import { evaluate, ExprError, scopeOf, type Scope } from '../params';
 
 export type { GenPart, Generator, Issue, Params, ParamSpec } from './types';
 
-export const GENERATORS: Generator[] = [GEAR, RACK, PULLEY, CAM, GEARPAIR, BOX, DRAWER, INSERT, SHELF];
+export const GENERATORS: Generator[] = [GEAR, RACK, PULLEY, CAM, GEARPAIR, BOX, DRAWER, INSERT, SHELF, DISCSPHERE];
 
 export const getGenerator = (id: string): Generator | undefined => GENERATORS.find((g) => g.id === id);
 
