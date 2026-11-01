@@ -2,7 +2,8 @@
 // Die Testdatei ist von Hand nachgebaut (Aufbau wie bei LightBurn 1.5), keine echte Kundendatei.
 import './core-fixtures-env';
 import { strict as assert } from 'node:assert';
-const { buildSubs, convertLbrn, imageInfo, isLbrn, parsePrims, parseVerts, parseXml } = await import('../src/lbrn');
+const { buildSubs, convertLbrn, finishLbrnTexts, imageInfo, isLbrn, lbText, parsePrims, parseVerts, parseXml } = await import('../src/lbrn');
+type TextShape = import('../src/model').TextShape;
 const { apply, leaves } = await import('../src/model');
 const { shapeSubs } = await import('../src/geom');
 
@@ -192,17 +193,71 @@ await test('Gruppe: Matrizen werden verkettet, geteilte Geometrie über VertID/P
   if (again.shape.kind === 'path') assert.equal(again.shape.subs[0].nodes.length, 4);
 });
 
-await test('Text: Umriss aus BackupPath, Name aus dem Text', async () => {
-  const { objs, notes } = await conv();
-  const tx = objs.find((o) => o.name === 'Hallo Welt');
+await test('Text ohne Schrift-Messung: Umriss aus BackupPath als Pfad, Name aus dem Text', async () => {
+  const r = await conv();
+  await finishLbrnTexts(r);
+  const tx = r.objs.find((o) => o.name === 'Hallo Welt');
   assert.ok(tx);
   assert.equal(tx!.shape.kind, 'path');
   const p = apply(tx!.m, 0, -8);
   near(p.x, 50);
   near(p.y, BED - 58);
-  // Drei Hinweise: Text als Pfad, Text ohne Umriss, unbekannter Typ (Sprache der Texte hängt von der Umgebung ab)
-  assert.equal(notes.length, 3);
-  assert.ok(notes.some((n) => n.includes('Spline')));
+  // Text ohne Umriss fällt weg
+  assert.ok(!r.objs.some((o) => o.name === 'ohne Umriss'));
+  // Drei Hinweise: unbekannter Typ, Text als Pfad, Text ohne Umriss (Sprache hängt von der Umgebung ab)
+  assert.equal(r.notes.length, 3);
+  assert.ok(r.notes.some((n) => n.includes('Spline')));
+});
+
+await test('Text-Felder: Schrift, Größe, Ausrichtung, Abstände, Schweißen', async () => {
+  const r = await conv();
+  const e = r.texts.find((x) => x.text.text === 'Hallo\nWelt')!;
+  assert.ok(e);
+  assert.equal(e.text.font, 'Arial');
+  assert.equal(e.text.size, 10);
+  assert.equal(e.text.bold, false);
+  assert.equal(e.text.align, 'center');
+  assert.equal(e.text.weld, true);
+  const b = lbText(parseXml('<Shape Type="Text" Font="Times New Roman,-1,100,5,75,1,0,0,0,0" Str="x" H="5" LS="0.5" Ah="2"/>').children[0]);
+  assert.equal(b.font, 'Times New Roman');
+  assert.equal(b.bold, true);
+  assert.equal(b.italic, true);
+  assert.equal(b.align, 'right');
+  assert.equal(b.hSpace, 0.5);
+  assert.equal(b.size, 5);
+});
+
+/** Messung, die den Text als Rechteck w × h um die Mitte x = 0, Grundlinie y = 0 liefert */
+const fakeMeasure = (w: number, h: number, fallback = false) => async (t: TextShape) => ({
+  subs: [{ closed: true, nodes: [{ x: -w / 2, y: 0 }, { x: w / 2, y: 0 }, { x: w / 2, y: -h }, { x: -w / 2, y: -h }] }],
+  lineHeight: 1.15 * t.size,
+  fallback,
+});
+
+await test('Text mit passender Schrift wird bearbeitbar und an den Umrissen ausgerichtet', async () => {
+  const r = await conv();
+  await finishLbrnTexts(r, fakeMeasure(3, 8));
+  const tx = r.objs.find((o) => o.name === 'Hallo Welt')!;
+  assert.equal(tx.shape.kind, 'text');
+  if (tx.shape.kind !== 'text') return;
+  near(tx.shape.vSpace, 1.15 * 10 - 1.2 * 10);
+  // Umriss der Datei: x 0..3 ab Ursprung (50, 50); gemessener Text: x -1,5..1,5 → um 1,5 mm verschoben
+  const o = apply(tx.m, 0, 0);
+  near(o.x, 51.5);
+  near(o.y, BED - 50);
+  // Ohne Umriss, aber mit Schrift: bleibt Text (Lage ungeprüft, mit Hinweis)
+  assert.equal(r.objs.find((x) => x.name === 'ohne Umriss')?.shape.kind, 'text');
+  assert.equal(r.notes.length, 2);
+});
+
+await test('Text mit fehlender oder abweichender Schrift bleibt Pfad', async () => {
+  const r = await conv();
+  await finishLbrnTexts(r, fakeMeasure(3, 8, true));
+  assert.equal(r.objs.find((o) => o.name === 'Hallo Welt')!.shape.kind, 'path');
+  assert.ok(r.notes.some((n) => n.includes('Arial')));
+  const r2 = await conv();
+  await finishLbrnTexts(r2, fakeMeasure(4, 8));
+  assert.equal(r2.objs.find((o) => o.name === 'Hallo Welt')!.shape.kind, 'path');
 });
 
 await test('Bild: Asset, Pixelmaße, Lage, Anpassungen, aufrecht', async () => {

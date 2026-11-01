@@ -1,5 +1,6 @@
 // Projektdateien von LightBurn (.lbrn2, XML) lesen: Formen, Gruppen, Bilder und Layer-Einstellungen.
-// Text kommt vorerst als Pfad aus den mitgespeicherten Umrissen (BackupPath).
+// Text wird bearbeitbarer Text, wenn die Schrift vorhanden ist und zu den mitgespeicherten Umrissen (BackupPath)
+// passt; sonst bleiben die Umrisse als Pfad.
 //
 // Aufbau der Datei: <LightBurnProject> mit <CutSetting>/<CutSetting_Img> (Layer) und <Shape Type="…">.
 // Jede Form hat eine <XForm> (a b c d e f wie SVG) und lokale Koordinaten mit y nach oben; Rechteck,
@@ -10,8 +11,10 @@
 import { lbCutSetting } from './materials';
 import { t, tn } from './i18n';
 import {
-  DEFAULT_ADJUST, defaultLayer, ImageAdjust, Layer, Mat, mul, newId, Node, Obj, SubPath, VarText,
+  DEFAULT_ADJUST, defaultLayer, IDENT, ImageAdjust, inv, Layer, Mat, mul, newId, Node, Obj, SubPath, TextShape, translate, VarText,
 } from './model';
+import { boundsOf } from './geom';
+import { transformSubs } from './importers';
 
 // ---------- Kleiner XML-Leser (die Dateien sind einfach aufgebaut; läuft auch ohne DOM, z. B. in Tests) ----------
 
@@ -112,6 +115,137 @@ export interface LbrnResult {
   projectNotes?: string;
   /** Variabler Text, falls vom Standard abweichend */
   vt?: VarText;
+  /** Texte der Datei; bis finishLbrnTexts sie prüft, liegen sie als Pfad (gespeicherte Umrisse) vor */
+  texts: LbrnText[];
+}
+
+export interface LbrnText {
+  obj: Obj;
+  /** Bearbeitbarer Text nach den Angaben der Datei */
+  text: TextShape;
+  /** Gespeicherte Umrisse in lokalen Koordinaten des Texts (y nach unten); null = keine */
+  backup: SubPath[] | null;
+  /** Zeilenabstand aus der Datei (LnS, zusätzlich zur natürlichen Zeilenhöhe der Schrift) */
+  lineSpacing: number;
+}
+
+/** Messung eines Texts mit der echten Schrift (in der App über opentype) */
+export interface TextMeasure {
+  /** Umrisse des Texts in lokalen mm */
+  subs: SubPath[];
+  /** Natürlicher Zeilenabstand der Schrift bei dieser Größe in mm (Oberlänge + Unterlänge + Durchschuss) */
+  lineHeight: number;
+  /** Die Schrift fehlt, es wurde eine Ersatzschrift verwendet */
+  fallback: boolean;
+}
+
+/**
+ * Text-Element von LightBurn lesen. Font ist ein Qt-Schrift-String „Familie,Punkt,Pixel,Hinweis,Gewicht,Kursiv,…“
+ * (Gewicht 50 normal, 75 fett; neuere Qt-Fassungen 400/700). H ist die Schriftgröße (Em) in mm, LS der zusätzliche
+ * Zeichenabstand, Ah die waagerechte Ausrichtung (0 links, 1 mittig, 2 rechts).
+ */
+export function lbText(n: XNode): TextShape {
+  const parts = (n.attrs.Font ?? '').split(',');
+  const weight = Number(parts[4]);
+  const num = (k: string, d = 0) => {
+    const v = Number(n.attrs[k]);
+    return isFinite(v) ? v : d;
+  };
+  const size = num('H', 10) > 0 ? num('H', 10) : 10;
+  const ah = Math.round(num('Ah', 0));
+  return {
+    kind: 'text',
+    text: (n.attrs.Str ?? '').replace(/\r\n?/g, '\n'),
+    font: parts[0]?.trim() || 'Arial',
+    size,
+    bold: isFinite(weight) && (weight > 100 ? weight >= 600 : weight >= 63),
+    italic: parts[5] === '1',
+    upper: false,
+    align: ah === 1 ? 'center' : ah === 2 ? 'right' : 'left',
+    hSpace: num('LS'),
+    // Vorläufig: übliche Schriften haben etwa 1,15 Em Zeilenhöhe, KizamuBeam rechnet mit 1,2 Em plus Zeilenabstand
+    vSpace: num('LnS') - 0.05 * size,
+    ...(n.attrs.Weld === '1' ? { weld: true } : {}),
+  };
+}
+
+/**
+ * Texte bearbeitbar machen. measure misst einen Text mit der echten Schrift. Ein Text wird übernommen, wenn die
+ * Schrift vorhanden ist und seine Umrisse in Breite und Höhe zu den gespeicherten passen (höchstens 2 % bzw.
+ * 0,3 mm Abweichung); seine Lage wird dann an den gespeicherten Umrissen ausgerichtet (das gleicht auch die
+ * senkrechte Ausrichtung aus). Sonst bleiben die gespeicherten Umrisse als Pfad. Ohne measure bleiben alle Pfade.
+ */
+export async function finishLbrnTexts(res: LbrnResult, measure?: (t: TextShape) => Promise<TextMeasure | null>) {
+  let asPath = 0,
+    skipped = 0,
+    differ = 0,
+    unchecked = 0;
+  const missing = new Map<string, number>();
+  const box = (subs: SubPath[]) => boundsOf([{ id: 0, m: IDENT, layer: 0, shape: { kind: 'path', subs } }]);
+  for (const e of res.texts) {
+    const keepPath = () => {
+      if (e.backup) asPath++;
+      else {
+        skipped++;
+        dropObj(res.objs, e.obj);
+      }
+    };
+    const first = measure ? await measure(e.text).catch(() => null) : null;
+    if (!first) {
+      keepPath();
+      continue;
+    }
+    if (first.fallback) {
+      if (e.backup) missing.set(e.text.font, (missing.get(e.text.font) ?? 0) + 1);
+      else skipped++, dropObj(res.objs, e.obj);
+      continue;
+    }
+    const text: TextShape = { ...e.text, vSpace: e.lineSpacing + first.lineHeight - 1.2 * e.text.size };
+    const m = text.vSpace === e.text.vSpace ? first : await measure!(text).catch(() => null);
+    if (!m) {
+      keepPath();
+      continue;
+    }
+    if (!e.backup) {
+      // Ohne gespeicherte Umrisse: Lage nicht prüfbar (Grundlinie der ersten Zeile am Ursprung angenommen)
+      e.obj.shape = text;
+      unchecked++;
+      continue;
+    }
+    const a = box(m.subs),
+      b = box(e.backup);
+    const tol = (v: number) => Math.max(0.3, Math.abs(v) * 0.02);
+    if (!a || !b || Math.abs(a.w - b.w) > tol(b.w) || Math.abs(a.h - b.h) > tol(b.h)) {
+      differ++;
+      continue;
+    }
+    e.obj.shape = text;
+    e.obj.m = mul(e.obj.m, translate(b.x + b.w / 2 - (a.x + a.w / 2), b.y + b.h / 2 - (a.y + a.h / 2)));
+  }
+  if (asPath) res.notes.push(tn('{n} Text als Pfad übernommen (Umrisse aus der Datei).', '{n} Texte als Pfade übernommen (Umrisse aus der Datei).', asPath));
+  for (const [font, n] of missing)
+    res.notes.push(tn('Schrift „{font}“ fehlt: {n} Text als Pfad übernommen.', 'Schrift „{font}“ fehlt: {n} Texte als Pfade übernommen.', n, { font }));
+  if (differ) res.notes.push(tn('{n} Text sähe hier anders aus und bleibt ein Pfad.', '{n} Texte sähen hier anders aus und bleiben Pfade.', differ));
+  if (skipped) res.notes.push(tn('{n} Text ohne gespeicherte Umrisse übersprungen.', '{n} Texte ohne gespeicherte Umrisse übersprungen.', skipped));
+  if (unchecked) res.notes.push(tn('{n} Text ohne gespeicherte Umrisse: Lage bitte prüfen.', '{n} Texte ohne gespeicherte Umrisse: Lage bitte prüfen.', unchecked));
+  res.texts = [];
+}
+
+/** Objekt aus der Liste oder einer Gruppe darin entfernen (leere Gruppen fallen mit weg) */
+function dropObj(objs: Obj[], o: Obj): boolean {
+  const i = objs.indexOf(o);
+  if (i >= 0) {
+    objs.splice(i, 1);
+    return true;
+  }
+  for (let k = 0; k < objs.length; k++) {
+    const g = objs[k];
+    if (g.shape.kind === 'group' && dropObj(g.shape.children, o)) {
+      if (!g.shape.children.length) objs.splice(k, 1);
+      return true;
+    }
+  }
+  return false;
 }
 
 export interface LbrnOptions {
@@ -274,7 +408,7 @@ export async function convertLbrn(text: string, opts: LbrnOptions): Promise<Lbrn
   const root = parseXml(text);
   const proj = child(root, 'LightBurnProject');
   if (!proj) throw new Error(t('Keine LightBurn-Projektdatei'));
-  const res: LbrnResult = { objs: [], layers: {}, assets: {}, notes: [] };
+  const res: LbrnResult = { objs: [], layers: {}, assets: {}, notes: [], texts: [] };
   const counts = new Map<string, number>();
   const note = (key: string) => counts.set(key, (counts.get(key) ?? 0) + 1);
 
@@ -378,16 +512,21 @@ export async function convertLbrn(text: string, opts: LbrnOptions): Promise<Lbrn
         return { id: newId(), m: mul(P, mul(X, S)), layer, shape: { kind: 'path', subs } };
       }
       case 'Text': {
+        // Erst die gespeicherten Umrisse (in Lage des Texts); finishLbrnTexts macht daraus bearbeitbaren Text
         const bp = child(n, 'BackupPath');
-        const subs = bp ? pathSubs(bp) : null;
-        if (!bp || !subs || !subs.length) {
-          note('text');
-          return null;
-        }
-        const name = (n.attrs.Str ?? '').replace(/\s+/g, ' ').trim();
-        const o: Obj = { id: newId(), m: mul(P, mul(parseXForm(bp), S)), layer: bp.attrs.CutIndex !== undefined ? layerOf(bp) : layer, shape: { kind: 'path', subs } };
-        if (name) o.name = name.length > 40 ? name.slice(0, 39) + '…' : name;
-        note('textpath');
+        let subs = bp ? pathSubs(bp) : null;
+        if (subs && bp) subs = transformSubs(subs, mul(S, mul(inv(X), mul(parseXForm(bp), S))));
+        const text = lbText(n);
+        if (!text.text.trim()) return null;
+        const name = text.text.replace(/\s+/g, ' ').trim();
+        const o: Obj = {
+          id: newId(),
+          m: mul(P, mul(X, S)),
+          layer: bp?.attrs.CutIndex !== undefined ? layerOf(bp) : layer,
+          shape: subs?.length ? { kind: 'path', subs } : text,
+          name: name.length > 40 ? name.slice(0, 39) + '…' : name,
+        };
+        res.texts.push({ obj: o, text, backup: subs?.length ? subs : null, lineSpacing: num('LnS') });
         return o;
       }
       case 'Bitmap': {
@@ -467,9 +606,7 @@ export async function convertLbrn(text: string, opts: LbrnOptions): Promise<Lbrn
 
   // Hinweise
   for (const [k, n] of counts) {
-    if (k === 'textpath') res.notes.push(tn('{n} Text als Pfad übernommen (Umrisse aus der Datei).', '{n} Texte als Pfade übernommen (Umrisse aus der Datei).', n));
-    else if (k === 'text') res.notes.push(tn('{n} Text ohne gespeicherte Umrisse übersprungen.', '{n} Texte ohne gespeicherte Umrisse übersprungen.', n));
-    else if (k === 'image') res.notes.push(tn('{n} Bild ließ sich nicht lesen.', '{n} Bilder ließen sich nicht lesen.', n));
+    if (k === 'image') res.notes.push(tn('{n} Bild ließ sich nicht lesen.', '{n} Bilder ließen sich nicht lesen.', n));
     else if (k === 'path') res.notes.push(tn('{n} Pfad ohne Punkte übersprungen.', '{n} Pfade ohne Punkte übersprungen.', n));
     else if (k === 'tabs') res.notes.push(t('Von Hand gesetzte Haltestege werden nicht übernommen.'));
     else if (k === 'scancut') res.notes.push(t('Layer mit „Scan+Cut“ werden nur gefüllt.'));

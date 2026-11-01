@@ -1,9 +1,10 @@
 // Dateien öffnen/speichern: in Tauri über native Dialoge, im Browser per Download/Dateiauswahl.
 import type { Editor } from './editor';
-import { IDENT, Obj, pageName, visibleLeaves, PALETTE } from './model';
+import { IDENT, Obj, pageName, TextShape, visibleLeaves, PALETTE } from './model';
 import { boundsOf, subsToD, shapeSubs, textLayout, textOutline } from './geom';
 import { assetUrl, flipImageV, hashId, processedPng, readDpi, registerAsset } from './images';
-import { convertLbrn, isLbrn, LbrnResult } from './lbrn';
+import { convertLbrn, finishLbrnTexts, isLbrn, LbrnResult, TextMeasure } from './lbrn';
+import { loadFont, textToSubs } from './fonts';
 import { importDxf, importSvg, ImportResult } from './importers';
 import { t } from './i18n';
 import { tabNameFromPath } from './editor/tabs';
@@ -65,10 +66,20 @@ export async function saveProject(ed: Editor) {
   ed.scheduleSave();
 }
 
+/** Text mit der echten Schrift messen (für bearbeitbaren Text aus LightBurn-Projekten) */
+async function measureText(t: TextShape): Promise<TextMeasure> {
+  const lf = await loadFont(t.font, t.bold, t.italic);
+  const f = lf.font;
+  const hhea = (f.tables as { hhea?: { ascender: number; descender: number; lineGap: number } }).hhea;
+  const units = hhea ? hhea.ascender - hhea.descender + hhea.lineGap : f.ascender - f.descender;
+  return { subs: textToSubs(t, f), lineHeight: (units / f.unitsPerEm) * t.size, fallback: lf.fallback };
+}
+
 /** Aus LightBurn-Projekt (.lbrn2) ein KizamuBeam-Projekt (JSON) machen; Hinweise für die Statusleiste */
 async function lbrnProjectJson(ed: Editor, text: string): Promise<{ json: string; notes: string[] }> {
   const bed = { ...ed.doc.bed };
   const r = await convertLbrn(text, { bedH: bed.h, assetId: hashId, flipImage: flipImageV });
+  await finishLbrnTexts(r, measureText);
   if (r.notes.length) for (const o of r.objs) o.importNote = r.notes.join(' ');
   const doc: Record<string, unknown> = { version: 2, bed, pages: [{ name: pageName(0), objs: r.objs }], page: 0, layers: r.layers, assets: r.assets };
   if (r.projectNotes) doc.notes = { process: r.projectNotes };
@@ -227,7 +238,9 @@ async function parseFile(name: string, bytes: Uint8Array, bedH: () => number): P
   const ext = (/\.([a-z0-9]+)$/i.exec(name)?.[1] ?? '').toLowerCase();
   const head = new TextDecoder().decode(bytes.slice(0, 512)).trimStart();
   if (ext === 'lbrn2' || ext === 'lbrn' || isLbrn(head)) {
-    return { kind: 'lbrn', res: await convertLbrn(new TextDecoder().decode(bytes), { bedH: bedH(), assetId: hashId, flipImage: flipImageV }) };
+    const res = await convertLbrn(new TextDecoder().decode(bytes), { bedH: bedH(), assetId: hashId, flipImage: flipImageV });
+    await finishLbrnTexts(res, measureText);
+    return { kind: 'lbrn', res };
   }
   if (ext === 'svg' || head.startsWith('<svg') || (head.startsWith('<?xml') && head.includes('<svg')))
     return { kind: 'vectors', res: importSvg(new TextDecoder().decode(bytes)) };
