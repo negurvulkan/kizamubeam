@@ -1,6 +1,7 @@
 // Editor: Bilder und Import.
-import { DEFAULT_ADJUST, IDENT, ImageAdjust, ImageLayer, ImageShape, inv, leaves, Mat, mul, newId, Obj, Pt, SubPath, translate } from '../model';
-import { addAsset, adjustedGray, assetImage, sourceSize } from '../images';
+import { allObjs, DEFAULT_ADJUST, IDENT, ImageAdjust, ImageLayer, ImageShape, inv, leaves, Mat, mul, newId, Obj, Pt, SubPath, translate } from '../model';
+import { addAsset, adjustedGray, assetImage, registerAsset, sourceSize } from '../images';
+import type { LbrnResult } from '../lbrn';
 import { ImportResult, transformSubs } from '../importers';
 import { traceGray, TraceOptions } from '../trace';
 import { backgroundAlpha, BgOptions, opaqueBounds } from '../bgremove';
@@ -162,7 +163,8 @@ export class EditorImages {
   }
 
   /** Objekte einfügen: liegen sie außerhalb des Betts, werden sie mittig platziert. Mehrere werden gruppiert. */
-  placeNew(this: Editor, objs: Obj[], label: string) {
+  /** Objekte als ein Element einfügen (rückgängig machbar); before läuft nach dem Undo-Zwischenstand, z. B. für Layer */
+  placeNew(this: Editor, objs: Obj[], label: string, before?: () => void) {
     if (!objs.length) return;
     let o: Obj = objs[0];
     if (objs.length > 1) o = { id: newId(), m: IDENT, layer: objs[0].layer, shape: { kind: 'group', children: objs } };
@@ -171,6 +173,7 @@ export class EditorImages {
     if (b && (b.x < -1e-6 || b.y < -1e-6 || b.x + b.w > bed.w + 1e-6 || b.y + b.h > bed.h + 1e-6))
       o.m = mul(translate(bed.w / 2 - (b.x + b.w / 2), bed.h / 2 - (b.y + b.h / 2)), o.m);
     this.snapshot(t('Objekt hinzufügen'));
+    before?.();
     this.doc.objs.push(o);
     this.setTool('select');
     this.setSel([o]);
@@ -222,6 +225,33 @@ export class EditorImages {
     }
     const layers = new Set(objs.map((o) => o.layer));
     this.placeNew(objs, `${tn('{name}: {n} Objekt', '{name}: {n} Objekte', objs.length, { name })} ${tn('auf {n} Layer.', 'auf {n} Layern.', layers.size)} ${res.notes.join(' ')}`.trim());
+  }
+
+  /**
+   * LightBurn-Projekt (.lbrn2) einfügen. Layer-Einstellungen aus der Datei gelten nur für Layer, auf denen im
+   * Projekt noch nichts liegt; belegte Layer behalten ihre Einstellungen.
+   */
+  importLbrn(this: Editor, r: LbrnResult, name: string) {
+    if (!r.objs.length) {
+      this.hint = t('{name}: keine verwertbaren Formen gefunden. {notes}', { name, notes: r.notes.join(' ') });
+      this.emit('tool');
+      return;
+    }
+    for (const [id, url] of Object.entries(r.assets)) registerAsset(id, url);
+    if (r.notes.length) for (const o of r.objs) o.importNote = `${name}: ${r.notes.join(' ')}`;
+    const used = new Set<number>();
+    for (const [o] of leaves(allObjs(this.doc))) used.add(o.layer);
+    const take = Object.values(r.layers).filter((L) => !used.has(L.index));
+    const kept = Object.keys(r.layers).length - take.length;
+    const layers = new Set([...leaves(r.objs)].map(([o]) => o.layer));
+    const msg = [
+      `${tn('{name}: {n} Objekt', '{name}: {n} Objekte', r.objs.length, { name })} ${tn('auf {n} Layer.', 'auf {n} Layern.', layers.size)}`,
+      kept ? tn('{n} schon belegter Layer behält seine Einstellungen.', '{n} schon belegte Layer behalten ihre Einstellungen.', kept) : '',
+      ...r.notes,
+    ];
+    this.placeNew(r.objs, msg.filter(Boolean).join(' '), () => {
+      for (const L of take) this.doc.layers[L.index] = L;
+    });
   }
 
   /** Objekte aus einem Vektor-Import (SVG/DXF), ohne sie einzufügen; Hinweise landen in res.notes */

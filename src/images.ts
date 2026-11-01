@@ -56,6 +56,19 @@ export function scaledPng(img: HTMLImageElement, max = 200): string {
 /** Bilddaten dekodieren (ohne sie zu registrieren) */
 export const decodeImage = (dataUrl: string) => decode(dataUrl);
 
+/** Bild senkrecht spiegeln, Ergebnis als PNG-data:-URL (z. B. Bilder aus LightBurn-Projekten) */
+export async function flipImageV(dataUrl: string): Promise<string> {
+  const img = await decode(dataUrl);
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  const ctx = c.getContext('2d')!;
+  ctx.translate(0, c.height);
+  ctx.scale(1, -1);
+  ctx.drawImage(img, 0, 0);
+  return c.toDataURL('image/png');
+}
+
 /** Bilddaten registrieren. Gleiche Daten ergeben dieselbe ID. */
 export async function addAsset(dataUrl: string): Promise<{ id: string; w: number; h: number }> {
   const id = await hashId(dataUrl);
@@ -116,7 +129,7 @@ function decode(src: string): Promise<HTMLImageElement> {
   });
 }
 
-async function hashId(s: string): Promise<string> {
+export async function hashId(s: string): Promise<string> {
   try {
     const buf = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(s));
     return [...new Uint8Array(buf)].slice(0, 12).map((b) => b.toString(16).padStart(2, '0')).join('');

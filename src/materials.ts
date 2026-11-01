@@ -217,6 +217,65 @@ export function parseLibrary(text: string): MaterialEntry[] {
 }
 
 /**
+ * Eine CutSetting von LightBurn (.clb-Bibliothek oder .lbrn2-Projekt) in Layer-Einstellungen übersetzen.
+ * val liefert den Wert des ersten vorhandenen Felds (Value-Attribut) oder null. LightBurn speichert
+ * Geschwindigkeiten in mm/s, Leistung in %, und lässt Felder mit Standardwert weg.
+ */
+export function lbCutSetting(type: string, imgTag: boolean, val: (...names: string[]) => string | null): { settings: CutSettings; img?: ImageLayer } {
+  const num = (d: number, ...names: string[]) => {
+    const raw = val(...names);
+    const v = Number(raw);
+    return raw === null || !isFinite(v) ? d : v;
+  };
+  const bool = (d: boolean, ...names: string[]) => {
+    const v = val(...names);
+    return v === null ? d : v === '1' || v.toLowerCase() === 'true';
+  };
+  const ty = type.toLowerCase();
+  const isImg = ty === 'image' || imgTag;
+  const mode = ty === 'scan' || ty === 'offset' || ty === 'scan+cut' || isImg ? 'fill' : 'line';
+  const d = defaultCutSettings(mode);
+  const speed = Math.round(num(d.speed / 60, 'speed') * 60 * 100) / 100;
+  const dt = defaultTabs();
+  const settings: CutSettings = {
+    ...d,
+    speed,
+    power: num(d.power, 'maxPower'),
+    minPower: num(d.minPower, 'minPower'),
+    passes: Math.max(1, Math.round(num(d.passes, 'numPasses'))),
+    air: bool(d.air, 'enableAir', 'airAssist', 'air'),
+    kerf: num(d.kerf, 'kerf'),
+    tabs: {
+      ...dt,
+      enabled: bool(dt.enabled, 'enableTabs', 'tabsEnabled', 'useTabs'),
+      size: num(dt.size, 'tabSize'),
+      useCount: !bool(!dt.useCount, 'tabsUseSpacing'),
+      count: Math.max(1, Math.round(num(dt.count, 'tabCount'))),
+      spacing: num(dt.spacing, 'tabSpacing'),
+    },
+    fillStyle: ty === 'offset' ? 'offset' : 'scan',
+    interval: num(d.interval, 'interval'),
+    angle: num(d.angle, 'angle', 'scanAngle'),
+    crossHatch: bool(d.crossHatch, 'crossHatch'),
+    bidirectional: bool(d.bidirectional, 'bidir'),
+    overscan: num(d.overscan, 'overscanPercent'),
+  };
+  if (!isImg) return { settings };
+  const dither: Record<string, DitherMode> = {
+    threshold: 'threshold', ordered: 'ordered', atkinson: 'atkinson', dither: 'floyd', stucki: 'stucki', jarvis: 'jarvis', newsprint: 'newsprint', halftone: 'halftone', sketch: 'sketch', grayscale: 'grayscale',
+  };
+  const di = defaultImageLayer();
+  const img: ImageLayer = {
+    ...di,
+    speed: settings.speed, power: settings.power, minPower: settings.minPower, passes: settings.passes,
+    interval: settings.interval, bidirectional: settings.bidirectional, overscan: settings.overscan, angle: settings.angle,
+    dither: dither[(val('ditherMode') ?? '').toLowerCase()] ?? di.dither,
+    negative: bool(di.negative, 'negativeImage'),
+  };
+  return { settings, img };
+}
+
+/**
  * LightBurn-Bibliothek (.clb, XML): Material → Entry (Thickness, Desc, NoThickTitle) → CutSetting.
  * LightBurn speichert Geschwindigkeiten in mm/s, Leistung in %. Unbekannte Felder werden ignoriert.
  */
@@ -237,34 +296,7 @@ function parseClb(xml: string): MaterialEntry[] {
         }
         return null;
       };
-      const num = (d: number, ...names: string[]) => {
-        const v = Number(val(...names));
-        return val(...names) === null || !isFinite(v) ? d : v;
-      };
-      const bool = (d: boolean, ...names: string[]) => {
-        const v = val(...names);
-        return v === null ? d : v === '1' || v.toLowerCase() === 'true';
-      };
-      const type = (cs.getAttribute('type') ?? 'Cut').toLowerCase();
-      const isImg = type === 'image' || cs.tagName === 'CutSetting_Img';
-      const mode = type === 'scan' || type === 'offset' || isImg ? 'fill' : 'line';
-      const d = defaultCutSettings(mode);
-      const speed = Math.round(num(d.speed / 60, 'speed') * 60 * 100) / 100;
-      const settings: CutSettings = {
-        ...d,
-        speed,
-        power: num(d.power, 'maxPower'),
-        minPower: num(d.minPower, 'minPower'),
-        passes: Math.max(1, Math.round(num(d.passes, 'numPasses'))),
-        air: bool(d.air, 'enableAir', 'airAssist', 'air'),
-        kerf: num(d.kerf, 'kerf'),
-        fillStyle: type === 'offset' ? 'offset' : 'scan',
-        interval: num(d.interval, 'interval'),
-        angle: num(d.angle, 'angle'),
-        crossHatch: bool(d.crossHatch, 'crossHatch'),
-        bidirectional: bool(d.bidirectional, 'bidir'),
-        overscan: num(d.overscan, 'overscanPercent', 'overscan'),
-      };
+      const { settings, img } = lbCutSetting(cs.getAttribute('type') ?? 'Cut', cs.tagName === 'CutSetting_Img', val);
       const thickness = Number(en.getAttribute('Thickness'));
       const e = sanitize({
         material,
@@ -274,19 +306,7 @@ function parseClb(xml: string): MaterialEntry[] {
         settings,
       });
       if (!e) continue;
-      if (isImg) {
-        const dither: Record<string, DitherMode> = {
-          threshold: 'threshold', ordered: 'ordered', atkinson: 'atkinson', dither: 'floyd', stucki: 'stucki', jarvis: 'jarvis', newsprint: 'newsprint', halftone: 'halftone', sketch: 'sketch', grayscale: 'grayscale',
-        };
-        const di = defaultImageLayer();
-        e.img = {
-          ...di,
-          speed: settings.speed, power: settings.power, minPower: settings.minPower, passes: settings.passes,
-          interval: settings.interval, bidirectional: settings.bidirectional, overscan: settings.overscan, angle: settings.angle,
-          dither: dither[(val('ditherMode') ?? '').toLowerCase()] ?? di.dither,
-          negative: bool(di.negative, 'negativeImage'),
-        };
-      }
+      if (img) e.img = img;
       out.push(e);
     }
   }

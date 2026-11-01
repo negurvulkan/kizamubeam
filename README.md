@@ -100,12 +100,13 @@ Updates: Help → Check for Updates looks for a newer release on GitHub (channel
 - History window (tab next to Objects, Window menu): the last changes (up to 200) as a list with names such as “Move”, “Offset” or “Edit text” and the time. A click on a row jumps there, several steps back or forward at once; undone steps are shown greyed out below the current state and can be redone with a click until a new change discards them. Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) still step one at a time. Each MCP call appears as one step named after its tool.
 - Interface in German and English (View → Language). The default follows the system language (other system languages get English), the choice is remembered; the English terms are the ones laser users already know.
 - Light and dark theme (View → Theme, or the button at the far right of the toolbar); the default follows the system. In the dark theme, very dark layer colors are lightened on the workspace.
-- Import (Ctrl+I, drag from the file manager, or Ctrl+V from other programs): images (PNG, JPG, BMP, GIF, WebP, TIFF), SVG and DXF.
+- Import (Ctrl+I, drag from the file manager, or Ctrl+V from other programs): images (PNG, JPG, BMP, GIF, WebP, TIFF), SVG, DXF and LightBurn projects (`.lbrn2`).
   - Images take their size from the file’s resolution (254 DPI if none is given; oversized images are scaled down to the bed).
   - TIFF (including LZW, Deflate, 16 bit) is read with utif and stored as PNG; for multi-page files the first page is used.
   - SVG: paths including arcs, rectangles, circles, ellipses, lines, polygons, `use`, transforms, CSS classes, embedded images; units via `width`/`height` and `viewBox`. Texts are skipped.
   - DXF: LINE, LWPOLYLINE/POLYLINE with arcs, CIRCLE, ARC, ELLIPSE, SPLINE, INSERT (blocks), units from `$INSUNITS`. Individual lines are joined into continuous paths.
   - Colors are mapped to the nearest palette color (= layer), and multiple objects are inserted as a group.
+  - LightBurn projects (`.lbrn2`): File → Open turns them into a new project (save it as `.kzb`), Import inserts them into the current one. Rectangles (with corner radius), ellipses, paths with curves, groups, images (with brightness, contrast, gamma, sharpening) and positions are kept; layers take over name, mode (Line, Fill, Offset Fill, Image), speed (converted from mm/s), power, passes, output, order, fill and image settings. When importing, layers that already hold objects keep their own settings. Text currently arrives as a path from the outlines stored in the file; editable text follows. Manually placed tabs are not imported. Skipped elements are listed in the status bar and in Design Check. Tests: `npm run test:lbrn`.
 - Image editing: images are a separate “Image” entry in the layer table with image mode (Threshold, Ordered, Atkinson, Floyd-Steinberg, Stucki, Jarvis, Newsprint, Halftone, Sketch, Grayscale), line interval/DPI, negative image, bidirectional, overscan, speed and power. “Adjust Image” (brightness, contrast, gamma, sharpening with radius, and denoise) with preview, comparison with the original and a 1:1 crop view. The workspace shows the rasterized result at laser resolution.
   - Newsprint places a round dot in each screen cell (cells per inch, screen angle) whose area matches the cell’s brightness. Sketch turns edges into dark strokes and leaves even areas blank; it is lasered like grayscale, with power between min and max.
   - Image presets in “Adjust Image”: save adjustments and image mode (with threshold, cells and angle) under a name, apply and delete them. Speed, power and line interval belong in the material library.
@@ -190,6 +191,7 @@ UI texts are written in German in the code inside `t('…')` (placeholders in cu
 | `src/trace.ts` | Trace image: marching squares, simplification, curve fitting |
 | `src/centerline.ts` | Trace centerlines: Zhang-Suen thinning, skeleton graph, spur pruning, joining at crossings. Tests: `npm run test:centerline` |
 | `src/importers.ts` | SVG and DXF import |
+| `src/lbrn.ts` | Reading LightBurn projects (`.lbrn2`) |
 | `src/fit.ts` | Curve refitting: polylines to Bézier paths (corner detection, Schneider’s algorithm) |
 | `src/gcode.ts` | Machine output: job from the document (line, fill, images, order), G-code, runtime estimate, frame, Start Here, start/end scripts, device settings. Tests: `npm run test:gcode` |
 | `src/camera.ts` | Camera: access, calibration model (homography and radial distortion, Levenberg-Marquardt), undistortion onto the bed |
