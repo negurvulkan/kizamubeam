@@ -9,7 +9,9 @@ import { openFillDialog, openSaveTemplateDialog, openSeriesDialog, openTemplateL
 import { exportSvg, importFile, importModel, installDropAndPaste, openProject, saveProcessedBitmap, saveProject } from './files';
 import { onMeshReady } from './model3d/store';
 import { assetImage, displayCanvas, onImageReady, outputGrid } from './images';
-import { systemFonts } from './fonts';
+import { onFontListChanged, systemFonts } from './fonts';
+import { fontFavorites } from './fontCatalog';
+import { openFontManager } from './fontManager';
 import { $, evalExpr, f2, h, iconBtn, numInput, sep, setVal } from './dom';
 import { openCircularArrayDialog, openGridArrayDialog } from './arrayDialogs';
 import { openNestDialog } from './nestDialog';
@@ -210,6 +212,7 @@ function buildMenu(ed: Editor) {
       [t('Als SVG exportieren …'), '', () => exportSvg(ed)],
       [t('Bearbeitetes Bild speichern …'), '', () => saveProcessedBitmap(ed)],
       'sep',
+      [t('Schriften …'), '', () => openFontManager(ed)],
       [t('Erweiterungen …'), '', () => openPacksDialog()],
       [t('KI-Agenten (MCP) …'), '', () => openAgentDialog(ed)],
     ]],
@@ -643,14 +646,40 @@ function buildNumbar(ed: Editor) {
 
   // Text
   const fontSel = h('select', { title: t('Schriftart') }) as HTMLSelectElement;
-  for (const f of availableFonts()) fontSel.append(h('option', { value: f }, f));
-  fontSel.addEventListener('change', () => ed.updateTexts({ font: fontSel.value }));
-  systemFonts().then((list) => {
-    if (!list?.length) return;
-    const cur = fontSel.value;
-    fontSel.replaceChildren(...list.map((f) => h('option', { value: f }, f)));
-    fontSel.value = list.includes(cur) ? cur : list[0];
+  // Favoriten (Font-Manager) oben, darunter alle; ganz unten öffnet „Weitere Schriften …“ den Font-Manager
+  const MANAGE = '\u0000manage';
+  let fontNames = availableFonts();
+  let lastFont = fontNames[0] ?? '';
+  const fillFonts = () => {
+    const cur = fontSel.value || lastFont;
+    const lower = new Set(fontNames.map((f) => f.toLowerCase()));
+    const favs = fontFavorites().filter((f) => lower.has(f.toLowerCase()));
+    const opts = (l: string[]) => l.map((f) => h('option', { value: f }, f));
+    fontSel.replaceChildren(
+      ...(favs.length ? [h('optgroup', { label: t('Favoriten') }, ...opts(favs)), h('optgroup', { label: t('Alle Schriften') }, ...opts(fontNames))] : opts(fontNames)),
+      h('option', { value: MANAGE }, t('Weitere Schriften …')),
+    );
+    // Schrift eines Texts, die (noch) fehlt, bleibt sichtbar
+    if (cur && !lower.has(cur.toLowerCase())) fontSel.prepend(h('option', { value: cur }, cur));
+    fontSel.value = cur;
+  };
+  fillFonts();
+  fontSel.addEventListener('change', () => {
+    if (fontSel.value === MANAGE) {
+      fontSel.value = lastFont;
+      void openFontManager(ed);
+      return;
+    }
+    lastFont = fontSel.value;
+    ed.updateTexts({ font: fontSel.value });
   });
+  const loadFontList = () =>
+    systemFonts().then((list) => {
+      if (list?.length) fontNames = list;
+      fillFonts();
+    });
+  void loadFontList();
+  onFontListChanged(() => void loadFontList());
   const fSize = numInput('small', plain(['size'], (v) => v > 0 && ed.updateTexts({ size: v })), t('Schriftgröße (mm)'), formula('size'));
   const fHs = numInput('small', (v) => ed.updateTexts({ hSpace: v }), t('Zeichenabstand (mm)'));
   const fVs = numInput('small', (v) => ed.updateTexts({ vSpace: v }), t('Zeilenabstand (mm)'));
@@ -818,6 +847,7 @@ function buildNumbar(ed: Editor) {
     textProps.classList.toggle('group-disabled', !ts.length && ed.tool !== 'text');
     if (![...fontSel.options].some((o) => o.value === tx.font)) fontSel.append(h('option', { value: tx.font }, tx.font));
     if (document.activeElement !== fontSel) fontSel.value = tx.font;
+    lastFont = tx.font;
     bindField(fSize, 'size', f2(tx.size), (o) => o.shape.kind === 'text');
     setVal(fHs, f2(tx.hSpace));
     setVal(fVs, f2(tx.vSpace));
@@ -980,6 +1010,7 @@ function buildBars(ed: Editor) {
     { id: 'newtemplate', cat: F, icon: 'template', label: t('Neu aus Vorlage …'), run: () => openTemplateLibrary(ed) },
     { id: 'filltemplate', cat: F, icon: 'filltemplate', label: t('Vorlage ausfüllen …'), run: () => openFillDialog(ed) },
     { id: 'packs', cat: F, icon: 'packs', label: t('Erweiterungen …'), run: () => openPacksDialog() },
+    { id: 'fonts', cat: F, icon: 'fonts', short: t('Schriften'), label: t('Schriften: Google Fonts laden, eigene Schriften und Favoriten verwalten'), run: () => openFontManager(ed) },
     { id: 'apps', cat: W, icon: 'apps', label: t('Werkzeugkasten: alle Generatoren und Werkzeuge mit Suche'), run: () => toggleWindow('apps'), on: () => !isHidden('apps') },
     // Knopfgruppen: ein Knopf für die zuletzt benutzte Aktion, der Pfeil daneben zeigt die übrigen
     { id: 'grp:transform', cat: A, label: t('Spiegeln und drehen (Gruppe)'), items: ['mirrorh', 'mirrorv', 'rotccw', 'rotcw'], run: () => {} },

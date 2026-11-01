@@ -1,7 +1,7 @@
 {
   "lang": "de",
   "locale": "de_DE",
-  "version": "1.12.0-beta",
+  "version": "1.13.0-beta",
   "meta": {
     "title": "KizamuBeam – freie Lasersoftware zum Gravieren und Schneiden",
     "description": "Kostenlose Open-Source-Lasersoftware für macOS, Windows und Linux. Entwerfen, Bilder gravieren, Boxen und Zahnräder erzeugen und direkt an FluidNC-, GRBL-, grblHAL-, Marlin- und Smoothieware-Laser senden.",
@@ -29,7 +29,7 @@
     "lang_short": "EN"
   },
   "hero": {
-    "badge": "Neu: Version 1.12.0-beta",
+    "badge": "Neu: Version 1.13.0-beta",
     "title": "Dein Laser. Deine Software. Frei.",
     "subtitle": "KizamuBeam ist Open-Source-Lasersoftware zum Entwerfen, Gravieren und Schneiden – für Diodenlaser mit FluidNC, GRBL & Co. Kostenlos für macOS, Windows und Linux.",
     "cta_primary": "Kostenlos herunterladen",
@@ -57,6 +57,7 @@
         "Linien, Bézierkurven, Rechtecke mit Radius, Ellipsen, Polygone, Sterne und mehrzeiliger Text",
         "Boolesche Operationen, Versatz, Knotenbearbeitung, Trimmen und Fangen an Knoten, Mitten und Schnittpunkten",
         "Text auf Pfad, verschweißte Buchstaben und echte Schrift-Outlines deiner Systemschriften",
+        "Font-Manager: alle Google Fonts mit Vorschau durchsuchen und per Klick laden, eigene TTF/OTF-Dateien, Favoriten – fehlende Schriften eines Projekts werden nachgeladen",
         "Verformen: Text, Formen und Bilder als Bogen, Wölbung, Flagge oder in Perspektive, als saubere Bézierkurven",
         "Raster- und Kreis-Arrays mit Live-Vorschau, mehrseitige Projekte und ein Verlauf zum Zurückspringen",
         "Import von SVG, DXF, Bildern und LightBurn-Projekten (.lbrn2) – Farben landen direkt auf der passenden Ebene",

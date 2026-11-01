@@ -1829,12 +1829,14 @@ dependencies = [
 
 [[package]]
 name = "kizamubeam"
-version = "1.12.0-beta"
+version = "1.13.0-beta"
 dependencies = [
  "dirs",
  "fontdb",
  "getrandom 0.3.4",
  "kizamubeam-core",
+ "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "serialport",
@@ -1847,7 +1849,7 @@ dependencies = [
 
 [[package]]
 name = "kizamubeam-core"
-version = "1.12.0-beta"
+version = "1.13.0-beta"
 dependencies = [
  "rayon",
  "serde",

@@ -1,5 +1,6 @@
 pub mod agent;
 mod fluid;
+mod fonts;
 mod library;
 mod machine;
 mod native;
@@ -9,51 +10,7 @@ mod templates;
 mod updater;
 mod ws;
 
-use std::sync::OnceLock;
 use tauri_plugin_dialog::DialogExt;
-
-/// Systemschriften, beim ersten Zugriff geladen.
-fn font_db() -> &'static fontdb::Database {
-    static DB: OnceLock<fontdb::Database> = OnceLock::new();
-    DB.get_or_init(|| {
-        let mut db = fontdb::Database::new();
-        db.load_system_fonts();
-        db
-    })
-}
-
-/// Namen aller installierten Schriftfamilien, alphabetisch.
-#[tauri::command]
-async fn list_fonts() -> Vec<String> {
-    let mut names: Vec<String> = font_db()
-        .faces()
-        .filter_map(|f| f.families.first().map(|(name, _)| name.clone()))
-        .collect();
-    names.sort_by_key(|n| n.to_lowercase());
-    names.dedup();
-    names
-}
-
-/// Schriftdatei (TTF/OTF) einer Familie im gewünschten Schnitt.
-/// Schriftsammlungen (TTC) liefern wir nicht, weil die Konturbibliothek sie nicht lesen kann.
-#[tauri::command]
-async fn font_data(family: String, bold: bool, italic: bool) -> Result<tauri::ipc::Response, String> {
-    let db = font_db();
-    let families = [fontdb::Family::Name(&family)];
-    let query = fontdb::Query {
-        families: &families,
-        weight: if bold { fontdb::Weight::BOLD } else { fontdb::Weight::NORMAL },
-        style: if italic { fontdb::Style::Italic } else { fontdb::Style::Normal },
-        ..Default::default()
-    };
-    let id = db.query(&query).ok_or_else(|| format!("Schrift „{family}“ nicht gefunden"))?;
-    let data = db
-        .with_face_data(id, |data, index| if index == 0 { Some(data.to_vec()) } else { None })
-        .flatten()
-        .ok_or_else(|| format!("Schrift „{family}“ liegt nur als Sammlung (TTC) vor"))?;
-    Ok(tauri::ipc::Response::new(data))
-}
-
 
 /// Speichert Text über einen nativen Speichern-Dialog. Gibt den Pfad zurück oder None bei Abbruch.
 #[tauri::command]
@@ -212,8 +169,14 @@ pub fn run() {
             pick_files,
             read_file,
             save_binary_file,
-            list_fonts,
-            font_data,
+            fonts::list_fonts,
+            fonts::font_data,
+            fonts::font_installed,
+            fonts::font_catalog,
+            fonts::font_install_google,
+            fonts::font_import,
+            fonts::font_remove,
+            fonts::font_open_folder,
             machine::machine_ports,
             machine::machine_connect,
             machine::machine_disconnect,

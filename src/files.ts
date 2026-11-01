@@ -107,6 +107,8 @@ export async function openProject(ed: Editor) {
         return;
       }
       ed.openInTab(text, tabNameFromPath(name));
+      // Fehlende Schriften von Google Fonts nachladen (mit Rückfrage)
+      void import('./fontManager').then((m) => m.checkProjectFonts(ed));
     } catch (e) {
       alert(t('Datei konnte nicht geöffnet werden: {message}', { message: (e as Error).message }));
     }

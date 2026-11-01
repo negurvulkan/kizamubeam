@@ -161,6 +161,52 @@ const READ_TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'search_google_fonts',
+    title: 'Google Fonts durchsuchen',
+    description:
+      'Freie Schriften von Google Fonts suchen (nach Beliebtheit sortiert). installed = schon nutzbar. Laden mit install_google_font.',
+    tier: Tier.Read,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Teil des Namens, z. B. "slab" oder "Lobster"' },
+        category: { type: 'string', enum: ['all', 'sans', 'serif', 'display', 'handwriting', 'mono'] },
+        limit: { type: 'number', description: 'Höchstens so viele Treffer (Standard 20, max. 100)' },
+      },
+    },
+    run: async (_ed, a) => {
+      const { loadCatalog } = await import('./fontManager');
+      const { searchFonts, styleInfo } = await import('./fontCatalog');
+      const have = new Set(((await systemFonts()) ?? []).map((f) => f.toLowerCase()));
+      const hits = searchFonts(await loadCatalog(), {
+        query: typeof a.query === 'string' ? a.query : '',
+        category: (typeof a.category === 'string' ? a.category : 'all') as never,
+      });
+      const limit = Math.max(1, Math.min(100, Math.round(Number(a.limit) || 20)));
+      return json({
+        total: hits.length,
+        fonts: hits.slice(0, limit).map((f) => ({ family: f.family, category: f.category, ...styleInfo(f), installed: have.has(f.family.toLowerCase()) })),
+      });
+    },
+  },
+  {
+    name: 'install_google_font',
+    title: 'Schrift von Google Fonts laden',
+    description: 'Lädt eine Schriftfamilie von Google Fonts (normal, fett, kursiv, soweit vorhanden) in den Schriftordner der App. Danach als font in create_text nutzbar.',
+    tier: Tier.Edit,
+    inputSchema: { type: 'object', properties: { family: { type: 'string', description: 'Genauer Name wie bei Google Fonts, z. B. "Open Sans"' } }, required: ['family'] },
+    run: async (_ed, a) => {
+      const family = typeof a.family === 'string' ? a.family.trim() : '';
+      if (!family) throw new ToolError('family fehlt');
+      if (!isTauri()) throw new ToolError('Schriften laden geht nur in der Desktop-App');
+      const { loadCatalog, installGoogleFont } = await import('./fontManager');
+      const { findFont } = await import('./fontCatalog');
+      const info = findFont(await loadCatalog().catch(() => []), family);
+      const families = await installGoogleFont(info?.family ?? family, info);
+      return json({ installed: families });
+    },
+  },
+  {
     name: 'render_preview',
     title: 'Arbeitsfläche als Bild',
     description:
