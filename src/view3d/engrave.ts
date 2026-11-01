@@ -54,7 +54,7 @@ function pageMarks(ed: Editor, page: number): Mark[] {
     else if (s.kind === 'text') kind = L.mode === 'fill' ? 'text-fill' : 'text-line';
     else if (L.mode === 'fill') kind = 'fill';
     // Auf Schnitt-Layern sind geschlossene Formen Schnitte (Platten oder Löcher); offene Linien werden graviert
-    else if (s.kind === 'path' && s.subs.some((sp) => !sp.closed)) kind = 'line';
+    else if (s.kind === 'path' && (s.mark || s.subs.some((sp) => !sp.closed))) kind = 'line';
     if (!kind) continue;
     const b = boundsOf([o], mul(m, inv(o.m)));
     if (!b) continue;

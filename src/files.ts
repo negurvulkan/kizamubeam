@@ -1,5 +1,8 @@
 // Dateien öffnen/speichern: in Tauri über native Dialoge, im Browser per Download/Dateiauswahl.
 import type { Editor } from './editor';
+import { parseMeshFile } from './model3d/mesh';
+import { addMesh } from './model3d/store';
+import { openGenDialog } from './generators/dialog';
 import { IDENT, Obj, pageName, TextShape, visibleLeaves, PALETTE } from './model';
 import { boundsOf, subsToD, shapeSubs, textLayout, textOutline } from './geom';
 import { assetUrl, flipImageV, hashId, processedPng, readDpi, registerAsset } from './images';
@@ -217,7 +220,8 @@ export async function exportSvg(ed: Editor) {
 
 const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp', 'tif', 'tiff'];
 /** Was Importieren annimmt; .kza = Eintrag der Bibliothek */
-export const IMPORT_EXT = ['svg', 'dxf', 'lbrn2', 'lbrn', ...IMAGE_EXT, 'kza'];
+export const MODEL_EXT = ['stl', 'obj'];
+export const IMPORT_EXT = ['svg', 'dxf', 'lbrn2', 'lbrn', ...IMAGE_EXT, ...MODEL_EXT, 'kza'];
 const MIME: Record<string, string> = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', bmp: 'image/bmp', gif: 'image/gif', webp: 'image/webp',
 };
@@ -253,6 +257,10 @@ async function parseFile(name: string, bytes: Uint8Array, bedH: () => number): P
 
 /** Dateiinhalt anhand von Endung bzw. Dateikopf importieren; Fehler werden geworfen */
 export async function importBytesOrThrow(ed: Editor, name: string, bytes: Uint8Array) {
+  if (/\.(stl|obj)$/i.test(name)) {
+    openModel(ed, name, bytes);
+    return;
+  }
   if (/\.kza$/i.test(name)) {
     const { insertAssetFile } = await import('./libraryPanel');
     await insertAssetFile(ed, new TextDecoder().decode(bytes));
@@ -365,6 +373,7 @@ export async function importFile(ed: Editor) {
         [t('Bilder'), IMAGE_EXT],
         [t('Vektoren (SVG, DXF)'), ['svg', 'dxf']],
         [t('LightBurn-Projekte'), ['lbrn2', 'lbrn']],
+        [t('3D-Modelle (STL, OBJ)'), MODEL_EXT],
         [t('Bibliotheks-Einträge'), ['kza']],
       ],
     });
@@ -379,6 +388,44 @@ export async function importFile(ed: Editor) {
   input.onchange = async () => {
     const f = input.files?.[0];
     if (f) await importBytes(ed, f.name, new Uint8Array(await f.arrayBuffer()));
+  };
+  input.click();
+}
+
+/**
+ * 3D-Modell einlesen und den Dialog des Schichtmodells öffnen. Das Netz kommt in den Modell-Speicher; die Teile
+ * tragen nur seine Kennung. Fehler werden geworfen.
+ */
+export function openModel(ed: Editor, name: string, bytes: Uint8Array) {
+  const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const mesh = parseMeshFile(name, buf);
+  const id = addMesh(mesh);
+  openGenDialog(ed, 'stack', undefined, { model: id, name: name.replace(/\.[^.]*$/, '') });
+}
+
+/** Datei → Importieren → 3D-Modell …: nur STL und OBJ anbieten */
+export async function importModel(ed: Editor) {
+  const run = async (name: string, bytes: Uint8Array) => {
+    try {
+      openModel(ed, name, bytes);
+    } catch (e) {
+      alert(t('{name} konnte nicht importiert werden: {message}', { name, message: (e as Error).message }));
+    }
+  };
+  if (isTauri()) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const path = await invoke<string | null>('pick_file', { filters: [[t('3D-Modelle (STL, OBJ)'), MODEL_EXT]] });
+    if (!path) return;
+    const buf = await invoke<ArrayBuffer>('read_file', { path });
+    await run(path.split(/[\\/]/).pop() ?? path, new Uint8Array(buf));
+    return;
+  }
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = MODEL_EXT.map((e) => '.' + e).join(',');
+  input.onchange = async () => {
+    const f = input.files?.[0];
+    if (f) await run(f.name, new Uint8Array(await f.arrayBuffer()));
   };
   input.click();
 }

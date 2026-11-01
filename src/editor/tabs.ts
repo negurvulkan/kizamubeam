@@ -1,6 +1,7 @@
 // Editor: mehrere Projekte als Tabs. Das aktive Projekt liegt wie bisher in doc, history und view;
 // die übrigen Tabs halten ihren Stand (Dokument, Auswahl, Rückgängig-Verlauf, Ansicht) in ProjectTab.
 import { allObjs, bumpIds, Doc, loadDoc, newDoc, Obj } from '../model';
+import { restoreMeshes } from '../model3d/store';
 import { History } from '../history';
 import { restoreAssets } from '../images';
 import { t } from '../i18n';
@@ -200,6 +201,7 @@ export class EditorTabs {
         bumpIds(allObjs(doc));
         migrate(allObjs(doc));
         restoreAssets(this.assetIds(allObjs(doc)));
+        restoreMeshes(this.meshIds(allObjs(doc)));
         tabs.push(makeTab(doc, typeof raw.name === 'string' ? raw.name : null, !!raw.changed));
       } catch {
         /* beschädigter Tab: weglassen */

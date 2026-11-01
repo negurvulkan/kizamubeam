@@ -5,7 +5,7 @@ import { wrapWidth } from '../fonts';
 import { buildSnapSet, findSnap } from '../snap';
 import { t } from '../i18n';
 import type { Editor } from '../editor';
-import { genLeaves } from './generators';
+import { genLeaves, isMarkGroup } from './generators';
 import { HINGE_HINT_FIRST, HINGE_HINT_SECOND, RULER, SNAP_PX, TOOL_HINTS } from './shared';
 
 const ROTATE_CURSOR =
@@ -630,6 +630,10 @@ export class EditorPointer {
       } else if (o && o.shape.kind === 'gen') {
         this.setSel([o]);
         this.onGenEdit?.(o);
+      } else if (o && o.shape.kind === 'group' && isMarkGroup(o)) {
+        // Teil mit gravierter Nummer (z. B. Schichtmodell): Parameter des Teils öffnen
+        this.setSel([o]);
+        this.onGenEdit?.(o.shape.children.find((c) => c.shape.kind === 'gen')!);
       } else if (o && o.shape.kind !== 'group') {
         this.setSel([o]);
         this.setTool('node');

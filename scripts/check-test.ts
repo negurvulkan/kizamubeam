@@ -188,6 +188,8 @@ test('Import-Hinweis: ein Befund je Hinweis, Korrektur blendet ihn aus', () => {
 
 test('Generatoren mit Standardwerten: keine Befunde außer den feinen GT2-Zähnen', () => {
   for (const g of GENERATORS) {
+    // Generatoren mit eingelesenen Daten (Schichtmodell: 3D-Modell) haben ohne Eingabe keine Teile
+    if (g.schema.some((s) => s.type === 'data')) continue;
     const r = buildGen(g, defaultParams(g));
     assert.ok(r.parts.length, g.id);
     const objs = r.parts.map((p) => obj(p.shape, 20 + (p.at?.x ?? 0), 20 + (p.at?.y ?? 0)));

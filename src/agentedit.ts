@@ -192,7 +192,7 @@ function paramArg(a: Args): Record<string, unknown> {
 /** Beschreibung aller Generatoren und ihrer Parameter für KI-Agenten */
 function genDocs(): string {
   return GENERATORS.map((g) => {
-    const ps = g.schema.map((s) => {
+    const ps = g.schema.filter((s) => s.type !== 'data').map((s) => {
       const range = s.type === 'enum' ? s.options.map(([k]) => k).join('|') : s.type === 'bool' ? 'true|false' : `${s.type === 'int' ? 'ganzzahlig ' : ''}${s.min}–${s.max}`;
       return `  ${s.key} (${s.label}; ${range}; Standard ${s.def})${s.title ? `: ${s.title}` : ''}`;
     });

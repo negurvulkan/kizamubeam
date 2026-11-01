@@ -77,6 +77,8 @@ export function collectScene(ed: Editor, th: number, marks = true, fallback: Mat
   const flat = (o: Obj, m: Obj['m'], thick: number) => {
     const L = ed.layer(o.layer);
     if (L.mode !== 'line' || o.shape.kind === 'text' || o.shape.kind === 'image') return;
+    // Beschriftung eines Generator-Teils (Schichtnummer) ist Gravur, auch wenn sie geschlossen ist
+    if (o.shape.kind === 'path' && o.shape.mark) return;
     const paths = region({ ...o, m });
     if (!paths.length) return;
     const f = flats.get(thick) ?? { paths: [], names: [] };
