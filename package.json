@@ -36,7 +36,8 @@
     "test:workpieces": "node scripts/run-ts.mjs scripts/workpieces-test.ts",
     "test:bgremove": "node scripts/run-ts.mjs scripts/bgremove-test.ts",
     "test:centerline": "node scripts/run-ts.mjs scripts/centerline-test.ts",
-    "test:textwrap": "node scripts/run-ts.mjs scripts/textwrap-test.ts"
+    "test:textwrap": "node scripts/run-ts.mjs scripts/textwrap-test.ts",
+    "test:apps": "node scripts/run-ts.mjs scripts/apps-test.ts"
   },
   "license": "GPL-3.0-or-later",
   "devDependencies": {
