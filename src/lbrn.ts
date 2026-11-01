@@ -11,7 +11,7 @@
 import { lbCutSetting } from './materials';
 import { t, tn } from './i18n';
 import {
-  DEFAULT_ADJUST, defaultLayer, IDENT, ImageAdjust, inv, Layer, Mat, mul, newId, Node, Obj, SubPath, TextShape, translate, VarText,
+  DEFAULT_ADJUST, defaultLayer, defaultSubLayer, IDENT, ImageAdjust, inv, Layer, Mat, mul, newId, Node, Obj, SubLayer, SubPath, TextShape, translate, VarText,
 } from './model';
 import { boundsOf } from './geom';
 import { transformSubs } from './importers';
@@ -440,8 +440,33 @@ export async function convertLbrn(text: string, opts: LbrnOptions): Promise<Lbrn
     if (img) L.img = img;
     else {
       Object.assign(L, settings);
-      if ((cs.attrs.type ?? '').toLowerCase() === 'scan+cut') note('scancut');
+      // Sub-Layer: weitere Bearbeitungen derselben Formen (<SubLayer type="Cut"> mit eigenen Feldern)
+      const subs: SubLayer[] = [];
+      for (const sl of cs.children) {
+        if (sl.tag !== 'SubLayer') continue;
+        const sv = (...names: string[]) => {
+          for (const nm of names) {
+            const v = child(sl, nm)?.attrs.Value;
+            if (v !== undefined && v !== '') return v;
+          }
+          return null;
+        };
+        const ty = (sl.attrs.type ?? 'Cut').toLowerCase();
+        if (ty !== 'cut' && ty !== 'scan' && ty !== 'offset') {
+          note('sublayer');
+          continue;
+        }
+        const { air: _a, look: _l, sub: _s, ...rest } = lbCutSetting(sl.attrs.type ?? 'Cut', false, sv).settings;
+        const out = sv('doOutput');
+        subs.push({ ...rest, output: out === null || out === '1' || out.toLowerCase() === 'true' });
+      }
+      // Ältere Dateien: „Scan+Cut“ = füllen, danach mit denselben Werten den Umriss schneiden
+      if ((cs.attrs.type ?? '').toLowerCase() === 'scan+cut' && !subs.length) {
+        subs.push({ ...defaultSubLayer('line'), speed: settings.speed, power: settings.power, minPower: settings.minPower, passes: settings.passes, kerf: settings.kerf });
+      }
+      L.sub = subs.length ? subs : undefined;
     }
+    if (!img && (L.zOffset || L.zStep || L.sub?.some((s) => s.zOffset || s.zStep))) note('zaxis');
   }
 
   const verts = new Map<string, Vert[]>();
@@ -609,7 +634,8 @@ export async function convertLbrn(text: string, opts: LbrnOptions): Promise<Lbrn
     if (k === 'image') res.notes.push(tn('{n} Bild ließ sich nicht lesen.', '{n} Bilder ließen sich nicht lesen.', n));
     else if (k === 'path') res.notes.push(tn('{n} Pfad ohne Punkte übersprungen.', '{n} Pfade ohne Punkte übersprungen.', n));
     else if (k === 'tabs') res.notes.push(t('Von Hand gesetzte Haltestege werden nicht übernommen.'));
-    else if (k === 'scancut') res.notes.push(t('Layer mit „Scan+Cut“ werden nur gefüllt.'));
+    else if (k === 'sublayer') res.notes.push(t('Sub-Layer mit unbekannter Art übersprungen.'));
+    else if (k === 'zaxis') res.notes.push(t('Z-Versatz übernommen: Richtung vor dem Lasern prüfen (positiv = Fokus tiefer).'));
     else if (k.startsWith('type:')) res.notes.push(tn('{n} Element vom Typ „{type}“ übersprungen.', '{n} Elemente vom Typ „{type}“ übersprungen.', n, { type: k.slice(5) }));
   }
   return res;

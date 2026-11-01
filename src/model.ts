@@ -395,15 +395,91 @@ export interface CutSettings {
   bidirectional: boolean;
   /** Füllen: Überfahrweg in % der Geschwindigkeit */
   overscan: number;
+  /** Nur Linie: Perforation (gestrichelt schneiden) */
+  perf: PerfSettings;
+  /** Nur Linie, geschlossene Formen: Anschnitt (Lead-In), Auslauf (Lead-Out) und Überschnitt */
+  lead: LeadSettings;
+  /** Nur Linie: Leistung in Ecken auf Min. Leistung absenken */
+  ramp: RampSettings;
+  /** Z-Versatz in mm beim ersten Durchgang, positiv = Fokus tiefer ins Material (braucht eine Z-Achse am Gerät) */
+  zOffset: number;
+  /** Je weiterem Durchgang um so viele mm tiefer fokussieren */
+  zStep: number;
+  /** Sub-Layer: weitere Bearbeitungen derselben Formen nach diesem Layer (z. B. erst füllen, dann ausschneiden) */
+  sub?: SubLayer[];
   /** Aussehen des Materials in der 3D-Ansicht (Farbe, Textur, Gravurdarstellung); fehlt = automatisch */
   look?: MaterialLook;
 }
 
 export type FillStyle = 'scan' | 'offset';
 
+export interface PerfSettings {
+  enabled: boolean;
+  /** Geschnittene Strecke in mm */
+  on: number;
+  /** Lücke in mm */
+  off: number;
+}
+
+export interface LeadSettings {
+  leadIn: boolean;
+  leadOut: boolean;
+  /** Länge von Anschnitt und Auslauf in mm */
+  length: number;
+  /** Gerade: Winkel zur Kontur in Grad (90 = senkrecht); Bogen: Bogenwinkel */
+  angle: number;
+  /** Bogen statt Gerade */
+  arc: boolean;
+  /** Überschnitt: nach dem Schließen so viele mm weiter der Kontur folgen */
+  overcut: number;
+}
+
+export interface RampSettings {
+  enabled: boolean;
+  /** Länge der Rampe vor und nach der Ecke in mm */
+  length: number;
+  /** Ecken ab diesem Richtungswechsel in Grad */
+  angle: number;
+  /** Auch am Anfang und Ende jedes Schnitts */
+  ends: boolean;
+}
+
+/** Sub-Layer: eigene Bearbeitung derselben Formen; Air Assist und Aussehen gelten vom Layer */
+export type SubLayer = Omit<CutSettings, 'air' | 'look' | 'sub'> & { output: boolean };
+
 export const CUT_KEYS: (keyof CutSettings)[] = [
-  'mode', 'speed', 'power', 'minPower', 'passes', 'air', 'kerf', 'tabs', 'fillStyle', 'interval', 'angle', 'crossHatch', 'bidirectional', 'overscan', 'look',
+  'mode', 'speed', 'power', 'minPower', 'passes', 'air', 'kerf', 'tabs', 'fillStyle', 'interval', 'angle', 'crossHatch', 'bidirectional', 'overscan',
+  'perf', 'lead', 'ramp', 'zOffset', 'zStep', 'sub', 'look',
 ];
+
+/** Felder eines Sub-Layers (alles außer Air Assist, Aussehen und weiteren Sub-Layern) */
+const SUB_KEYS = CUT_KEYS.filter((k) => k !== 'air' && k !== 'look' && k !== 'sub') as (keyof SubLayer)[];
+
+export const defaultPerf = (): PerfSettings => ({ enabled: false, on: 1, off: 1 });
+export const defaultLead = (): LeadSettings => ({ leadIn: false, leadOut: false, length: 2, angle: 90, arc: false, overcut: 0 });
+export const defaultRamp = (): RampSettings => ({ enabled: false, length: 1, angle: 45, ends: false });
+
+export function defaultSubLayer(mode: LayerMode = 'line'): SubLayer {
+  const d = defaultCutSettings(mode) as Partial<CutSettings>;
+  delete d.air;
+  return { ...(d as SubLayer), output: true };
+}
+
+/** Fehlende Felder eines Sub-Layers auffüllen (ältere Dateien, Import) */
+function normalizeSub(s: SubLayer): SubLayer {
+  const d = defaultSubLayer(s.mode === 'fill' ? 'fill' : 'line');
+  for (const k of SUB_KEYS) if (s[k] === undefined) (s as unknown as Record<string, unknown>)[k] = d[k];
+  fillNested(s);
+  if (s.output === undefined) s.output = true;
+  return s;
+}
+
+function fillNested(s: Pick<CutSettings, 'tabs' | 'perf' | 'lead' | 'ramp'>) {
+  s.tabs = { ...defaultTabs(), ...s.tabs };
+  s.perf = { ...defaultPerf(), ...s.perf };
+  s.lead = { ...defaultLead(), ...s.lead };
+  s.ramp = { ...defaultRamp(), ...s.ramp };
+}
 
 export function defaultTabs(): TabSettings {
   return { enabled: false, size: 0.5, useCount: true, count: 4, spacing: 50, skipInner: true };
@@ -425,6 +501,11 @@ export function defaultCutSettings(mode: LayerMode = 'line'): CutSettings {
     crossHatch: false,
     bidirectional: true,
     overscan: 2.5,
+    perf: defaultPerf(),
+    lead: defaultLead(),
+    ramp: defaultRamp(),
+    zOffset: 0,
+    zStep: 0,
   };
 }
 
@@ -450,12 +531,21 @@ export interface Layer extends CutSettings {
   locked?: boolean;
 }
 
+/** Schneidet der Layer Linien (selbst im Modus Linie oder über einen eingeschalteten Sub-Layer)? */
+export const isCutLayer = (L: Layer) => L.mode === 'line' || !!L.sub?.some((s) => s.output && s.mode === 'line');
+
 /** Ältere Dateien kennen nicht alle Einstellungen: fehlende mit Standardwerten auffüllen */
 export function normalizeLayer(L: Layer): Layer {
-  if (L.tabs && L.fillStyle !== undefined) return L;
+  if (L.tabs && L.fillStyle !== undefined && L.ramp && L.zStep !== undefined && (!L.sub || L.sub.every((s) => s.ramp && s.output !== undefined))) return L;
+  return normalizeCut(L);
+}
+
+/** Fehlende Bearbeitungseinstellungen mit Standardwerten auffüllen (ältere Dateien, Material-Bibliotheken, Import) */
+export function normalizeCut<T extends CutSettings>(L: T): T {
   const d = defaultCutSettings(L.mode);
-  for (const k of CUT_KEYS) if (L[k] === undefined) (L as unknown as Record<string, unknown>)[k] = d[k];
-  L.tabs = { ...defaultTabs(), ...L.tabs };
+  for (const k of CUT_KEYS) if (L[k] === undefined && k !== 'sub' && k !== 'look') (L as unknown as Record<string, unknown>)[k] = d[k];
+  fillNested(L);
+  if (L.sub !== undefined) L.sub = Array.isArray(L.sub) && L.sub.length ? L.sub.map(normalizeSub) : undefined;
   return L;
 }
 

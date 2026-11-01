@@ -1,7 +1,7 @@
 {
   "lang": "de",
   "locale": "de_DE",
-  "version": "1.10.0-beta",
+  "version": "1.11.0-beta",
   "meta": {
     "title": "KizamuBeam – freie Lasersoftware zum Gravieren und Schneiden",
     "description": "Kostenlose Open-Source-Lasersoftware für macOS, Windows und Linux. Entwerfen, Bilder gravieren, Boxen und Zahnräder erzeugen und direkt an FluidNC-, GRBL-, grblHAL-, Marlin- und Smoothieware-Laser senden.",
@@ -29,7 +29,7 @@
     "lang_short": "EN"
   },
   "hero": {
-    "badge": "Neu: Version 1.10.0-beta",
+    "badge": "Neu: Version 1.11.0-beta",
     "title": "Dein Laser. Deine Software. Frei.",
     "subtitle": "KizamuBeam ist Open-Source-Lasersoftware zum Entwerfen, Gravieren und Schneiden – für Diodenlaser mit FluidNC, GRBL & Co. Kostenlos für macOS, Windows und Linux.",
     "cta_primary": "Kostenlos herunterladen",
@@ -112,6 +112,7 @@
         "Serie aus Tabelle oder CSV: jede Zeile wird eine fertige Kopie, Tabelle direkt im Dialog bearbeiten",
         "QR-Codes (Link, WLAN, Visitenkarte), Strichcodes (Code 128, EAN, UPC, Code 39, ITF) und variabler Text mit Seriennummer, Datum und CSV-Spalten",
         "Bibliothek mit 400 mitgelieferten Motiven und Designelementen (Tiere, Pflanzen, Feste, Rahmen, Bordüren, Ornamente …) und Platz für eigene – mit Vorschau und Suche, per Doppelklick oder Ziehen einfügen",
+        "Schnitt-Einstellungen je Layer mit Sub-Layern, Perforation, Anschnitt/Auslauf, Überschnitt, Leistungsrampe in Ecken und Z je Durchgang",
         "Materialbibliothek für Schneid- und Bildeinstellungen; LightBurn-Bibliotheken (.clb) lassen sich importieren",
         "Werkzeugkasten: alle Generatoren und Werkzeuge als Kacheln mit Suche auf Deutsch und Englisch, Favoriten, zuletzt benutzte und Vorlagen aus Erweiterungen"
       ]

@@ -1,7 +1,7 @@
 // Maschinenausgabe: aus dem Dokument einen Job berechnen (Linien, Füllen, Bilder), G-Code schreiben,
 // Laufzeit schätzen und Rahmenfahrten erzeugen. Alles in Maschinenkoordinaten (mm, Ursprung unten links, y nach oben).
 import ClipperLib from 'clipper-lib';
-import { apply, Doc, ImageLayer, ImageShape, inv, isGrayMode, Layer, visibleLeaves, Mat, mul, normalizeLayer, Obj, Pt, SubPath, TabSettings } from './model';
+import { apply, CutSettings, Doc, ImageLayer, ImageShape, inv, isGrayMode, Layer, LeadSettings, visibleLeaves, Mat, mul, normalizeLayer, Obj, PerfSettings, Pt, RampSettings, SubLayer, SubPath, TabSettings } from './model';
 import { bezierPt, segments, shapeSubs } from './geom';
 import { loadFont, textToSubs } from './fonts';
 import { nativeScanLines, outputGrid, processImage } from './images';
@@ -148,6 +148,10 @@ export interface Device {
   agentMaxPower: number;
   agentMinSpeed: number;
   rotary: Rotary;
+  /** Motorische Z-Achse (Fokus) vorhanden: Layer dürfen den Fokus versetzen (Z-Versatz, tiefer je Durchgang) */
+  zAxis: boolean;
+  /** Z+ fährt Richtung Material (z. B. Tisch hebt sich); Standard: Z+ fährt den Kopf nach oben */
+  zFlip: boolean;
 }
 
 export const DEFAULT_DEVICE: Device = {
@@ -186,6 +190,8 @@ export const DEFAULT_DEVICE: Device = {
   agentMaxPower: 100,
   agentMinSpeed: 0,
   rotary: DEFAULT_ROTARY,
+  zAxis: false,
+  zFlip: false,
 };
 
 /**
@@ -381,6 +387,7 @@ export function rotaryMoves(mv: Moves, d: Device, box: Box | null = null, t?: Fl
         while (n < 1000 && worst(n) > TAPER_TOL) n = Math.min(1000, Math.ceil(n * 1.25));
       }
     }
+    out.zCur = mv.z[i];
     for (let j = 1; j <= n; j++) {
       const u = j / n,
         qx = sx + (x - sx) * u,
@@ -420,6 +427,10 @@ export class Moves {
   f = new Float32Array(1024);
   /** Layer-Index; Int16, weil der Materialtest bis zu 400 eigene Testlayer anlegt */
   layer = new Int16Array(1024);
+  /** Z-Versatz in mm gegenüber der Höhe beim Start (positiv = Fokus tiefer), gilt ab dieser Bewegung */
+  z = new Float32Array(1024);
+  /** Z-Versatz für die folgenden push-Aufrufe */
+  zCur = 0;
   constructor(public x0 = 0, public y0 = 0) {}
   push(x: number, y: number, f: number, s: number, layer: number) {
     if (this.n === this.x.length) {
@@ -433,8 +444,10 @@ export class Moves {
       this.s = grow(this.s);
       this.f = grow(this.f);
       this.layer = grow(this.layer);
+      this.z = grow(this.z);
     }
     const i = this.n++;
+    this.z[i] = this.zCur;
     this.x[i] = x;
     this.y[i] = y;
     this.f[i] = f;
@@ -459,9 +472,13 @@ export function startHere(mv: Moves, i: number, frac: number): Moves {
   const ax = i ? mv.x[i - 1] : mv.x0,
     ay = i ? mv.y[i - 1] : mv.y0;
   const f = mv.f[i] > 0 ? Math.min(1, Math.max(0, frac)) : 1;
+  out.zCur = mv.z[i];
   out.push(ax + (mv.x[i] - ax) * f, ay + (mv.y[i] - ay) * f, 0, 0, mv.layer[i]);
   if (f < 1) out.push(mv.x[i], mv.y[i], mv.f[i], mv.s[i], mv.layer[i]);
-  for (let k = i + 1; k < mv.n; k++) out.push(mv.x[k], mv.y[k], mv.f[k], mv.s[k], mv.layer[k]);
+  for (let k = i + 1; k < mv.n; k++) {
+    out.zCur = mv.z[k];
+    out.push(mv.x[k], mv.y[k], mv.f[k], mv.s[k], mv.layer[k]);
+  }
   return out;
 }
 
@@ -476,7 +493,7 @@ export function sameMoves(a: Moves, b: Moves, offset: Pt): boolean {
   if (a.n !== b.n) return false;
   const e = 1e-6;
   for (let i = 0; i < a.n; i++)
-    if (a.f[i] !== b.f[i] || a.s[i] !== b.s[i] || a.layer[i] !== b.layer[i] || Math.abs(a.x[i] + offset.x - b.x[i]) > e || Math.abs(a.y[i] + offset.y - b.y[i]) > e) return false;
+    if (a.f[i] !== b.f[i] || a.s[i] !== b.s[i] || a.layer[i] !== b.layer[i] || a.z[i] !== b.z[i] || Math.abs(a.x[i] + offset.x - b.x[i]) > e || Math.abs(a.y[i] + offset.y - b.y[i]) > e) return false;
   return true;
 }
 
@@ -551,6 +568,8 @@ interface Poly {
   off?: Uint8Array;
   /** Startpunkt und Richtung vom Nutzer gesetzt: die Optimierung beginnt hier und kehrt nicht um */
   fixed?: boolean;
+  /** Loch (liegt in einer ungeraden Zahl anderer Formen): Anschnitt und Auslauf liegen innen */
+  hole?: boolean;
 }
 
 const FLATTEN_TOL = 0.01;
@@ -702,7 +721,7 @@ function orderPolys(polys: Poly[], from: Pt): Poly[] {
     for (const c of containers[best]) pending[c]--;
     const p = polys[best];
     let q = p.closed && bestIdx ? startAt(p, bestIdx) : p;
-    if (bestRev) q = { pts: [...q.pts].reverse(), closed: false };
+    if (bestRev) q = { pts: [...q.pts].reverse(), closed: false, ...(q.off ? { off: q.off.slice().reverse() } : {}) };
     out.push(q);
     const pts = q.pts;
     const last = p.closed ? pts[0] : pts[pts.length - 1];
@@ -715,11 +734,11 @@ const midOf = (b: Box): Pt => ({ x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 });
 /** Geschlossene Form ab Punkt k beginnen lassen (Haltestege wandern mit) */
 function startAt(p: Poly, k: number): Poly {
   const pts = p.pts.slice(k).concat(p.pts.slice(0, k));
-  if (!p.off) return { pts, closed: p.closed, fixed: p.fixed };
+  if (!p.off) return { pts, closed: p.closed, fixed: p.fixed, hole: p.hole };
   const off = new Uint8Array(p.off.length);
   off.set(p.off.subarray(k));
   off.set(p.off.subarray(0, k), p.off.length - k);
-  return { pts, closed: p.closed, off, fixed: p.fixed };
+  return { pts, closed: p.closed, off, fixed: p.fixed, hole: p.hole };
 }
 
 // ---------- Kerf und Haltestege ----------
@@ -857,7 +876,7 @@ export function addTabs(p: Poly, T: TabSettings): Poly {
     }
     off.push(inTab((last + d1) / 2) ? 1 : 0);
   }
-  return { pts, closed: true, off: Uint8Array.from(off), fixed: p.fixed };
+  return { pts, closed: true, off: Uint8Array.from(off), fixed: p.fixed, hole: p.hole };
 }
 
 /** Haltestege für alle geschlossenen Formen eines Layers; innere Formen auf Wunsch auslassen */
@@ -1054,6 +1073,304 @@ function rotatePolys(polys: Poly[], a: number): Poly[] {
 
 const FLIP = (h: number): Mat => [1, 0, 0, -1, 0, h];
 
+/** Eine Bearbeitung eines Layers: der Layer selbst oder ein Sub-Layer */
+type CutEntry = Omit<CutSettings, 'air' | 'look' | 'sub'>;
+
+/** Bearbeitungen eines Layers in Ausgabereihenfolge: erst der Layer, dann seine eingeschalteten Sub-Layer */
+const entriesOf = (L: Layer): CutEntry[] => [L, ...(L.sub ?? []).filter((s: SubLayer) => s.output)];
+
+/** Bewegungen einer Bearbeitung; pass(p) setzt vor jedem Durchgang den Z-Versatz */
+function emitEntry(mv: Moves, e: CutEntry, polys: Poly[], li: number, flip: { v: boolean }, pass: (p: number) => void, optimize: boolean) {
+  const s = e.power / 100;
+  const passes = Math.max(1, e.passes);
+  if (e.mode === 'fill' && e.fillStyle === 'offset') {
+    const rings = offsetFillRings(polys, Math.max(0.01, e.interval), { x: mv.lastX(), y: mv.lastY() });
+    for (let p = 0; p < passes; p++) {
+      pass(p);
+      for (const r of rings) {
+        mv.push(r.pts[0].x, r.pts[0].y, 0, 0, li);
+        for (let i = 1; i < r.pts.length; i++) mv.push(r.pts[i].x, r.pts[i].y, e.speed, s, li);
+        mv.push(r.pts[0].x, r.pts[0].y, e.speed, s, li);
+      }
+    }
+    return;
+  }
+  if (e.mode === 'fill') {
+    // Zeilen im gedrehten System berechnen und beim Ausgeben zurückdrehen; Kreuzschraffur = zweite Richtung um 90° versetzt
+    const angles = [e.angle, ...(e.crossHatch ? [e.angle + 90] : [])].map((a) => (a * Math.PI) / 180);
+    const sets = angles.map((a) => ({ a, lines: fillLines(rotatePolys(polys, -a), Math.max(0.01, e.interval), s) }));
+    const ov = (Math.max(0, e.overscan) / 100) * (e.speed / 60);
+    for (let p = 0; p < passes; p++) {
+      pass(p);
+      for (const st of sets) emitScanlines(mv, st.lines, { speed: e.speed, bidirectional: e.bidirectional, overscan: ov, layer: li, angle: st.a }, flip);
+    }
+    return;
+  }
+  const lead = e.lead.leadIn || e.lead.leadOut || e.lead.overcut > 0 ? e.lead : null;
+  if (lead) markHoles(polys);
+  let cuts = e.tabs.enabled ? withTabs(polys, e.tabs) : polys;
+  if (e.perf.enabled) cuts = cuts.map((p) => perforate(p, e.perf));
+  const ramp = e.ramp.enabled && e.ramp.length > 0 && e.minPower < e.power ? e.ramp : null;
+  const sMin = Math.max(0, e.minPower) / 100;
+  for (let p = 0; p < passes; p++) {
+    pass(p);
+    const order = optimize ? orderPolys(cuts, { x: mv.lastX(), y: mv.lastY() }) : cuts;
+    for (let poly of order) {
+      // Nicht in einem Steg beginnen, sonst fährt der Laser ihn zuerst ohne Leistung ab
+      if (poly.off?.[0]) poly = startAt(poly, Math.max(0, poly.off.indexOf(0)));
+      const path = cutPath(poly, lead);
+      if (path.pts.length < 2) continue;
+      mv.push(path.pts[0].x, path.pts[0].y, 0, 0, li);
+      if (ramp) {
+        const r = rampPath(path, s, sMin, ramp);
+        for (let i = 1; i < r.pts.length; i++) mv.push(r.pts[i].x, r.pts[i].y, e.speed, r.s[i - 1], li);
+      } else for (let i = 1; i < path.pts.length; i++) mv.push(path.pts[i].x, path.pts[i].y, e.speed, path.off[i - 1] ? 0 : s, li);
+    }
+  }
+}
+
+/** Schnittweg einer Form als Punktfolge: off[k] = 1 heißt, Strecke k (pts[k] → pts[k+1]) ohne Laser */
+interface CutPath {
+  pts: Pt[];
+  off: number[];
+}
+
+/** Doppelter Flächeninhalt mit Vorzeichen (positiv = gegen den Uhrzeigersinn bei y nach oben) */
+function signedArea(pts: Pt[]): number {
+  let a = 0;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) a += (pts[j].x - pts[i].x) * (pts[j].y + pts[i].y);
+  return a;
+}
+
+/** Formen, die in einer ungeraden Zahl anderer geschlossener Formen liegen, als Loch markieren */
+function markHoles(polys: Poly[]) {
+  const boxes = polys.map((p) => {
+    const b = emptyBox();
+    for (const q of p.pts) addPt(b, q.x, q.y);
+    return b;
+  });
+  for (let i = 0; i < polys.length; i++) {
+    if (!polys[i].closed) continue;
+    const a = boxes[i];
+    let depth = 0;
+    for (let j = 0; j < polys.length; j++) {
+      if (i === j || !polys[j].closed) continue;
+      const c = boxes[j];
+      if (a.x0 < c.x0 || a.y0 < c.y0 || a.x1 > c.x1 || a.y1 > c.y1) continue;
+      if (a.x0 === c.x0 && a.y0 === c.y0 && a.x1 === c.x1 && a.y1 === c.y1 && i < j) continue;
+      if (pointInPoly(polys[i].pts[0], polys[j].pts) || pointInPoly(midOf(a), polys[j].pts)) depth++;
+    }
+    polys[i].hole = depth % 2 === 1;
+  }
+}
+
+/**
+ * Perforation: entlang der Form abwechselnd on mm schneiden und off mm ohne Laser fahren.
+ * Vorhandene Haltestege bleiben ohne Laser.
+ */
+export function perforate(p: Poly, P: PerfSettings): Poly {
+  const on = Math.max(0.01, P.on),
+    gap = Math.max(0, P.off);
+  if (!gap) return p;
+  const src = p.pts,
+    n = src.length,
+    segs = p.closed ? n : n - 1;
+  const pts: Pt[] = [],
+    off: number[] = [];
+  let state = 0,
+    rem = on;
+  for (let i = 0; i < segs; i++) {
+    const a = src[i],
+      b = src[(i + 1) % n];
+    const l = Math.hypot(b.x - a.x, b.y - a.y);
+    const base = p.off?.[i] ?? 0;
+    pts.push(a);
+    let u = 0;
+    for (;;) {
+      if (rem >= l - u - 1e-9) {
+        off.push(base || state);
+        rem -= l - u;
+        break;
+      }
+      u += rem;
+      off.push(base || state);
+      pts.push({ x: a.x + ((b.x - a.x) * u) / l, y: a.y + ((b.y - a.y) * u) / l });
+      state ^= 1;
+      rem = state ? gap : on;
+    }
+  }
+  if (!p.closed) pts.push(src[n - 1]);
+  return { pts, closed: p.closed, off: Uint8Array.from(off), fixed: p.fixed, hole: p.hole };
+}
+
+/**
+ * Schnittweg einer Form mit Überschnitt, Anschnitt (Lead-In) und Auslauf (Lead-Out). Beides nur bei geschlossenen
+ * Formen und immer auf der Abfallseite: bei Außenkonturen außen, bei Löchern innen. Strecken ohne Laser am Ende
+ * (Haltesteg, Perforation) fallen weg.
+ */
+export function cutPath(p: Poly, lead: LeadSettings | null): CutPath {
+  const n = p.pts.length;
+  const pts = p.pts.slice();
+  const off: number[] = [];
+  for (let i = 0; i < n - 1; i++) off.push(p.off?.[i] ?? 0);
+  if (p.closed) {
+    pts.push(p.pts[0]);
+    off.push(p.off?.[n - 1] ?? 0);
+  }
+  const trim = () => {
+    while (off.length && off[off.length - 1]) (off.pop(), pts.pop());
+  };
+  if (!p.closed || !lead || n < 3) {
+    trim();
+    return { pts, off };
+  }
+  // Überschnitt: der Kontur über den Anfang hinaus folgen (höchstens eine Runde)
+  let rest = lead.overcut;
+  for (let i = 0; i < n && rest > 1e-9; i++) {
+    const a = pts[i],
+      b = pts[i + 1];
+    const l = Math.hypot(b.x - a.x, b.y - a.y);
+    if (l >= rest) {
+      pts.push({ x: a.x + ((b.x - a.x) * rest) / l, y: a.y + ((b.y - a.y) * rest) / l });
+      off.push(off[i]);
+      rest = 0;
+    } else {
+      pts.push(b);
+      off.push(off[i]);
+      rest -= l;
+    }
+  }
+  trim();
+  if (pts.length < 2) return { pts, off };
+  const ccw = signedArea(p.pts) > 0;
+  // Abfallseite: rechts der Fahrtrichtung bei gegen den Uhrzeigersinn umlaufenden Außenkonturen
+  const side = (t: Pt): Pt => {
+    const k = (ccw ? 1 : -1) * (p.hole ? -1 : 1);
+    return { x: t.y * k, y: -t.x * k };
+  };
+  const dir = (a: Pt, b: Pt): Pt | null => {
+    const l = Math.hypot(b.x - a.x, b.y - a.y);
+    return l > 1e-9 ? { x: (b.x - a.x) / l, y: (b.y - a.y) / l } : null;
+  };
+  const L = Math.max(0, lead.length);
+  if (lead.leadIn && L > 0 && !off[0]) {
+    let t: Pt | null = null;
+    for (let i = 1; i < pts.length && !t; i++) t = dir(pts[0], pts[i]);
+    if (t) {
+      const q = leadPts(pts[0], t, side(t), L, lead, true);
+      pts.unshift(...q);
+      off.unshift(...q.map(() => 0));
+    }
+  }
+  if (lead.leadOut && L > 0 && !off[off.length - 1]) {
+    const e = pts[pts.length - 1];
+    let t: Pt | null = null;
+    for (let i = pts.length - 2; i >= 0 && !t; i--) t = dir(pts[i], e);
+    if (t) {
+      const q = leadPts(e, t, side(t), L, lead, false);
+      pts.push(...q);
+      off.push(...q.map(() => 0));
+    }
+  }
+  return { pts, off };
+}
+
+/**
+ * Punkte von Anschnitt (bis vor p) oder Auslauf (nach p). t = Fahrtrichtung der Kontur an p, w = Richtung zur
+ * Abfallseite. Gerade: Länge L im Winkel zur Kontur. Bogen: tangential an die Kontur, Bogenwinkel = angle.
+ */
+function leadPts(p: Pt, t: Pt, w: Pt, L: number, lead: LeadSettings, isIn: boolean): Pt[] {
+  const sg = isIn ? -1 : 1;
+  if (!lead.arc) {
+    const a = (Math.min(90, Math.max(0, lead.angle)) * Math.PI) / 180;
+    return [{ x: p.x + w.x * L * Math.sin(a) + sg * t.x * L * Math.cos(a), y: p.y + w.y * L * Math.sin(a) + sg * t.y * L * Math.cos(a) }];
+  }
+  const th = (Math.min(180, Math.max(1, lead.angle)) * Math.PI) / 180;
+  const r = L / th;
+  const c = { x: p.x + w.x * r, y: p.y + w.y * r };
+  const m = Math.max(4, Math.ceil(th / (Math.PI / 24)));
+  const at = (phi: number): Pt => ({
+    x: c.x + r * (-w.x * Math.cos(phi) + sg * t.x * Math.sin(phi)),
+    y: c.y + r * (-w.y * Math.cos(phi) + sg * t.y * Math.sin(phi)),
+  });
+  const out: Pt[] = [];
+  if (isIn) for (let k = m; k >= 1; k--) out.push(at((th * k) / m));
+  else for (let k = 1; k <= m; k++) out.push(at((th * k) / m));
+  return out;
+}
+
+/**
+ * Leistungsrampe: an Ecken (Richtungswechsel ab R.angle) und auf Wunsch an Anfang und Ende sinkt die Leistung auf
+ * sMin und steigt über R.length mm linear wieder auf s. Strecken in Reichweite einer Ecke werden dafür unterteilt.
+ * Ergebnis: Punkte und Leistung je Strecke.
+ */
+export function rampPath(path: CutPath, s: number, sMin: number, R: RampSettings): { pts: Pt[]; s: number[] } {
+  const { pts, off } = path;
+  const m = pts.length;
+  const cum = new Float64Array(m);
+  for (let i = 1; i < m; i++) cum[i] = cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+  const total = cum[m - 1];
+  const limit = Math.cos((Math.min(179, Math.max(1, R.angle)) * Math.PI) / 180);
+  // Richtung der Strecke k (null bei Länge 0)
+  const dir = (k: number): Pt | null => {
+    const l = cum[k + 1] - cum[k];
+    return l > 1e-9 ? { x: (pts[k + 1].x - pts[k].x) / l, y: (pts[k + 1].y - pts[k].y) / l } : null;
+  };
+  const corner = (a: Pt | null, b: Pt | null) => !!a && !!b && a.x * b.x + a.y * b.y <= limit;
+  const ramps: number[] = [];
+  if (R.ends) ramps.push(0);
+  let prev: Pt | null = null;
+  let first: Pt | null = null;
+  for (let k = 0; k < m - 1; k++) {
+    const d = dir(k);
+    if (!d) continue;
+    if (!first) first = d;
+    if (corner(prev, d)) ramps.push(cum[k]);
+    prev = d;
+  }
+  const loop = m > 2 && Math.hypot(pts[0].x - pts[m - 1].x, pts[0].y - pts[m - 1].y) < 1e-6;
+  if (!R.ends && loop && corner(prev, first)) ramps.unshift(0), ramps.push(total);
+  if (R.ends) ramps.push(total);
+  const Lr = R.length;
+  const near = (d: number) => {
+    // Abstand zur nächsten Rampenstelle (ramps ist aufsteigend)
+    let lo = 0,
+      hi = ramps.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (ramps[mid] < d) lo = mid + 1;
+      else hi = mid;
+    }
+    let best = Infinity;
+    if (lo < ramps.length) best = ramps[lo] - d;
+    if (lo > 0) best = Math.min(best, d - ramps[lo - 1]);
+    return best;
+  };
+  const power = (d: number) => sMin + (s - sMin) * Math.min(1, near(d) / Lr);
+  const outPts: Pt[] = [pts[0]],
+    outS: number[] = [];
+  const step = Math.max(0.05, Lr / 8);
+  for (let k = 0; k < m - 1; k++) {
+    const a = pts[k],
+      b = pts[k + 1],
+      c0 = cum[k],
+      c1 = cum[k + 1],
+      l = c1 - c0;
+    if (off[k] || !ramps.length || l < 1e-9 || Math.min(near(c0), near(c1), near((c0 + c1) / 2)) >= Lr) {
+      outPts.push(b);
+      outS.push(off[k] ? 0 : s);
+      continue;
+    }
+    const n = Math.min(400, Math.max(1, Math.ceil(l / step)));
+    for (let j = 1; j <= n; j++) {
+      const u = j / n;
+      outPts.push(j === n ? b : { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u });
+      outS.push(power(c0 + l * (u - 0.5 / n)));
+    }
+  }
+  return { pts: outPts, s: outS };
+}
+
 /** Aus dem Dokument einen Job berechnen. Texte werden mit ihren Schriftkonturen gelasert. */
 export async function buildJob(inp: JobInput): Promise<Job> {
   const { doc, device } = inp;
@@ -1064,13 +1381,16 @@ export async function buildJob(inp: JobInput): Promise<Job> {
 
   // 1. Geometrie je Layer sammeln (Bettkoordinaten, y nach oben)
   interface Bucket {
-    polys: Poly[];
+    /** Konturen je Objekt (Kerf wird je Objekt gerechnet) */
+    objs: Poly[][];
+    /** Konturen je Bearbeitung (Layer, dann Sub-Layer) nach Kerf */
+    sets: Poly[][];
     images: { shape: ImageShape; world: Mat }[];
   }
   const buckets = new Map<number, Bucket>();
   const bucket = (i: number) => {
     let b = buckets.get(i);
-    if (!b) buckets.set(i, (b = { polys: [], images: [] }));
+    if (!b) buckets.set(i, (b = { objs: [], sets: [], images: [] }));
     return b;
   };
   const bounds = emptyBox();
@@ -1099,18 +1419,31 @@ export async function buildJob(inp: JobInput): Promise<Job> {
       if (sp.nodes.length < 2) continue;
       const p = flatten(sp, M);
       if (p.pts.length < 2) continue;
-      if (L.mode === 'fill' && !p.closed) {
-        skippedOpen++;
-        continue;
-      }
       own.push(p);
     }
-    // Kerf je Objekt, damit sich benachbarte Objekte nicht zu einer Fläche verbinden
-    const polys = L.kerf ? [...own.filter((p) => !p.closed), ...kerfOffset(own.filter((p) => p.closed), L.kerf)] : own;
-    for (const p of polys) {
-      bucket(o.layer).polys.push(p);
-      for (const q of p.pts) addPt(bounds, q.x, q.y);
-    }
+    if (own.length) bucket(o.layer).objs.push(own);
+  }
+  for (const [li, b] of buckets) {
+    const ents = entriesOf(layerOf(li));
+    const anyLine = ents.some((e) => e.mode === 'line');
+    const firstFill = ents.findIndex((e) => e.mode === 'fill');
+    b.sets = ents.map((e, k) => {
+      const out: Poly[] = [];
+      for (const own of b.objs) {
+        let polys = own;
+        if (e.mode === 'fill') {
+          polys = own.filter((p) => p.closed);
+          if (!anyLine && k === firstFill) skippedOpen += own.length - polys.length;
+        }
+        // Kerf je Objekt, damit sich benachbarte Objekte nicht zu einer Fläche verbinden
+        if (e.kerf) polys = [...polys.filter((p) => !p.closed), ...kerfOffset(polys.filter((p) => p.closed), e.kerf)];
+        for (const p of polys) {
+          out.push(p);
+          for (const q of p.pts) addPt(bounds, q.x, q.y);
+        }
+      }
+      return out;
+    });
   }
   if (skippedOpen) warnings.push(tn('{n} offene Linie auf Füll-Layern übersprungen (Füllen braucht geschlossene Formen).', '{n} offene Linien auf Füll-Layern übersprungen (Füllen braucht geschlossene Formen).', skippedOpen));
 
@@ -1129,22 +1462,32 @@ export async function buildJob(inp: JobInput): Promise<Job> {
     offset = { x: target.x - a.x, y: target.y - a.y };
   }
   const toOut = mul([1, 0, 0, 1, offset.x, offset.y], toBed);
-  if (offset.x || offset.y)
+  if (offset.x || offset.y) {
+    // Ohne Kerf teilen sich Layer und Sub-Layer dieselben Punkte: jeden nur einmal verschieben
+    const moved = new Set<Pt>();
     for (const b of buckets.values())
-      for (const p of b.polys)
-        for (const q of p.pts) {
-          q.x += offset.x;
-          q.y += offset.y;
-        }
+      for (const set of b.sets)
+        for (const p of set)
+          for (const q of p.pts) {
+            if (moved.has(q)) continue;
+            moved.add(q);
+            q.x += offset.x;
+            q.y += offset.y;
+          }
+  }
 
   // 3. Bewegungen je Layer in Ausgabereihenfolge
   const start: Pt = device.startFrom === 'current' && inp.position ? inp.position : { x: 0, y: 0 };
   const mv = new Moves(start.x, start.y);
   const order = [...buckets.keys()].sort((a, b) => (layerOf(a).priority ?? a) - (layerOf(b).priority ?? b) || a - b);
+  // Z-Versatz nur mit Z-Achse; ist Z die Drehachse, bleibt der Fokus, wo er ist
+  const useZ = device.zAxis && !(rotaryOn(device) && device.rotary.axis === 'Z');
+  let zSkipped = false;
   for (const li of order) {
     const L = layerOf(li);
     const bk = buckets.get(li)!;
     const flip = { v: false };
+    mv.zCur = 0;
     // Bilder zuerst (gravieren), dann Vektoren
     if (bk.images.length) {
       const IL = inp.imgLayer(li);
@@ -1158,42 +1501,23 @@ export async function buildJob(inp: JobInput): Promise<Job> {
         for (let p = 0; p < Math.max(1, IL.passes); p++) emitScanlines(mv, lines, { speed: IL.speed, bidirectional: IL.bidirectional, overscan: ov, layer: li }, flip);
       }
     }
-    if (!bk.polys.length) continue;
-    const s = L.power / 100;
-    if (L.mode === 'fill' && L.fillStyle === 'offset') {
-      const rings = offsetFillRings(bk.polys, Math.max(0.01, L.interval), { x: mv.lastX(), y: mv.lastY() });
-      for (let p = 0; p < Math.max(1, L.passes); p++)
-        for (const r of rings) {
-          mv.push(r.pts[0].x, r.pts[0].y, 0, 0, li);
-          for (let i = 1; i < r.pts.length; i++) mv.push(r.pts[i].x, r.pts[i].y, L.speed, s, li);
-          mv.push(r.pts[0].x, r.pts[0].y, L.speed, s, li);
-        }
-      continue;
-    }
-    if (L.mode === 'fill') {
-      // Zeilen im gedrehten System berechnen und beim Ausgeben zurückdrehen; Kreuzschraffur = zweite Richtung um 90° versetzt
-      const angles = [L.angle, ...(L.crossHatch ? [L.angle + 90] : [])].map((a) => (a * Math.PI) / 180);
-      const sets = angles.map((a) => ({ a, lines: fillLines(rotatePolys(bk.polys, -a), Math.max(0.01, L.interval), s) }));
-      const ov = (Math.max(0, L.overscan) / 100) * (L.speed / 60);
-      for (let p = 0; p < Math.max(1, L.passes); p++)
-        for (const st of sets) emitScanlines(mv, st.lines, { speed: L.speed, bidirectional: L.bidirectional, overscan: ov, layer: li, angle: st.a }, flip);
-      continue;
-    }
-    const cuts = L.tabs.enabled ? withTabs(bk.polys, L.tabs) : bk.polys;
-    for (let p = 0; p < Math.max(1, L.passes); p++) {
-      const polys = device.optimize ? orderPolys(cuts, { x: mv.lastX(), y: mv.lastY() }) : cuts;
-      for (let poly of polys) {
-        // Nicht in einem Steg beginnen, sonst fährt der Laser ihn zuerst ohne Leistung ab
-        if (poly.off?.[0]) poly = startAt(poly, Math.max(0, poly.off.indexOf(0)));
-        const pts = poly.pts,
-          off = poly.off;
-        mv.push(pts[0].x, pts[0].y, 0, 0, li);
-        for (let i = 1; i < pts.length; i++) mv.push(pts[i].x, pts[i].y, L.speed, off?.[i - 1] ? 0 : s, li);
-        // Endet die Form in einem Steg, braucht es die letzte Strecke nicht
-        if (poly.closed && !off?.[pts.length - 1]) mv.push(pts[0].x, pts[0].y, L.speed, s, li);
-      }
-    }
+    entriesOf(L).forEach((e, k) => {
+      const polys = bk.sets[k];
+      if (!polys?.length) return;
+      if (!useZ && (e.zOffset || e.zStep)) zSkipped = true;
+      // Z je Durchgang: erster Durchgang beim Z-Versatz, jeder weitere um zStep tiefer
+      const pass = (p: number) => (mv.zCur = useZ ? e.zOffset + p * e.zStep : 0);
+      emitEntry(mv, e, polys, li, flip, pass, device.optimize);
+      mv.zCur = 0;
+    });
   }
+  if (zSkipped)
+    warnings.push(
+      device.zAxis
+        ? t('Z-Versatz übersprungen: Die Z-Achse ist als Drehachse eingestellt.')
+        : t('Z-Versatz übersprungen: Für dieses Gerät ist keine Z-Achse eingestellt (Geräteeinstellungen).'),
+    );
+  mv.zCur = 0;
   if (mv.n && device.returnHome) mv.push(start.x, start.y, 0, 0, -1);
   // Vorschau: dieselben Bahnen an ihrer Lage auf dem Bett zeigen
   if (inp.forPreview && (offset.x || offset.y)) {
@@ -1401,9 +1725,30 @@ export function gcodeFooter(d: Device): string[] {
  * Bewegungen zu G-Code-Zeilen. Der Rust-Kern (src-tauri/core/src/gcode.rs) schreibt in der Desktop-App
  * dieselben Zeilen; Änderungen hier müssen dort nachgezogen werden (Vergleichstest: npm run test:core).
  */
+/**
+ * Z-Bewegungen zwischen den Bewegungen: relativ (G91 … G90), damit die Fokushöhe beim Start als Bezug gilt.
+ * at = [Index der Bewegung, Zeilen davor], end = Zeilen zurück auf die Starthöhe vor dem Ende des Jobs.
+ */
+export function zInserts(mv: Moves, d: Device): { at: [number, string[]][]; end: string[] } {
+  const at: [number, string[]][] = [];
+  // Z-Versatz positiv = Fokus tiefer: ohne zFlip fährt der Kopf dafür nach unten (Z−)
+  const k = d.zFlip ? 1 : -1;
+  const move = (dz: number) => ['G91', `G0 Z${num(dz * k)}`, 'G90'];
+  let z = 0;
+  for (let i = 0; i < mv.n; i++) {
+    const zi = mv.z[i];
+    if (num(zi) === num(z)) continue;
+    at.push([i, move(zi - z)]);
+    z = zi;
+  }
+  return { at, end: num(z) === '0' ? [] : move(-z) };
+}
+
 export function gcodeLines(mv: Moves, d: Device, est: Estimate, airList: number[], header: string[]): GCode {
   const lines: string[] = [...header];
   const times: number[] = header.map(() => 0);
+  const zs = zInserts(mv, d);
+  let zk = 0;
   let g = -1,
     cx = mv.x0,
     cy = mv.y0,
@@ -1416,6 +1761,14 @@ export function gcodeLines(mv: Moves, d: Device, est: Estimate, airList: number[
   for (let i = 0; i < mv.n; i++) {
     const x = mv.x[i],
       y = mv.y[i];
+    // Z-Zeilen vor der Bewegung; danach G0/G1 wieder ausschreiben
+    for (; zk < zs.at.length && zs.at[zk][0] === i; zk++) {
+      for (const l of zs.at[zk][1]) {
+        lines.push(l);
+        times.push(i ? est.t[i - 1] : 0);
+      }
+      g = -1;
+    }
     const wantAir = airLayers.has(mv.layer[i]);
     if (wantAir !== air) {
       air = wantAir;
@@ -1450,7 +1803,7 @@ export function gcodeLines(mv: Moves, d: Device, est: Estimate, airList: number[
     lines.push(l.trim());
     times.push(est.t[i]);
   }
-  for (const l of [...(air ? ['M9'] : []), ...gcodeFooter(d)]) {
+  for (const l of [...(air ? ['M9'] : []), ...zs.end, ...gcodeFooter(d)]) {
     lines.push(l);
     times.push(est.total);
   }
@@ -1475,7 +1828,8 @@ export async function prepareGCode(job: Job, d: Device, est: Estimate, name = 'K
   if (hasNative()) {
     try {
       const { mv, t } = rotaryMoves(job.moves, d, job.bounds, est.t);
-      const params = JSON.stringify({ x0: mv.x0, y0: mv.y0, sMax: d.sMax, air: job.air, airCmd: d.airCmd || 'M8', header, footer: gcodeFooter(d), total: est.total, yAxis: outAxis(d) });
+      const zs = zInserts(mv, d);
+      const params = JSON.stringify({ x0: mv.x0, y0: mv.y0, sMax: d.sMax, air: job.air, airCmd: d.airCmd || 'M8', header, footer: [...zs.end, ...gcodeFooter(d)], total: est.total, yAxis: outAxis(d), inserts: zs.at });
       const buf = await native<ArrayBuffer>('gcode_prepare', packMoves(mv, t!, params));
       const head = new Uint32Array(buf, 0, 2);
       return { id: head[0], lines: null, count: head[1], times: new Float64Array(buf, 8), total: est.total };

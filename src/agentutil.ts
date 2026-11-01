@@ -5,7 +5,7 @@ import { hasPlaceholders } from './params';
 import { barcodeData } from './barcode';
 import type { Editor } from './editor';
 import { boundsOf, Box, shapeSubs, subsToD, textOutline } from './geom';
-import { IDENT, isOff, layerLabel, Mat, mul, Obj } from './model';
+import { CutSettings, IDENT, isOff, layerLabel, Mat, mul, Obj } from './model';
 import { library } from './materials';
 import { genLabel } from './generators';
 
@@ -152,6 +152,23 @@ export function findObj(objs: Obj[], id: number, parent: Mat = IDENT): [Obj, Mat
   return null;
 }
 
+/** Modusabhängige Bearbeitungsfelder eines Layers oder Sub-Layers für Agenten (nur eingeschaltete Extras) */
+function cutInfo(L: Omit<CutSettings, 'air' | 'look' | 'sub'>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (L.mode === 'line') {
+    out.kerf = L.kerf;
+    out.tabs = L.tabs.enabled ? L.tabs : false;
+    if (L.perf.enabled) Object.assign(out, { perforate: true, perfLength: L.perf.on, perfGap: L.perf.off });
+    if (L.lead.leadIn || L.lead.leadOut) Object.assign(out, { leadIn: L.lead.leadIn, leadOut: L.lead.leadOut, leadLength: L.lead.length, leadAngle: L.lead.angle, leadArc: L.lead.arc });
+    if (L.lead.overcut > 0) out.overcut = L.lead.overcut;
+    if (L.ramp.enabled) Object.assign(out, { powerRamp: true, rampLength: L.ramp.length, rampAngle: L.ramp.angle, rampEnds: L.ramp.ends });
+  } else {
+    Object.assign(out, { fillStyle: L.fillStyle, interval: L.interval, angle: L.angle, crossHatch: L.crossHatch, bidirectional: L.bidirectional, overscan: L.overscan });
+  }
+  if (L.zOffset || L.zStep) Object.assign(out, { zOffset: L.zOffset, zStep: L.zStep });
+  return out;
+}
+
 export function layerInfo(ed: Editor, i: number) {
   const L = ed.layer(i);
   const parts = ed.layerParts(i);
@@ -171,12 +188,8 @@ export function layerInfo(ed: Editor, i: number) {
     passes: L.passes,
     airAssist: L.air,
   };
-  if (L.mode === 'line') {
-    out.kerf = L.kerf;
-    out.tabs = L.tabs.enabled ? L.tabs : false;
-  } else {
-    Object.assign(out, { fillStyle: L.fillStyle, interval: L.interval, angle: L.angle, crossHatch: L.crossHatch, bidirectional: L.bidirectional, overscan: L.overscan });
-  }
+  Object.assign(out, cutInfo(L));
+  if (L.sub?.length) out.subLayers = L.sub.map((s) => ({ output: s.output, mode: s.mode, speed: s.speed, power: s.power, minPower: s.minPower, passes: s.passes, ...cutInfo(s) }));
   if (parts.img) out.image = ed.imgLayer(i);
   if (L.material) {
     const e = library.get(L.material);

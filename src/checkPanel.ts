@@ -7,7 +7,7 @@ import { dec, t, tn } from './i18n';
 import { dockWindow, isShown, onWindowShow, setBadge, showWindow } from './dock';
 import { CheckIssue, CheckKind, CheckSettings, fixLabel, loadCheckSettings, saveCheckSettings } from './check';
 import { objLabel } from './objectsPanel';
-import { layerLabel, PALETTE } from './model';
+import { isCutLayer, layerLabel, PALETTE } from './model';
 
 const KIND_NAMES = (): Record<CheckKind, string> => ({
   double: t('Doppelte Linie'),
@@ -56,7 +56,7 @@ export function buildCheckPanel(ed: Editor) {
   };
   const buildSettings = () => {
     const s = loadCheckSettings();
-    const lineLayers = ed.usedLayers().filter((i) => ed.layer(i).mode === 'line' && ed.layer(i).output);
+    const lineLayers = ed.usedLayers().filter((i) => isCutLayer(ed.layer(i)) && ed.layer(i).output);
     const chips = lineLayers.map((i) => {
       const cb = h('input', { type: 'checkbox', checked: s.engraveLayers.includes(i) });
       cb.addEventListener('change', () => {

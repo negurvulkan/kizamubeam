@@ -3,7 +3,7 @@
 // Undo-Schritt (siehe Editor.batch in agent.ts). Koordinaten: Maschine, Ursprung unten links, y nach oben, mm.
 import type { Editor } from './editor';
 import { boundsOf, Box, segments, shapeSubs, textLayout } from './geom';
-import { about, apply, BarcodeShape, LinearType, IDENT, NOTE_KEYS, ObjBindKey, leaves, Mat, mul, newId, Obj, QrLevel, rotate, scale, Shape, SubPath, TextShape, translate } from './model';
+import { about, apply, BarcodeShape, CutSettings, defaultSubLayer, SubLayer, LinearType, IDENT, NOTE_KEYS, ObjBindKey, leaves, Mat, mul, newId, Obj, QrLevel, rotate, scale, Shape, SubPath, TextShape, translate } from './model';
 import { barcodeData, qrMatrix } from './barcode';
 import { encodeLinear, LINEAR_TYPES } from './barcode1d';
 import { advanceVarText } from './vartext';
@@ -149,7 +149,58 @@ const LAYER_KEYS: Record<string, string> = {
   name: 'string', output: 'boolean', visible: 'boolean', mode: 'line|fill', speed: 'number', power: 'number', minPower: 'number',
   passes: 'integer', airAssist: 'boolean', kerf: 'number', fillStyle: 'scan|offset', interval: 'number', angle: 'number', crossHatch: 'boolean',
   bidirectional: 'boolean', overscan: 'number', locked: 'boolean',
+  perforate: 'boolean', perfLength: 'number', perfGap: 'number',
+  leadIn: 'boolean', leadOut: 'boolean', leadLength: 'number', leadAngle: 'number', leadArc: 'boolean', overcut: 'number',
+  powerRamp: 'boolean', rampLength: 'number', rampAngle: 'number', rampEnds: 'boolean',
+  zOffset: 'number', zStep: 'number',
 };
+
+/** Felder, die auch Sub-Layer haben (alles außer Name, Sichtbarkeit, Sperre und Air Assist) */
+const SUB_FIELDS = Object.keys(LAYER_KEYS).filter((k) => !['name', 'visible', 'locked', 'airAssist'].includes(k));
+
+/**
+ * Bearbeitungsfelder aus den Argumenten eines Agenten; verschachtelte Einstellungen (Perforation, Anschnitt,
+ * Rampe, Haltestege) werden mit den bisherigen Werten in base zusammengeführt.
+ */
+function cutPatch(a: Args, base: Pick<CutSettings, 'perf' | 'lead' | 'ramp'>): Record<string, unknown> {
+  const p: Record<string, unknown> = {};
+  if (a.mode !== undefined) p.mode = oneOf(a, 'mode', ['line', 'fill'] as const);
+  if (a.fillStyle !== undefined) p.fillStyle = oneOf(a, 'fillStyle', ['scan', 'offset'] as const);
+  const n = (k: string, opt: { min?: number; max?: number; int?: boolean }, as = k) => {
+    const v = optNum(a, k, opt);
+    if (v !== undefined) p[as] = v;
+  };
+  n('speed', { min: 1, max: 100000 });
+  n('power', { min: 0, max: 100 });
+  n('minPower', { min: 0, max: 100 });
+  n('passes', { min: 1, max: 100, int: true });
+  n('kerf', { min: -5, max: 5 });
+  n('interval', { min: 0.01, max: 10 });
+  n('angle', { min: -360, max: 360 });
+  n('overscan', { min: 0, max: 50 });
+  n('zOffset', { min: -50, max: 50 });
+  n('zStep', { min: -20, max: 20 });
+  if (a.crossHatch !== undefined) p.crossHatch = a.crossHatch === true;
+  if (a.bidirectional !== undefined) p.bidirectional = a.bidirectional === true;
+  if (a.output !== undefined) p.output = a.output === true;
+  const nested = <T extends object>(key: string, cur: T, map: Record<string, [keyof T, 'bool' | { min: number; max: number }]>) => {
+    const out = { ...cur };
+    let hit = false;
+    for (const [arg, [field, kind]] of Object.entries(map)) {
+      if (a[arg] === undefined) continue;
+      hit = true;
+      (out as Record<string, unknown>)[field as string] = kind === 'bool' ? a[arg] === true : optNum(a, arg, kind);
+    }
+    if (hit) p[key] = out;
+  };
+  nested('perf', base.perf, { perforate: ['enabled', 'bool'], perfLength: ['on', { min: 0.01, max: 1000 }], perfGap: ['off', { min: 0, max: 1000 }] });
+  nested('lead', base.lead, {
+    leadIn: ['leadIn', 'bool'], leadOut: ['leadOut', 'bool'], leadLength: ['length', { min: 0, max: 100 }], leadAngle: ['angle', { min: 0, max: 180 }],
+    leadArc: ['arc', 'bool'], overcut: ['overcut', { min: 0, max: 100 }],
+  });
+  nested('ramp', base.ramp, { powerRamp: ['enabled', 'bool'], rampLength: ['length', { min: 0.05, max: 50 }], rampAngle: ['angle', { min: 1, max: 179 }], rampEnds: ['ends', 'bool'] });
+  return p;
+}
 
 const HINGE_KEYS = ['thickness', 'cutLength', 'bridge', 'spacing', 'margin', 'angle', 'waveAmp', 'waveLength', 'diamondAngle'] as const;
 const JOINT_NUM_KEYS = [
@@ -1425,11 +1476,15 @@ export const EDIT_TOOLS: ToolDef[] = [
   {
     name: 'set_layer',
     title: 'Layer einstellen',
-    description: `Ändert die Einstellungen eines Layers. Felder: ${Object.entries(LAYER_KEYS).map(([k, v]) => `${k} (${v})`).join(', ')}. speed in mm/min, power/minPower in %, kerf/interval in mm, fillStyle offset = Füllen in Ringen entlang der Kontur, angle in Grad, overscan in %.`,
+    description: `Ändert die Einstellungen eines Layers. Felder: ${Object.entries(LAYER_KEYS).map(([k, v]) => `${k} (${v})`).join(', ')}. speed in mm/min, power/minPower in %, kerf/interval in mm, fillStyle offset = Füllen in Ringen entlang der Kontur, angle in Grad, overscan in %. Nur Linie: perforate/perfLength/perfGap (gestrichelt schneiden, mm), leadIn/leadOut/leadLength/leadAngle/leadArc (Anschnitt und Auslauf auf der Abfallseite geschlossener Formen; Winkel zur Kontur in Grad, bei Bogen Bogenwinkel), overcut (mm über den Start hinaus), powerRamp/rampLength/rampAngle/rampEnds (Leistung in Ecken ab rampAngle Grad Richtungswechsel auf minPower absenken). zOffset/zStep: Fokus in mm tiefer beim ersten bzw. je weiterem Durchgang (nur mit Z-Achse am Gerät). subLayers: Liste weiterer Bearbeitungen derselben Formen nach dem Layer (ersetzt die bisherigen; [] entfernt alle), je Eintrag dieselben Felder außer ${['name', 'visible', 'locked', 'airAssist'].join(', ')}; output false = nicht ausgeben.`,
     tier: Tier.Edit,
     inputSchema: obj({
       layer: { ...LAYER, description: 'Layer 0–29' },
       ...Object.fromEntries(Object.entries(LAYER_KEYS).map(([k, v]) => [k, v.includes('|') ? { type: 'string', enum: v.split('|') } : { type: v }])),
+      subLayers: {
+        type: 'array',
+        items: obj(Object.fromEntries(SUB_FIELDS.map((k) => [k, LAYER_KEYS[k].includes('|') ? { type: 'string', enum: LAYER_KEYS[k].split('|') } : { type: LAYER_KEYS[k] }]))),
+      },
     }, ['layer']),
     run: (ed, a) => {
       const i = num(a, 'layer', { min: 0, max: 31, int: true });
@@ -1438,23 +1493,23 @@ export const EDIT_TOOLS: ToolDef[] = [
       if (a.output !== undefined) p.output = a.output === true;
       if (a.visible !== undefined) p.show = a.visible === true;
       if (a.locked !== undefined) p.locked = a.locked === true;
-      if (a.mode !== undefined) p.mode = oneOf(a, 'mode', ['line', 'fill'] as const);
-      if (a.fillStyle !== undefined) p.fillStyle = oneOf(a, 'fillStyle', ['scan', 'offset'] as const);
-      const n = (k: string, opt: { min?: number; max?: number; int?: boolean }, as = k) => {
-        const v = optNum(a, k, opt);
-        if (v !== undefined) p[as] = v;
-      };
-      n('speed', { min: 1, max: 100000 });
-      n('power', { min: 0, max: 100 });
-      n('minPower', { min: 0, max: 100 });
-      n('passes', { min: 1, max: 100, int: true });
-      n('kerf', { min: -5, max: 5 });
-      n('interval', { min: 0.01, max: 10 });
-      n('angle', { min: -360, max: 360 });
-      n('overscan', { min: 0, max: 50 });
+      const L = ed.layer(i);
+      const { output: _o, ...cut } = cutPatch(a, L);
+      Object.assign(p, cut);
       if (a.airAssist !== undefined) p.air = a.airAssist === true;
-      if (a.crossHatch !== undefined) p.crossHatch = a.crossHatch === true;
-      if (a.bidirectional !== undefined) p.bidirectional = a.bidirectional === true;
+      if (a.subLayers !== undefined) {
+        if (!Array.isArray(a.subLayers)) throw new ToolError('„subLayers“ muss eine Liste sein');
+        p.sub = a.subLayers.length
+          ? a.subLayers.map((raw, k) => {
+              if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new ToolError(`subLayers[${k}] muss ein Objekt sein`);
+              const r = raw as Args;
+              const prev = L.sub?.[k];
+              const mode = r.mode === 'fill' ? 'fill' : r.mode === 'line' ? 'line' : (prev?.mode ?? 'line');
+              const base = prev && prev.mode === mode ? structuredClone(prev) : defaultSubLayer(mode);
+              return { ...base, ...cutPatch(r, base) } as SubLayer;
+            })
+          : undefined;
+      }
       if (!Object.keys(p).length) throw new ToolError('Keine Einstellung angegeben');
       // Eigene Werte lösen den Layer von einem Eintrag der Material-Bibliothek
       if (Object.keys(p).some((k) => !['name', 'output', 'show', 'locked'].includes(k))) p.material = undefined;
