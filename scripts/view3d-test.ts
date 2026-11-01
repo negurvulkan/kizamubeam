@@ -241,6 +241,71 @@ test('Verbindungen: Deckel liegt geschlossen auf der Rückwand', () => {
   [53, 80, 100].forEach((v, i) => near(dims[i], v, 1e-6, 'Maße'));
 });
 
+// ---------- Material-Aussehen ----------
+const { LOOKS, cleanLook, guessLook, layerLook, lookTexture, resolveLook, DEFAULT_LOOK } = await import('../src/view3d/looks');
+const { sanitizeEntry } = await import('../src/materials');
+
+test('Aussehen: Vorlagen eindeutig und vollständig', () => {
+  assert.equal(new Set(LOOKS.map((l) => l.id)).size, LOOKS.length);
+  for (const l of LOOKS) {
+    assert.match(l.color, /^#[0-9a-f]{6}$/);
+    assert.match(l.engrave.color, /^#[0-9a-f]{6}$/);
+    assert.ok(l.tile > 0 && l.rough >= 0 && l.rough <= 1 && l.clear >= 0 && l.clear <= 1, l.id);
+  }
+});
+
+test('Aussehen: gespeicherte Werte prüfen', () => {
+  assert.deepEqual(cleanLook({ id: 'slate' }), { id: 'slate' });
+  assert.deepEqual(cleanLook({ id: 'oak', color: '#AABBCC' }), { id: 'oak', color: '#aabbcc' });
+  assert.deepEqual(cleanLook({ id: 'oak', color: 'rot' }), { id: 'oak' });
+  assert.equal(cleanLook({ id: 'gibtsnicht' }), undefined);
+  assert.equal(cleanLook(null), undefined);
+  assert.equal(resolveLook({ id: 'oak', color: '#112233' }).color, '#112233');
+});
+
+test('Aussehen: aus dem Materialnamen raten', () => {
+  assert.equal(guessLook('Schiefer')?.id, 'slate');
+  assert.equal(guessLook('Sperrholz Pappel 3 mm')?.id, 'poplar');
+  assert.equal(guessLook('Birch plywood')?.id, 'birch');
+  assert.equal(guessLook('Acryl schwarz')?.id, 'acrylic-opaque');
+  assert.equal(guessLook('Plexiglas klar')?.id, 'acrylic');
+  assert.equal(guessLook('Graupappe')?.id, 'cardboard');
+  assert.equal(guessLook('Aluminium eloxiert')?.id, 'anodized');
+  assert.equal(guessLook('MDF')?.id, 'mdf');
+  assert.equal(guessLook('Glasfaser'), undefined);
+  assert.equal(guessLook('Irgendwas'), undefined);
+  const names: Record<string, string> = { m1: 'Schiefer' };
+  // Eigenes Aussehen vor geratenem vor Standard
+  assert.equal(layerLook({ look: { id: 'oak' }, material: 'm1' }, (id) => names[id], DEFAULT_LOOK).id, 'oak');
+  assert.equal(layerLook({ material: 'm1' }, (id) => names[id], DEFAULT_LOOK).id, 'slate');
+  assert.equal(layerLook({}, (id) => names[id], { id: 'walnut' }).id, 'walnut');
+});
+
+test('Aussehen: Texturen kachelbar', () => {
+  const N = 64;
+  for (const l of LOOKS) {
+    const { rgba, height } = lookTexture(l, N);
+    assert.equal(rgba.length, N * N * 4);
+    assert.equal(height.length, N * N);
+    // Gegenüberliegende Ränder passen zusammen: Sprung über den Rand nicht viel größer als innen
+    let edge = 0,
+      inner = 0;
+    for (let j = 0; j < N; j++) {
+      const at = (i: number) => rgba[(j * N + i) * 4 + 1];
+      edge += Math.abs(at(N - 1) - at(0));
+      inner += Math.abs(at(N / 2) - at(N / 2 - 1));
+    }
+    assert.ok(edge <= inner * 2.5 + N * 2, `${l.id}: Rand ${edge} / innen ${inner}`);
+  }
+});
+
+test('Aussehen: Material-Bibliothek speichert es mit', () => {
+  const e = sanitizeEntry({ material: 'Schiefer', settings: { mode: 'fill', look: { id: 'slate', color: '#000000' } } })!;
+  assert.deepEqual(e.settings.look, { id: 'slate', color: '#000000' });
+  const bad = sanitizeEntry({ material: 'X', settings: { mode: 'line', look: { id: 'nix' } } })!;
+  assert.equal('look' in bad.settings, false);
+});
+
 if (failed) {
   console.log(`\n${failed} Test(s) fehlgeschlagen`);
   process.exit(1);

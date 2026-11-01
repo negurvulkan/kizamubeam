@@ -4,6 +4,9 @@ import type { Editor } from './editor';
 import { h, numInput } from './dom';
 import { CutSettings, cutSettings, defaultCutSettings, FillStyle, LayerMode, layerLabel, PALETTE } from './model';
 import { t } from './i18n';
+import { lookEditor } from './view3d/lookui';
+import { guessLook, lookName, resolveLook } from './view3d/looks';
+import { library } from './materials';
 
 export function openLayerDialog(ed: Editor, i: number) {
   const L = ed.layer(i);
@@ -109,6 +112,19 @@ export function openLayerDialog(ed: Editor, i: number) {
     );
   };
 
+  // Aussehen der Platten dieses Layers in der 3D-Ansicht
+  const autoName = () => {
+    const g = guessLook(library.get(L.material)?.material ?? '');
+    return g ? t('Automatisch ({name})', { name: lookName(resolveLook(g)) }) : t('Automatisch (Standard der 3D-Ansicht)');
+  };
+  const lookSection = h('div', {},
+    h('div', { class: 'form-title', title: t('Wie Platten und Gravuren dieses Layers in der 3D-Ansicht aussehen. Automatisch: aus dem Namen des Materials der Bibliothek, sonst der Standard der 3D-Ansicht.') }, t('Aussehen in 3D')),
+    h('div', { class: 'form look-form' },
+      h('label', {}, t('Material')),
+      lookEditor(() => c.look, (v) => (c.look = v), autoName()),
+    ),
+  );
+
   let applied = false;
   const dlg = h(
     'dialog',
@@ -116,6 +132,7 @@ export function openLayerDialog(ed: Editor, i: number) {
     h('h3', {}, h('span', { class: 'swatch', style: `background:${PALETTE[i]}` }, layerLabel(i)), ' ', t('Layer-Einstellungen')),
     general,
     modeBox,
+    lookSection,
     h(
       'div',
       { class: 'dialog-buttons' },

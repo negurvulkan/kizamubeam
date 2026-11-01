@@ -2,17 +2,23 @@
 // Explosionsansicht und drehende Zahnräder. Wird erst geladen, wenn das Fenster zum ersten Mal aufgeht.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { Pt } from '../model';
 import type { Overlap, Solid } from './solids';
 import type { Engraving } from './engrave';
 import { solidBounds } from './solids';
 import { Pose, rotatePose } from './poses';
+import { DEFAULT_LOOK, LookPreset, lookTexture, resolveLook, shadeHex } from './looks';
 
 export interface ViewSolid extends Solid {
   /** Teile mit gleicher Gruppe (Baugruppe) werden gemeinsam auseinandergezogen */
   group: string;
   /** Gravuren auf der Oberfläche */
   engraving?: Engraving;
+  /** Layer der Kontur (bestimmt das Material) */
+  layer?: number;
+  /** Aussehen des Materials */
+  look?: LookPreset;
 }
 
 export interface Scene3D {
@@ -73,8 +79,68 @@ function slabGeometry(s: Solid) {
   return new THREE.ExtrudeGeometry(shapesOf(s.polys), { depth: s.th, bevelEnabled: false, curveSegments: 1 });
 }
 
+/** Texturen je Aussehen (Farbe und Höhenkarte), werden für alle Teile geteilt */
+const texCache = new Map<string, { map: THREE.DataTexture; bump: THREE.DataTexture | null }>();
+const TEX_PX = 512;
+
+function lookTextures(p: LookPreset) {
+  const key = `${p.id}|${p.color}`;
+  let c = texCache.get(key);
+  if (c) return c;
+  const { rgba, height } = lookTexture(p, TEX_PX);
+  const mk = (data: Uint8ClampedArray, format: THREE.PixelFormat, srgb: boolean) => {
+    const tx = new THREE.DataTexture(data, TEX_PX, TEX_PX, format);
+    tx.wrapS = tx.wrapT = THREE.RepeatWrapping;
+    tx.magFilter = THREE.LinearFilter;
+    tx.minFilter = THREE.LinearMipmapLinearFilter;
+    tx.generateMipmaps = true;
+    tx.anisotropy = 4;
+    if (srgb) tx.colorSpace = THREE.SRGBColorSpace;
+    tx.needsUpdate = true;
+    return tx;
+  };
+  c = { map: mk(rgba, THREE.RGBAFormat, true), bump: p.tex === 'plain' ? null : mk(height, THREE.RedFormat, false) };
+  texCache.set(key, c);
+  return c;
+}
+
+/** Zufallszahl 0..1 je Teil, damit die Maserung nicht auf allen Teilen gleich liegt */
+const partRand = (i: number, k: number) => {
+  const x = Math.sin(i * 127.1 + k * 311.7) * 43758.5453;
+  return x - Math.floor(x);
+};
+
+/** Materialien für Fläche und Schnittkante einer Platte */
+function slabMaterials(p: LookPreset, th: number, i: number): [THREE.Material, THREE.Material] {
+  const tex = p.tex === 'plain' ? null : lookTextures(p);
+  const ofs = (t: THREE.Texture) => {
+    const c = t.clone();
+    c.repeat.set(1 / p.tile, 1 / p.tile);
+    c.offset.set(partRand(i, 1), partRand(i, 2));
+    return c;
+  };
+  const common = {
+    color: tex ? 0xffffff : new THREE.Color(p.color),
+    map: tex ? ofs(tex.map) : null,
+    bumpMap: tex?.bump ? ofs(tex.bump) : null,
+    bumpScale: 0.6,
+    roughness: p.rough,
+    metalness: p.metal,
+  };
+  const face: THREE.Material =
+    p.clear > 0
+      ? new THREE.MeshPhysicalMaterial({ ...common, color: new THREE.Color(p.color), transmission: p.clear, ior: p.ior, thickness: th, clearcoat: 0.6, clearcoatRoughness: 0.05, specularIntensity: 1 })
+      : new THREE.MeshStandardMaterial(common);
+  // Gelaserte Kante: bei Holz verkohlt, bei Acryl blank poliert, sonst wie die Fläche etwas dunkler
+  const side: THREE.Material =
+    p.clear > 0
+      ? new THREE.MeshPhysicalMaterial({ color: new THREE.Color(p.edge ?? p.color), transmission: p.clear * 0.8, ior: p.ior, thickness: th * 4, roughness: 0.02 })
+      : new THREE.MeshStandardMaterial({ color: new THREE.Color(p.edge ?? shadeHex(p.color, 0.85)), roughness: Math.min(1, p.rough + 0.1), metalness: p.metal });
+  return [face, side];
+}
+
 /** Gravuren als Bild auf der Plattenfläche, knapp darüber, damit es nicht mit der Fläche flimmert */
-function engravingMesh(s: Solid, e: Engraving): THREE.Mesh {
+function engravingMesh(s: Solid, e: Engraving, p: LookPreset): THREE.Mesh {
   const geo = new THREE.ShapeGeometry(shapesOf(s.polys), 1);
   const pos = geo.getAttribute('position');
   const uv = new Float32Array(pos.count * 2);
@@ -87,8 +153,11 @@ function engravingMesh(s: Solid, e: Engraving): THREE.Mesh {
   tex.flipY = false;
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
-  const mat = new THREE.MeshLambertMaterial({
+  const mat = new THREE.MeshStandardMaterial({
     map: tex,
+    // Gravierte Stellen sind matt; auf Metall bleibt die Markierung leicht metallisch
+    roughness: p.engrave.style === 'frost' ? 0.9 : 0.85,
+    metalness: p.engrave.style === 'light' ? p.metal * 0.5 : 0,
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
@@ -129,18 +198,24 @@ export class Viewer3D {
   isVisible: () => boolean = () => true;
 
   constructor(private host: HTMLElement) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.toneMapping = THREE.NeutralToneMapping;
+    // Weiche Spiegelungen aus einem Raum, damit Acryl, Glas, Metall und Lack echt wirken
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environmentIntensity = 0.55;
+    pmrem.dispose();
     host.append(this.renderer.domElement);
     this.camera.up.set(0, 0, 1);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.addEventListener('change', () => (this.needsRender = true));
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8070, 1.6));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8070, 0.9));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.8);
     sun.position.set(0.8, -1.2, 2);
     this.scene.add(sun);
-    const fill = new THREE.DirectionalLight(0xffffff, 0.5);
+    const fill = new THREE.DirectionalLight(0xffffff, 0.4);
     fill.position.set(-1, 1.5, 0.5);
     this.scene.add(fill);
     this.scene.add(this.root, this.overlapGroup);
@@ -175,9 +250,11 @@ export class Viewer3D {
       g.traverse((o) => {
         if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments) {
           o.geometry.dispose();
-          const mat = o.material as THREE.Material & { map?: THREE.Texture | null };
-          mat.map?.dispose();
-          mat.dispose();
+          // Texturen der Materialien sind geteilt (Cache), nur die Gravurbilder gehören dem Teil
+          for (const mat of (Array.isArray(o.material) ? o.material : [o.material]) as (THREE.Material & { map?: THREE.Texture | null })[]) {
+            if (mat.map instanceof THREE.CanvasTexture) mat.map.dispose();
+            mat.dispose();
+          }
         }
       });
     this.root.clear();
@@ -193,7 +270,6 @@ export class Viewer3D {
   /** Neue Teile zeigen; refit: Kamera auf die Teile ausrichten (z. B. wenn eine andere Baugruppe gewählt wurde) */
   setScene(sc: Scene3D, refit: boolean) {
     this.clear();
-    const edgeColor = new THREE.Color('#5c4630');
     // Mitte jeder Baugruppe für die Explosionsansicht
     const centers = new Map<string, THREE.Box3>();
     const boxOf = (s: Solid) => {
@@ -203,13 +279,15 @@ export class Viewer3D {
     for (const s of sc.solids) centers.set(s.group, (centers.get(s.group) ?? new THREE.Box3()).union(boxOf(s)));
     sc.solids.forEach((s, i) => {
       const geo = slabGeometry(s);
-      // Holztöne, benachbarte Teile leicht unterschiedlich
-      const color = new THREE.Color().setHSL(0.085, 0.5, 0.74 + ((i * 3) % 5) * 0.025 - 0.05);
-      const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color }));
+      const look = s.look ?? resolveLook(DEFAULT_LOOK);
+      // Fläche (Gruppe 0) und Schnittkante (Gruppe 1) der hochgezogenen Kontur
+      const mesh = new THREE.Mesh(geo, slabMaterials(look, s.th, i));
       mesh.matrixAutoUpdate = false;
       mesh.matrix.copy(poseMatrix(s.pose));
-      mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 25), new THREE.LineBasicMaterial({ color: edgeColor })));
-      if (s.engraving) mesh.add(engravingMesh(s, s.engraving));
+      // Feine Umrisslinie, damit Teile gleicher Farbe unterscheidbar bleiben
+      const line = new THREE.Color(look.edge ?? shadeHex(look.color, 0.6)).multiplyScalar(look.clear > 0 ? 0.85 : 0.7);
+      mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 25), new THREE.LineBasicMaterial({ color: line, transparent: true, opacity: look.clear > 0 ? 0.8 : 0.55 })));
+      if (s.engraving) mesh.add(engravingMesh(s, s.engraving, look));
       mesh.userData.label = s.label;
       const holder = new THREE.Group();
       holder.add(mesh);

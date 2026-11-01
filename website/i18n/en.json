@@ -97,6 +97,7 @@
         "Joint tool: finger joints, tab-and-slot, cross-lap, snap-fit and hook joints, wedge tenons, T-slots, lid hinge",
         "Living hinges in seven patterns",
         "3D view with explode slider – collisions show up in red before you waste material, engravings appear on the parts",
+        "Material looks in 3D: wood grain, slate, acrylic with refraction, metal – engravings as they will look on the material, also for customer mockups",
         "Design check and fit calibration: find and fix thin bridges, open outlines and too-tight slots"
       ]
     },

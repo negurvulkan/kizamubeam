@@ -18,7 +18,10 @@ import { genLabel } from '../generators';
 import { asmSolids, findOverlaps, Overlap, Solid, solidBounds } from './solids';
 import { flatPose, genThickness } from './poses';
 import { assembleMates, MatePart } from './mates';
-import { CanvasPlace, engravings, memberPlace } from './engrave';
+import { BURN, CanvasPlace, engravings, memberPlace } from './engrave';
+import { cleanLook, DEFAULT_LOOK, layerLook, LookPreset, MaterialLook, resolveLook } from './looks';
+import { lookEditor } from './lookui';
+import { library } from '../materials';
 import { onImageReady } from '../images';
 import type { Scene3D, Viewer3D, ViewPreset, ViewSolid } from './viewer';
 
@@ -30,15 +33,18 @@ interface Settings {
   overlaps: boolean;
   /** Gravuren (Füllungen, Linien, Bilder) auf den Platten zeigen */
   marks: boolean;
+  /** Aussehen für Layer ohne eigenes Material */
+  look: MaterialLook;
 }
 
 function loadSettings(): Settings {
-  const d: Settings = { th: 3, overlaps: true, marks: true };
+  const d: Settings = { th: 3, overlaps: true, marks: true, look: DEFAULT_LOOK };
   try {
     const s = JSON.parse(localStorage.getItem(KEY) || '{}');
     if (s.th > 0 && s.th <= 50) d.th = Number(s.th);
     if (typeof s.overlaps === 'boolean') d.overlaps = s.overlaps;
     if (typeof s.marks === 'boolean') d.marks = s.marks;
+    d.look = cleanLook(s.look) ?? d.look;
   } catch {
     /* Speicher nicht verfügbar */
   }
@@ -46,7 +52,7 @@ function loadSettings(): Settings {
 }
 
 /** Teile für die Ansicht sammeln; liefert auch einen Schlüssel, der sich nur ändert, wenn andere Objekte gezeigt werden */
-export function collectScene(ed: Editor, th: number, marks = true): { scene: Scene3D; key: string; asms: number } {
+export function collectScene(ed: Editor, th: number, marks = true, fallback: MaterialLook = DEFAULT_LOOK): { scene: Scene3D; key: string; asms: number } {
   const roots = ed.sel.length ? ed.sel : ed.doc.objs.filter((o) => !o.hidden);
   const solids: ViewSolid[] = [];
   const ids: (number | string)[] = [];
@@ -55,7 +61,7 @@ export function collectScene(ed: Editor, th: number, marks = true): { scene: Sce
   const places = new Map<string, CanvasPlace>();
   let asms = 0;
   // Flache Konturen je Dicke sammeln: Ineinanderliegende Konturen sind wie beim Lasern Löcher
-  const flats = new Map<number, { paths: Paths; names: { label: string; box: number[] }[] }>();
+  const flats = new Map<number, { paths: Paths; names: { label: string; box: number[]; layer: number }[] }>();
   const flat = (o: Obj, m: Obj['m'], thick: number) => {
     const L = ed.layer(o.layer);
     if (L.mode !== 'line' || o.shape.kind === 'text' || o.shape.kind === 'image') return;
@@ -64,7 +70,7 @@ export function collectScene(ed: Editor, th: number, marks = true): { scene: Sce
     const f = flats.get(thick) ?? { paths: [], names: [] };
     flats.set(thick, f);
     f.paths.push(...paths);
-    f.names.push({ label: o.shape.kind === 'gen' ? genLabel(o.shape) : objLabel(o), box: pathBox(paths) });
+    f.names.push({ label: o.shape.kind === 'gen' ? genLabel(o.shape) : objLabel(o), box: pathBox(paths), layer: o.layer });
     ids.push(o.id);
   };
   // Eine Auswahl zeigt auch ausgeblendete Objekte, die ganze Seite nur sichtbare
@@ -93,8 +99,8 @@ export function collectScene(ed: Editor, th: number, marks = true): { scene: Sce
       placeAssembly(parts, members.map((x) => x.o).filter((x) => onPage(ed, x)));
       for (const p of parts) {
         const key = `${s.asm}:${p.key}`;
-        solids.push({ ...p, key, group: s.asm });
         const mem = members.find((x) => ((x.o.shape as GenShape).part ?? 'main') === p.key);
+        solids.push({ ...p, key, group: s.asm, layer: (mem ?? members[0])?.o.layer ?? o.layer });
         const pl = mem && memberPlace(ed, mem.o);
         if (pl) places.set(key, pl);
       }
@@ -108,13 +114,22 @@ export function collectScene(ed: Editor, th: number, marks = true): { scene: Sce
       const box = pathBox([outer]);
       // Name des Objekts, dessen Umriss die Insel ist, sonst durchnummeriert
       const named = f.names.find((x) => x.box.every((v, i) => Math.abs(v - box[i]) < 10));
+      // Material: Layer des Umrisses, sonst der erste Teil, der in der Insel liegt
+      const layer = named?.layer ?? f.names.find((x) => x.box[0] >= box[0] && x.box[1] >= box[1] && x.box[2] <= box[2] && x.box[3] <= box[3])?.layer ?? f.names[0]?.layer ?? 0;
       const polys = [outer, ...holes].map((p) => p.map((q) => ({ x: q.X / SCALE, y: q.Y / SCALE })));
       n++;
-      solids.push({ key: `f${n}`, label: named?.label ?? t('Teil {n}', { n }), polys, pose: flatPose(), th: thick, group: `f${n}` });
+      solids.push({ key: `f${n}`, label: named?.label ?? t('Teil {n}', { n }), polys, pose: flatPose(), th: thick, group: `f${n}`, layer });
       places.set(`f${n}`, { page: ed.doc.page, toLocal: IDENT });
     }
+  // Aussehen je Platte aus ihrem Layer
+  const looks = new Map<number, LookPreset>();
+  for (const s of solids) {
+    const li = s.layer ?? 0;
+    if (!looks.has(li)) looks.set(li, resolveLook(layerLook(ed.layer(li), (id) => library.get(id)?.material, fallback)));
+    s.look = looks.get(li);
+  }
   if (marks) {
-    const eng = engravings(ed, solids, places);
+    const eng = engravings(ed, solids, places, (s) => (s as ViewSolid).look?.engrave ?? BURN);
     for (const s of solids) s.engraving = eng.get(s.key);
   }
   const overlaps = findOverlaps(solids);
@@ -197,7 +212,7 @@ function collectMates(ed: Editor, shown: [Obj, Mat][], th: number, places: Map<s
   for (const s of r.solids) {
     const g = r.groups.get(s.key)!;
     if (!byGroup.has(g)) byGroup.set(g, []);
-    byGroup.get(g)!.push({ ...s, key: 'm' + s.key, group: g });
+    byGroup.get(g)!.push({ ...s, key: 'm' + s.key, group: g, layer: page.get(Number(s.key))?.[0].layer });
     // Konturen liegen in Koordinaten der Arbeitsfläche ihrer Seite
     places.set('m' + s.key, { page: pageNo.get(Number(s.key)) ?? ed.doc.page, toLocal: IDENT });
   }
@@ -307,6 +322,14 @@ export function buildView3dPanel(ed: Editor) {
     h('label', { class: 'v3d-check', title: t('Bereiche, in denen sich Teile durchdringen, rot zeigen') }, ovBox, t('Überschneidungen')),
     h('label', { class: 'v3d-check', title: t('Füllungen, gravierte Linien und Bilder auf den Teilen zeigen') }, markBox, t('Gravuren')),
     h('label', { class: 'v3d-th-lbl', title: t('Für Teile ohne eigene Materialdicke (z. B. Zahnräder und gezeichnete Formen)') }, t('Dicke'), thIn, 'mm'),
+    h('label', { class: 'v3d-look', title: t('Aussehen für Layer ohne eigenes Material. Eigenes Aussehen je Schnitt-Layer im Layer-Dialog (Doppelklick auf den Layer).') },
+      t('Material'),
+      lookEditor(() => set.look, (v) => {
+        set.look = v ?? DEFAULT_LOOK;
+        save();
+        update();
+      }),
+    ),
   );
   body.append(bar, h('div', { class: 'v3d-stage' }, host, hint), status);
 
@@ -319,7 +342,7 @@ export function buildView3dPanel(ed: Editor) {
   const update = () => {
     queued = 0;
     if (!viewer || !isShown('view3d')) return;
-    const { scene, key, asms } = collectScene(ed, set.th, set.marks);
+    const { scene, key, asms } = collectScene(ed, set.th, set.marks, set.look);
     hint.hidden = scene.solids.length > 0;
     viewer.setScene(scene, key !== lastKey);
     lastKey = key;
@@ -390,6 +413,10 @@ export function buildView3dPanel(ed: Editor) {
   });
   ed.on((what) => {
     if (what !== 'doc' && what !== 'sel') return;
+    if (isShown('view3d')) schedule();
+  });
+  // Neue oder geänderte Bibliotheksmaterialien können das Aussehen ändern
+  library.on(() => {
     if (isShown('view3d')) schedule();
   });
   // Bilder werden im Hintergrund aufbereitet: danach die Gravuren neu zeichnen
