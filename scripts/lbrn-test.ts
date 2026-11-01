@@ -149,6 +149,49 @@ await test('Layer: mm/s → mm/min, Ausgabe, Reihenfolge, Füllarten, Bild-Einst
   assert.equal(layers[1].img?.interval, 0.08);
 });
 
+await test('Layer: Sub-Layer, Perforation, Anschnitt, Überschnitt, Rampe, Z, Scan+Cut', async () => {
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<LightBurnProject AppVersion="2.1.01" FormatVersion="1">
+    <CutSetting type="Scan">
+        <index Value="1"/><name Value="ENGRAVE+CUT"/><maxPower Value="20"/><speed Value="100"/><zOffset Value="0.5"/>
+        <SubLayer type="Cut" index="1">
+            <maxPower Value="60"/><minPower Value="15"/><speed Value="10"/><numPasses Value="3"/><zPerPass Value="0.8"/>
+            <perforate Value="1"/><perfLen Value="2"/><perfSkip Value="0.5"/>
+            <leadIn Value="1"/><leadLength Value="3"/><leadAngle Value="-45"/><leadStyle Value="arc"/><overcut Value="1.5"/>
+            <enablePowerRamp Value="1"/><rampLength Value="0.7"/>
+        </SubLayer>
+        <SubLayer type="Cut" index="2"><speed Value="5"/><doOutput Value="0"/></SubLayer>
+    </CutSetting>
+    <CutSetting type="Scan+Cut">
+        <index Value="2"/><maxPower Value="30"/><speed Value="50"/>
+    </CutSetting>
+</LightBurnProject>`;
+  const { layers, notes } = await convertLbrn(xml, { bedH: 400 } as never);
+  const L = layers[1];
+  assert.equal(L.mode, 'fill');
+  assert.equal(L.zOffset, 0.5);
+  assert.equal(L.sub?.length, 2);
+  const s = L.sub![0];
+  assert.equal(s.mode, 'line');
+  assert.equal(s.speed, 600);
+  assert.equal(s.power, 60);
+  assert.equal(s.passes, 3);
+  assert.equal(s.zStep, 0.8);
+  assert.deepEqual(s.perf, { enabled: true, on: 2, off: 0.5 });
+  assert.deepEqual(s.lead, { leadIn: true, leadOut: false, length: 3, angle: 45, arc: true, overcut: 1.5 });
+  assert.equal(s.ramp.enabled, true);
+  assert.equal(s.ramp.length, 0.7);
+  assert.equal(s.output, true);
+  assert.ok(!('air' in s));
+  assert.equal(L.sub![1].output, false);
+  // Scan+Cut: füllen, dann mit denselben Werten schneiden
+  assert.equal(layers[2].mode, 'fill');
+  assert.equal(layers[2].sub?.length, 1);
+  assert.equal(layers[2].sub![0].mode, 'line');
+  assert.equal(layers[2].sub![0].speed, 3000);
+  assert.ok(notes.some((n) => n.includes('Z')));
+});
+
 await test('Rechteck: Lage mit y nach unten, Maße und Eckenradius bleiben', async () => {
   const { objs } = await conv();
   const r = objs[0];

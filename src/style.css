@@ -1232,6 +1232,32 @@ table.devices .actions {
 .layer-dialog .form.look-form {
   grid-template-columns: auto 1fr;
 }
+.layer-dialog {
+  max-height: 92vh;
+  overflow-y: auto;
+}
+.sub-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.sub-tabs .btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.sub-tabs .btn.off {
+  opacity: 0.6;
+  text-decoration: line-through;
+}
+.cut-extra {
+  margin-top: 6px;
+}
+.cut-extra summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
 .look-edit {
   display: inline-flex;
   align-items: center;

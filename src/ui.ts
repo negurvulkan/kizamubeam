@@ -1414,6 +1414,15 @@ function layerSummary(L: Layer): string {
     if (L.crossHatch) parts.push(t('Kreuzschraffur'));
     if (!L.bidirectional) parts.push(t('nur eine Richtung'));
   }
+  if (L.mode === 'line') {
+    if (L.perf?.enabled) parts.push(t('Perforation'));
+    if (L.lead?.leadIn || L.lead?.leadOut) parts.push(t('Anschnitt'));
+    if (L.lead?.overcut) parts.push(t('Überschnitt {mm} mm', { mm: fmtNum(L.lead.overcut) }));
+    if (L.ramp?.enabled) parts.push(t('Leistungsrampe'));
+  }
+  if (L.zOffset || L.zStep) parts.push(t('Z-Versatz'));
+  const subs = L.sub?.filter((s) => s.output).length ?? 0;
+  if (subs) parts.push(t('Sub-Layer: {n}', { n: subs }));
   return parts.length ? t('Außerdem: {list}.', { list: parts.join(', ') }) : t('Kerf, Haltestege, Scanwinkel und mehr: Doppelklick auf den Layer.');
 }
 

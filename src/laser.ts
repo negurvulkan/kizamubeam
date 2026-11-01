@@ -817,6 +817,9 @@ export function openDeviceDialog(ed: Editor, target: Device = device, onDone?: (
     h('option', { value: 'M8', selected: d.airCmd !== 'M7' }, t('M8 (Flood, üblich)')),
     h('option', { value: 'M7', selected: d.airCmd === 'M7' }, 'M7 (Mist)'),
   ));
+  head(t('Z-Achse'));
+  bool(t('Motorische Z-Achse vorhanden'), () => d.zAxis, (v) => (d.zAxis = v), t('Layer dürfen den Fokus verschieben (Z-Versatz, tiefer je Durchgang). Z fährt relativ zur Höhe beim Start und am Ende zurück.'));
+  bool(t('Z+ fährt Richtung Material'), () => d.zFlip, (v) => (d.zFlip = v), t('Einschalten, wenn bei dieser Maschine positive Z-Werte den Tisch anheben oder den Kopf absenken'));
   head('FluidNC');
   rows.push(h('label', { title: t('Bei WLAN-Aussetzern läuft ein Job von SD-Karte oder Flash weiter; er wird vor dem Start über die Weboberfläche hochgeladen') }, t('Job ausführen')),
     h('select', { onchange: (e: Event) => (d.runFrom = (e.target as HTMLSelectElement).value as Device['runFrom']) },

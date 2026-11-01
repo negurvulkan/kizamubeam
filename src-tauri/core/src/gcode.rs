@@ -37,6 +37,9 @@ pub struct Params {
     /// Buchstabe für die Y-Richtung: Y, bei einer eigenen Drehachse z. B. A (die Bewegungen sind schon umgerechnet)
     #[serde(default = "default_axis")]
     pub y_axis: String,
+    /// Zeilen vor einzelnen Bewegungen (Index, Zeilen), z. B. Z-Versatz je Durchgang; aufsteigend nach Index
+    #[serde(default)]
+    pub inserts: Vec<(usize, Vec<String>)>,
 }
 
 fn default_axis() -> String {
@@ -101,8 +104,18 @@ pub fn write(mv: &Moves, p: &Params) -> (Vec<String>, Vec<f64>) {
     let mut known = false;
     let mut air = false;
     let mut l = String::with_capacity(48);
+    let mut zk = 0;
     for i in 0..n {
         let (x, y) = (mv.x[i], mv.y[i]);
+        // Eingefügte Zeilen vor der Bewegung; danach G0/G1 wieder ausschreiben
+        while zk < p.inserts.len() && p.inserts[zk].0 == i {
+            for z in &p.inserts[zk].1 {
+                lines.push(z.clone());
+                times.push(if i > 0 { mv.t[i - 1] } else { 0.0 });
+            }
+            g = -1;
+            zk += 1;
+        }
         let want_air = p.air.contains(&mv.layer[i]);
         if want_air != air {
             air = want_air;

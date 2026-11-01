@@ -3,7 +3,7 @@ import './core-fixtures-env';
 import { strict as assert } from 'node:assert';
 import { buildJob, burns, checkBed, DEFAULT_ROTARY, Device, estimate, frameGCode, gcodeFooter, jogLines, Moves, newDevice, Rotary, rotaryMoves, rotaryTestLines, sameMoves, startHere, writeGCode } from '../src/gcode';
 import { emptyStatus, parseStatus, WorkOffset } from '../src/machine';
-import { defaultImageLayer, defaultLayer, loadDoc, Obj } from '../src/model';
+import { defaultImageLayer, defaultLayer, defaultSubLayer, Layer, loadDoc, normalizeLayer, Obj } from '../src/model';
 
 let failed = 0;
 async function test(name: string, fn: () => void | Promise<void>) {
@@ -349,6 +349,151 @@ await test('Statusbericht: Werkstück-Nullpunkt erst bekannt, wenn die Steuerung
   const w2: WorkOffset = { v: [0, 0, 0], known: false };
   parseStatus('<Idle|MPos:30.000,20.000,0.000|WPos:10.000,5.000,0.000>', empty, w2);
   assert.deepEqual(w2, { v: [20, 15, 0], known: true });
+});
+
+// ---------- Erweiterte Schnitt-Einstellungen ----------
+
+const cutJob = (objs: Obj[], patch: Partial<Layer>, dev: Partial<Device> = {}) =>
+  buildJob({
+    doc: loadDoc({ bed: { w: 400, h: 400 }, objs, layers: {} }),
+    layer: (i: number) => normalizeLayer({ ...defaultLayer(i), mode: 'line' as const, speed: 600, power: 80, ...patch }),
+    imgLayer: () => defaultImageLayer(),
+    device: { ...newDevice({ fw: 'fluidnc' }), startFrom: 'absolute' as const, returnHome: false, optimize: false, ...dev },
+  });
+const square = (x = 100, y = 100, w = 10, id = 1): Obj => ({ id, m: [1, 0, 0, 1, x, y], layer: 1, shape: { kind: 'rect', w, h: w, r: 0 } as never });
+const hLine = (): Obj => ({ id: 9, m: [1, 0, 0, 1, 0, 0], layer: 1, shape: { kind: 'path', subs: [{ closed: false, nodes: [{ x: 100, y: 200 }, { x: 110, y: 200 }] }] } });
+/** Längen der Strecken mit und ohne Laser */
+function lengths(mv: Moves) {
+  let on = 0,
+    off = 0,
+    px = mv.x0,
+    py = mv.y0;
+  for (let i = 0; i < mv.n; i++) {
+    const l = Math.hypot(mv.x[i] - px, mv.y[i] - py);
+    if (mv.f[i] > 0) {
+      if (mv.s[i] > 0) on += l;
+      else off += l;
+    }
+    px = mv.x[i];
+    py = mv.y[i];
+  }
+  return { on, off };
+}
+
+await test('Perforation: 1 mm schneiden, 0,5 mm Lücke', async () => {
+  const job = await cutJob([hLine()], { perf: { enabled: true, on: 1, off: 0.5 } });
+  const { on, off } = lengths(job.moves);
+  // 10 mm: 7 Striche (6×1 mm + Rest 0,5 mm … ) – Summe muss stimmen, Ende ohne Laser fällt weg
+  assert.ok(Math.abs(on - 7) < 1e-6, `on ${on}`);
+  assert.ok(Math.abs(off - 3) < 1e-6, `off ${off}`);
+  const g = writeGCode(job, newDevice({ fw: 'fluidnc' }), estimate(job.moves, newDevice({ fw: 'fluidnc' }))).lines;
+  assert.ok(g.some((l) => / S0\b/.test(l)));
+});
+
+await test('Überschnitt: der Kontur 3 mm über den Start hinaus folgen', async () => {
+  const plain = lengths((await cutJob([square()], {})).moves).on;
+  const over = lengths((await cutJob([square()], { lead: { leadIn: false, leadOut: false, length: 2, angle: 90, arc: false, overcut: 3 } })).moves).on;
+  assert.ok(Math.abs(plain - 40) < 1e-6);
+  assert.ok(Math.abs(over - 43) < 1e-6, `over ${over}`);
+});
+
+await test('Anschnitt außen bei Außenkonturen, innen bei Löchern', async () => {
+  const frame: Obj = {
+    id: 1, m: [1, 0, 0, 1, 0, 0], layer: 1,
+    shape: { kind: 'path', subs: [
+      { closed: true, nodes: [{ x: 100, y: 100 }, { x: 140, y: 100 }, { x: 140, y: 140 }, { x: 100, y: 140 }] },
+      { closed: true, nodes: [{ x: 110, y: 110 }, { x: 130, y: 110 }, { x: 130, y: 130 }, { x: 110, y: 130 }] },
+    ] },
+  };
+  const job = await cutJob([frame], { lead: { leadIn: true, leadOut: true, length: 2, angle: 90, arc: false, overcut: 0 } });
+  const mv = job.moves;
+  // Eilfahrten = Anfang jedes Anschnitts
+  const starts: [number, number][] = [];
+  for (let i = 0; i < mv.n; i++) if (mv.f[i] === 0) starts.push([mv.x[i], mv.y[i]]);
+  assert.equal(starts.length, 2);
+  // Bett: y nach oben (400 − y). Außen 100…140 → x/y außerhalb, Loch 110…130 → innerhalb
+  const inside = (p: [number, number], lo: number, hi: number) => p[0] >= lo && p[0] <= hi && p[1] >= 400 - hi && p[1] <= 400 - lo;
+  const outer = starts.find((p) => !inside(p, 100, 140))!;
+  const hole = starts.find((p) => inside(p, 110, 130) && (p[0] > 110 || p[1] < 290) && (p[0] < 130 || p[1] > 270))!;
+  assert.ok(outer, `Außenkontur: ${starts}`);
+  assert.ok(hole, `Loch: ${starts}`);
+  // Länge: 160 + 80 Konturen + 4 × 2 mm Anschnitt/Auslauf
+  assert.ok(Math.abs(lengths(mv).on - 248) < 1e-6, `${lengths(mv).on}`);
+});
+
+await test('Anschnitt als Bogen hat die eingestellte Länge', async () => {
+  const job = await cutJob([square()], { lead: { leadIn: true, leadOut: false, length: 3, angle: 45, arc: true, overcut: 0 } });
+  const on = lengths(job.moves).on;
+  // Bogen aus Sehnen: etwas kürzer als 3 mm
+  assert.ok(on > 42.99 && on <= 43 + 1e-9, `on ${on}`);
+});
+
+await test('Leistungsrampe: Ecken mit Min. Leistung, nach 1 mm volle Leistung', async () => {
+  const job = await cutJob([square()], { minPower: 20, ramp: { enabled: true, length: 1, angle: 45, ends: false } });
+  const mv = job.moves;
+  let lo = 1,
+    hi = 0;
+  for (let i = 0; i < mv.n; i++)
+    if (mv.f[i] > 0) {
+      lo = Math.min(lo, mv.s[i]);
+      hi = Math.max(hi, mv.s[i]);
+    }
+  assert.ok(lo < 0.25 && lo >= 0.2, `lo ${lo}`);
+  assert.ok(Math.abs(hi - 0.8) < 1e-6, `hi ${hi}`);
+  // Länge bleibt gleich
+  assert.ok(Math.abs(lengths(mv).on - 40) < 1e-6);
+  // Gerade Linie ohne Ecken: keine Rampe (außer an den Enden, wenn gewünscht)
+  const line = (await cutJob([hLine()], { minPower: 20, ramp: { enabled: true, length: 1, angle: 45, ends: false } })).moves;
+  for (let i = 0; i < line.n; i++) if (line.f[i] > 0) assert.ok(Math.abs(line.s[i] - 0.8) < 1e-6);
+  const ends = (await cutJob([hLine()], { minPower: 20, ramp: { enabled: true, length: 1, angle: 45, ends: true } })).moves;
+  assert.ok(Math.abs(ends.s[1] - 0.8) > 0.1);
+});
+
+await test('Z je Durchgang: relativ tiefer, am Ende zurück', async () => {
+  const d = { ...newDevice({ fw: 'fluidnc' }), zAxis: true, startFrom: 'absolute' as const, returnHome: false };
+  const job = await cutJob([square()], { passes: 3, zOffset: 0.5, zStep: 1 }, d);
+  assert.deepEqual(job.warnings, []);
+  const g = writeGCode(job, d, estimate(job.moves, d)).lines;
+  const zs = g.filter((l) => /Z/.test(l));
+  assert.deepEqual(zs, ['G0 Z-0.5', 'G0 Z-1', 'G0 Z-1', 'G0 Z2.5']);
+  // Nach jeder Z-Zeile G90 und dann wieder ein vollständiger Bewegungsbefehl
+  const k = g.indexOf('G0 Z-1');
+  assert.deepEqual(g.slice(k - 1, k + 2), ['G91', 'G0 Z-1', 'G90']);
+  assert.ok(/^G[01] /.test(g[k + 2]));
+  // Umgekehrte Richtung
+  const gf = writeGCode(job, { ...d, zFlip: true }, estimate(job.moves, d)).lines.filter((l) => /Z/.test(l));
+  assert.deepEqual(gf, ['G0 Z0.5', 'G0 Z1', 'G0 Z1', 'G0 Z-2.5']);
+  // Ohne Z-Achse: Hinweis, kein Z
+  const none = await cutJob([square()], { passes: 2, zStep: 1 });
+  assert.equal(none.warnings.length, 1);
+  const dn = newDevice({ fw: 'fluidnc' });
+  assert.ok(!writeGCode(none, dn, estimate(none.moves, dn)).lines.some((l) => /Z/.test(l)));
+});
+
+await test('Z bleibt bei Start Here erhalten', async () => {
+  const d = { ...newDevice({ fw: 'fluidnc' }), zAxis: true };
+  const job = await cutJob([square()], { passes: 2, zStep: 1 }, d);
+  const k = job.moves.n - 2;
+  const mv = startHere(job.moves, k, 0.5);
+  const g = writeGCode({ ...job, moves: mv }, d, estimate(mv, d)).lines.filter((l) => /Z/.test(l));
+  assert.deepEqual(g, ['G0 Z-1', 'G0 Z1']);
+});
+
+await test('Sub-Layer: erst füllen, dann ausschneiden; ausgeschaltete Sub-Layer fehlen', async () => {
+  const sub = [
+    { ...defaultSubLayer('line'), speed: 300, power: 90 },
+    { ...defaultSubLayer('line'), speed: 100, power: 10, output: false },
+  ];
+  const job = await cutJob([square()], { mode: 'fill', speed: 3000, power: 30, interval: 1, sub });
+  const mv = job.moves;
+  const feeds = new Set<number>();
+  for (let i = 0; i < mv.n; i++) if (mv.f[i] > 0 && mv.s[i] > 0) feeds.add(mv.f[i]);
+  assert.deepEqual([...feeds], [3000, 300]);
+  // Ausschnitt kommt zuletzt und ist 40 mm lang
+  let cut = 0;
+  for (let i = 1; i < mv.n; i++) if (mv.f[i] === 300 && mv.s[i] > 0) cut += Math.hypot(mv.x[i] - mv.x[i - 1], mv.y[i] - mv.y[i - 1]);
+  assert.ok(Math.abs(cut - 40) < 1e-6);
+  assert.equal(mv.f[mv.n - 1], 300);
 });
 
 if (failed) {

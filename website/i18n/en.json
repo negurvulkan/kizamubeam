@@ -112,6 +112,7 @@
         "Series from a table or CSV: every row becomes a finished copy, edit the table right in the dialog",
         "QR codes (link, Wi-Fi, vCard), barcodes (Code 128, EAN, UPC, Code 39, ITF) and variable text with serial numbers, dates and CSV columns",
         "Library with 400 built-in motifs and design elements (animals, plants, holidays, frames, borders, ornaments …) plus room for your own – with previews and search, insert by double-click or drag",
+        "Cut settings per layer with sub-layers, perforation, lead-in/lead-out, overcut, power ramp in corners and Z step per pass",
         "Material library for cut and image settings; LightBurn libraries (.clb) can be imported",
         "Toolbox: every generator and tool as a tile, with search in English and German, favorites, recently used tools and templates from extensions"
       ]

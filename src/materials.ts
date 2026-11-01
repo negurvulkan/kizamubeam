@@ -2,7 +2,7 @@
 // Ein Eintrag hält die Bearbeitungseinstellungen eines Layers und wahlweise die Bild-Einstellungen.
 // Gespeichert wird im Browser-Speicher der App; Austausch über .kzm-Dateien (JSON, früher .lwm). LightBurn-
 // Bibliotheken (.clb) lassen sich einlesen, soweit ihre Felder hier eine Entsprechung haben.
-import { CutSettings, cutSettings, defaultCutSettings, defaultImageLayer, defaultTabs, DitherMode, ImageLayer, Layer, LayerMode } from './model';
+import { CutSettings, cutSettings, defaultCutSettings, normalizeCut, defaultImageLayer, defaultTabs, DitherMode, ImageLayer, Layer, LayerMode } from './model';
 import { dec, t } from './i18n';
 import { cleanLook } from './view3d/looks';
 
@@ -60,7 +60,7 @@ function sanitize(e: Partial<MaterialEntry>): MaterialEntry | null {
   if (!e || typeof e !== 'object' || !e.settings) return null;
   const mode: LayerMode = e.settings.mode === 'fill' ? 'fill' : 'line';
   const settings = { ...defaultCutSettings(mode), ...e.settings, mode };
-  settings.tabs = { ...defaultTabs(), ...e.settings.tabs };
+  normalizeCut(settings);
   settings.look = cleanLook(e.settings.look);
   if (!settings.look) delete settings.look;
   const th = Number(e.thickness);
@@ -193,7 +193,7 @@ export function entryFromLayer(L: Layer, withImg: boolean): Pick<MaterialEntry, 
 /** Änderung für einen Layer, der einen Eintrag übernimmt */
 export function layerPatch(e: MaterialEntry): Partial<Layer> {
   // Ohne eigenes Aussehen im Eintrag gilt wieder das automatische (aus dem Materialnamen)
-  const p: Partial<Layer> = { look: undefined, ...structuredClone(e.settings), material: e.id, name: entryLabel(e) };
+  const p: Partial<Layer> = { look: undefined, sub: undefined, ...structuredClone(e.settings), material: e.id, name: entryLabel(e) };
   if (e.img) p.img = structuredClone(e.img);
   return p;
 }
@@ -259,7 +259,26 @@ export function lbCutSetting(type: string, imgTag: boolean, val: (...names: stri
     crossHatch: bool(d.crossHatch, 'crossHatch'),
     bidirectional: bool(d.bidirectional, 'bidir'),
     overscan: num(d.overscan, 'overscanPercent'),
+    perf: {
+      enabled: bool(d.perf.enabled, 'perforate'),
+      on: Math.max(0.01, num(d.perf.on, 'perfLen')),
+      off: Math.max(0, num(d.perf.off, 'perfSkip')),
+    },
+    lead: {
+      leadIn: bool(d.lead.leadIn, 'leadIn', 'enableLeadIn'),
+      leadOut: bool(d.lead.leadOut, 'leadOut', 'enableLeadOut'),
+      length: Math.max(0, num(d.lead.length, 'leadLength', 'leadInLength')),
+      // LightBurn: positiv = außen, negativ = innen; KizamuBeam legt den Anschnitt immer auf die Abfallseite
+      angle: Math.min(180, Math.abs(num(d.lead.angle, 'leadAngle', 'leadInAngle'))),
+      arc: (val('leadStyle') ?? '').toLowerCase() === 'arc',
+      overcut: Math.max(0, num(d.lead.overcut, 'overcut', 'overCut')),
+    },
+    // LightBurn rampt die Leistung an Anfang und Ende eines Schnitts
+    ramp: { ...d.ramp, enabled: bool(d.ramp.enabled, 'enablePowerRamp', 'rampEnabled'), ends: bool(d.ramp.enabled, 'enablePowerRamp', 'rampEnabled'), length: Math.max(0.05, num(d.ramp.length, 'rampLength')) },
+    zOffset: num(d.zOffset, 'zOffset'),
+    zStep: num(d.zStep, 'zPerPass', 'zStep'),
   };
+  if (settings.lead.arc && settings.lead.angle < 1) settings.lead.angle = d.lead.angle;
   if (!isImg) return { settings };
   const dither: Record<string, DitherMode> = {
     threshold: 'threshold', ordered: 'ordered', atkinson: 'atkinson', dither: 'floyd', stucki: 'stucki', jarvis: 'jarvis', newsprint: 'newsprint', halftone: 'halftone', sketch: 'sketch', grayscale: 'grayscale',
