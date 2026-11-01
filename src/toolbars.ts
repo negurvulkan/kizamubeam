@@ -34,7 +34,7 @@ export type BarKey = BarId | 'numbar' | 'palette' | 'status';
 type IconSize = 's' | 'm' | 'l';
 
 interface Config {
-  /** Version der gespeicherten Belegung (2: Knopfgruppen) */
+  /** Version der gespeicherten Belegung (2: Knopfgruppen, 3: Knopf Werkzeugkasten) */
   v: number;
   bars: Record<BarId, string[]>;
   size: Record<BarId, IconSize>;
@@ -48,10 +48,22 @@ export const SEP = '|';
 const BAR_EL: Record<BarKey, string> = { main: '#toolbar', tools: '#tools', numbar: '#numbar', palette: '#palette', status: '#status' };
 
 const actions = new Map<string, Action>();
+/** Aktion zu einer Kennung (z. B. für die Kacheln im Werkzeugkasten) */
+export const getAction = (id: string) => actions.get(id);
 let defaults: Record<BarId, string[]> = { main: [], tools: [] };
 let cfg: Config;
 /** Ersatz alter Einzelknopf-Folgen durch Knopfgruppen in gespeicherten Leisten (Version 1 → 2) */
 let migrations: [string[], string][] = [];
+
+const CONFIG_V = 3;
+/** Neue Standardknöpfe: ab Version v der Belegung, hinter after (sonst ans Ende) */
+const ADDED: { v: number; bar: BarId; id: string; after: string }[] = [{ v: 3, bar: 'tools', id: 'apps', after: 'grp:gen' }];
+
+function insertAfter(list: string[], id: string, after: string) {
+  const i = list.indexOf(after);
+  if (i < 0) list.push(id);
+  else list.splice(i + 1, 0, id);
+}
 
 export const barNames = (): Record<BarKey, string> => ({
   main: t('Hauptleiste'),
@@ -142,7 +154,7 @@ function applyHidden(k: BarKey) {
 }
 
 function load(): Config {
-  const c: Config = { v: 2, bars: { main: [...defaults.main], tools: [...defaults.tools] }, size: { main: 'm', tools: 'm' }, hidden: [], groups: {} };
+  const c: Config = { v: CONFIG_V, bars: { main: [...defaults.main], tools: [...defaults.tools] }, size: { main: 'm', tools: 'm' }, hidden: [], groups: {} };
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) || 'null');
     if (raw && typeof raw === 'object') {
@@ -150,6 +162,8 @@ function load(): Config {
         if (Array.isArray(raw.bars?.[id])) {
           let list: string[] = raw.bars[id];
           if (!(raw.v >= 2)) list = migrate(list);
+          // Knöpfe, die mit einer späteren Version dazukamen, einmal in gespeicherte Leisten aufnehmen
+          for (const a of ADDED) if (a.bar === id && !(raw.v >= a.v) && !list.includes(a.id)) insertAfter(list, a.id, a.after);
           c.bars[id] = list.filter((x) => x === SEP || actions.has(x));
         }
         if (['s', 'm', 'l'].includes(raw.size?.[id])) c.size[id] = raw.size[id];

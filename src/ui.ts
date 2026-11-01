@@ -40,6 +40,7 @@ import { openCalibrateDialog } from './calibrateDialog';
 import { buildParamsPanel, openShowIfDialog } from './paramsPanel';
 import { buildNotesPanel } from './notesPanel';
 import { buildView3dPanel } from './view3d/panel';
+import { buildAppsPanel } from './appsPanel';
 import { dockWindow, initDock, isHidden, resetLayout, toggleWindow, windowList } from './dock';
 import { Action, BarKey, barNames, initToolbars, isBarHidden, openToolbarDialog, refreshBars, SEP, showAllBars, toggleBar } from './toolbars';
 import { dec, LangPref, langPref, LANGUAGES, setLangPref, t, tn } from './i18n';
@@ -127,6 +128,7 @@ export function buildUI(ed: Editor) {
   buildNotesPanel(ed);
   buildCheckPanel(ed);
   buildView3dPanel(ed);
+  buildAppsPanel(ed);
   buildLaser(ed);
   setTimeout(() => maybeOfferSetup(ed), 300);
   setTimeout(() => maybeCheckForUpdates(), 5000);
@@ -913,7 +915,7 @@ function buildBars(ed: Editor) {
     { id: 'insert', cat: W, icon: 'insert', label: t('Einsatz mit Fächern erstellen (gesteckte Stege für Box oder Schublade)'), run: () => openGenDialog(ed, 'insert') },
     { id: 'shelf', cat: W, icon: 'shelf', label: t('Steckregal erstellen (Seiten und Böden gesteckt)'), run: () => openGenDialog(ed, 'shelf') },
     { id: 'box', cat: W, icon: 'box', label: t('Box mit Fingerzinken erstellen (Baugruppe, Parameter bleiben erhalten)'), run: () => openGenDialog(ed, 'box') },
-    { id: 'vartext', cat: W, short: t('Var. Text'), label: t('Variabler Text …'), run: () => openVarTextDialog(ed) },
+    { id: 'vartext', cat: W, icon: 'vartext', short: t('Var. Text'), label: t('Variabler Text …'), run: () => openVarTextDialog(ed) },
     { id: 'textpath', cat: W, short: t('Auf Pfad'), label: t('Text auf Pfad'), run: () => ed.applyPathToText(), enabled: sel2 },
     {
       id: 'union', cat: M, icon: 'union', label: t('Vereinen (Alt++): alle gewählten Formen verschmelzen, eine Gruppe oder ein Text auch mit sich selbst'),
@@ -942,13 +944,21 @@ function buildBars(ed: Editor) {
     { id: 'frame', cat: L, icon: 'frame', label: t('Rahmen: Rechteck um den Job abfahren'), run: () => frameJob(ed, false) },
     { id: 'contour', cat: L, icon: 'contour', label: t('Kontur-Rahmen: Umriss des Jobs abfahren'), run: () => frameJob(ed, true) },
     { id: 'gcode', cat: L, icon: 'gcode', label: t('G-Code speichern'), run: () => saveGCode(ed) },
-    { id: 'setup', cat: L, short: t('Einrichten'), label: t('Laser einrichten: Schritt für Schritt von der Verbindung bis zum ersten Testauftrag'), run: () => openSetupWizard(ed) },
-    { id: 'materialtest', cat: L, short: t('Test'), label: t('Materialtest …'), run: () => openMaterialTestDialog(ed) },
-    { id: 'testphoto', cat: L, short: t('Auswerten'), label: t('Materialtest auswerten: Foto des gelaserten Tests laden und die beste Zelle anklicken'), run: () => openTestPhotoDialog(ed) },
-    { id: 'calibrate', cat: L, short: t('Passung'), label: t('Passung kalibrieren: Schnittfuge und Steckspiel für ein Material ermitteln'), run: () => openCalibrateDialog(ed) },
+    { id: 'setup', cat: L, icon: 'setup', short: t('Einrichten'), label: t('Laser einrichten: Schritt für Schritt von der Verbindung bis zum ersten Testauftrag'), run: () => openSetupWizard(ed) },
+    { id: 'materialtest', cat: L, icon: 'mattest', short: t('Test'), label: t('Materialtest …'), run: () => openMaterialTestDialog(ed) },
+    { id: 'testphoto', cat: L, icon: 'testphoto', short: t('Auswerten'), label: t('Materialtest auswerten: Foto des gelaserten Tests laden und die beste Zelle anklicken'), run: () => openTestPhotoDialog(ed) },
+    { id: 'calibrate', cat: L, icon: 'calibrate', short: t('Passung'), label: t('Passung kalibrieren: Schnittfuge und Steckspiel für ein Material ermitteln'), run: () => openCalibrateDialog(ed) },
     { id: 'devsettings', cat: L, icon: 'settings', label: t('Geräteeinstellungen'), run: () => openDeviceDialog(ed) },
     { id: 'devices', cat: L, short: t('Geräte'), label: t('Geräte …'), run: () => openDevicesDialog(ed) },
-    { id: 'rotary', cat: L, short: t('Rotary'), label: t('Drehachse (Rotary) …'), run: () => openRotaryDialog() },
+    { id: 'rotary', cat: L, icon: 'rotary', short: t('Rotary'), label: t('Drehachse (Rotary) …'), run: () => openRotaryDialog() },
+    { id: 'slots', cat: M, icon: 'slots', label: t('Schlitze an Materialdicke anpassen …'), run: () => openSlotDialog(ed) },
+    { id: 'workpiece', cat: A, icon: 'workpiece', label: t('Auf Werkstücke übertragen (Kamera) …'), run: () => openWorkpieceDialog(ed), enabled: sel1 },
+    { id: 'bgremove', cat: I, icon: 'bgremove', label: t('Hintergrund entfernen …'), run: () => openBackgroundDialog(ed), enabled: () => ed.selImages().length > 0 },
+    { id: 'series', cat: F, icon: 'series', label: t('Serie aus Tabelle (CSV) …'), run: () => openSeriesDialog(ed) },
+    { id: 'newtemplate', cat: F, icon: 'template', label: t('Neu aus Vorlage …'), run: () => openTemplateLibrary(ed) },
+    { id: 'filltemplate', cat: F, icon: 'filltemplate', label: t('Vorlage ausfüllen …'), run: () => openFillDialog(ed) },
+    { id: 'packs', cat: F, icon: 'packs', label: t('Erweiterungen …'), run: () => openPacksDialog() },
+    { id: 'apps', cat: W, icon: 'apps', label: t('Werkzeugkasten: alle Generatoren und Werkzeuge mit Suche'), run: () => toggleWindow('apps'), on: () => !isHidden('apps') },
     // Knopfgruppen: ein Knopf für die zuletzt benutzte Aktion, der Pfeil daneben zeigt die übrigen
     { id: 'grp:transform', cat: A, label: t('Spiegeln und drehen (Gruppe)'), items: ['mirrorh', 'mirrorv', 'rotccw', 'rotcw'], run: () => {} },
     { id: 'grp:align', cat: A, label: t('Ausrichten und verteilen (Gruppe)'), items: ['alignl', 'alignhc', 'alignr', 'alignt', 'alignvc', 'alignb', 'disth', 'distv'], run: () => {} },
@@ -967,7 +977,7 @@ function buildBars(ed: Editor) {
         'group', 'ungroup', 'grp:transform', 'tolines', SEP, 'grp:align', SEP, 'theme',
       ],
       tools: [
-        'tool:select', 'tool:node', SEP, 'tool:line', 'tool:rect', 'tool:ellipse', 'tool:polygon', 'tool:text', 'qr', 'grp:gen', SEP,
+        'tool:select', 'tool:node', SEP, 'tool:line', 'tool:rect', 'tool:ellipse', 'tool:polygon', 'tool:text', 'qr', 'grp:gen', 'apps', SEP,
         'grp:bool', 'offset', 'warp', 'grp:path', 'grp:array', 'nest', 'tool:joint', 'lidhinge', 'hinge',
       ],
     },

@@ -2980,7 +2980,8 @@ input.bound {
 }
 .pack-url {
   user-select: text;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  hyphens: auto;
 }
 .pack-contents {
   max-height: 200px;
@@ -3210,6 +3211,7 @@ input.bound {
 }
 .lib-dialog .tpl-head .form {
   grid-template-columns: 90px 1fr;
+}
 /* Auf Werkstücke übertragen */
 .offset-dialog.wp-dialog {
   margin: 60px 330px auto auto;
@@ -3244,6 +3246,7 @@ input.bound {
 .wp-row .btn.small {
   padding: 1px 6px;
   font-size: 11px;
+}
 .bg-dialog {
   max-width: 420px;
 }
@@ -3277,6 +3280,7 @@ input.bound {
   height: 16px;
   border: 1px solid var(--line);
   border-radius: 3px;
+}
 /* ---------- Projekte als Tabs (tabsBar.ts) ---------- */
 #tabbar {
   display: flex;
@@ -3344,4 +3348,208 @@ input.bound {
 .ptab-new {
   padding: 0 10px;
   color: var(--muted);
+}
+/* Werkzeugkasten */
+:root {
+  --app-mech-bg: #e6edfb; --app-mech-fg: #2f5fc8;
+  --app-box-bg: #fbf0dc; --app-box-fg: #a8661a;
+  --app-join-bg: #e3f3e7; --app-join-fg: #2c7d47;
+  --app-arrange-bg: #efe8fa; --app-arrange-fg: #6d43b8;
+  --app-text-bg: #fbe7ec; --app-text-fg: #b23a5c;
+  --app-image-bg: #e0f2f2; --app-image-fg: #1f7a7a;
+  --app-laser-bg: #fcebe0; --app-laser-fg: #b4541e;
+  --app-pack-bg: #e9ebee; --app-pack-fg: #4b5563;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --app-mech-bg: #263552; --app-mech-fg: #8db2fa;
+    --app-box-bg: #3e3322; --app-box-fg: #f0bd6e;
+    --app-join-bg: #233a2c; --app-join-fg: #7fd29a;
+    --app-arrange-bg: #33294a; --app-arrange-fg: #bba0f0;
+    --app-text-bg: #42262f; --app-text-fg: #f39ab3;
+    --app-image-bg: #1f3a3b; --app-image-fg: #7fd3d3;
+    --app-laser-bg: #42301f; --app-laser-fg: #f5a46f;
+    --app-pack-bg: #30353c; --app-pack-fg: #b6bcc6;
+  }
+}
+:root[data-theme='dark'] {
+  --app-mech-bg: #263552; --app-mech-fg: #8db2fa;
+  --app-box-bg: #3e3322; --app-box-fg: #f0bd6e;
+  --app-join-bg: #233a2c; --app-join-fg: #7fd29a;
+  --app-arrange-bg: #33294a; --app-arrange-fg: #bba0f0;
+  --app-text-bg: #42262f; --app-text-fg: #f39ab3;
+  --app-image-bg: #1f3a3b; --app-image-fg: #7fd3d3;
+  --app-laser-bg: #42301f; --app-laser-fg: #f5a46f;
+  --app-pack-bg: #30353c; --app-pack-fg: #b6bcc6;
+}
+[data-g='mech'] { --app-bg: var(--app-mech-bg); --app-fg: var(--app-mech-fg); }
+[data-g='box'] { --app-bg: var(--app-box-bg); --app-fg: var(--app-box-fg); }
+[data-g='join'] { --app-bg: var(--app-join-bg); --app-fg: var(--app-join-fg); }
+[data-g='arrange'] { --app-bg: var(--app-arrange-bg); --app-fg: var(--app-arrange-fg); }
+[data-g='text'] { --app-bg: var(--app-text-bg); --app-fg: var(--app-text-fg); }
+[data-g='image'] { --app-bg: var(--app-image-bg); --app-fg: var(--app-image-fg); }
+[data-g='laser'] { --app-bg: var(--app-laser-bg); --app-fg: var(--app-laser-fg); }
+[data-g='pack'] { --app-bg: var(--app-pack-bg); --app-fg: var(--app-pack-fg); }
+.win-apps {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.apps-top {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.apps-searchbox {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 0 6px;
+}
+.apps-searchbox:focus-within {
+  border-color: var(--accent);
+}
+.apps-sicon {
+  display: flex;
+  color: var(--muted);
+}
+.apps-sicon svg {
+  width: 14px;
+  height: 14px;
+}
+.apps-search {
+  flex: 1;
+  min-width: 0;
+  border: 0 !important;
+  outline: 0;
+  background: transparent !important;
+  padding: 4px 0;
+}
+.apps-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.apps-chip {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 1px 7px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+}
+.apps-chip.on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.apps-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px 8px;
+}
+.apps-sec + .apps-sec {
+  border-top: 1px solid var(--line);
+}
+.apps-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 0 6px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.apps-gicon,
+.apps-chev {
+  display: flex;
+}
+.apps-gicon svg {
+  width: 15px;
+  height: 15px;
+}
+.apps-count {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 11px;
+}
+.apps-chev {
+  margin-left: auto;
+  color: var(--muted);
+}
+.apps-chev svg {
+  width: 13px;
+  height: 13px;
+}
+.apps-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(74px, 1fr));
+  gap: 6px;
+  padding-bottom: 8px;
+}
+.apps-hits {
+  color: var(--muted);
+  padding: 8px 0 6px;
+}
+.app-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  min-width: 0;
+}
+.app-art {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1.15;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--app-bg, var(--surface-2));
+  color: var(--app-fg, var(--icon));
+  border: 1px solid transparent;
+}
+.app-art svg {
+  width: 32px;
+  height: 32px;
+}
+.app-tile:hover .app-art,
+.app-tile:focus-visible .app-art {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.app-tile:focus-visible {
+  outline: 0;
+}
+.app-tile:hover {
+  color: var(--text);
+}
+.app-name {
+  font-size: 11px;
+  line-height: 1.25;
+  text-align: center;
+  width: 100%;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: break-word;
+  hyphens: auto;
 }

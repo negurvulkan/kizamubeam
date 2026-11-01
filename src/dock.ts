@@ -46,6 +46,8 @@ interface Win {
   float?: { w: number; h: number };
   /** Neu hinzugekommen: als Reiter in die Gruppe dieses Fensters (statt in die letzte Gruppe rechts) */
   near?: string;
+  /** Standardplatz links; bei schon gespeicherter Anordnung erst ausgeblendet (siehe isNewWindow) */
+  left?: boolean;
 }
 
 const KEY = 'kizamubeam.layout';
@@ -55,6 +57,7 @@ const MIN_GROUP = 60;
 const wins = new Map<string, Win>();
 let layout: Layout;
 let shownBefore = new Set<string>();
+const addedLater = new Set<string>();
 /** Erst nach dem ersten Aufbau melden, dass ein Fenster sichtbar wurde */
 let started = false;
 
@@ -62,7 +65,7 @@ function defaultLayout(): Layout {
   const g = (tabs: string[], size: number): Group => ({ tabs, active: tabs[0], size });
   return {
     v: 1,
-    left: [],
+    left: [...wins.values()].filter((w) => w.left).map((w) => g([w.id], 300)),
     right: [g(['cuts'], 220), g(['objects', 'history', 'params', 'notes'], 260), g(['laser', 'move', 'console', 'material', 'camera'], 400)],
     leftW: 280,
     rightW: 310,
@@ -75,17 +78,20 @@ function defaultLayout(): Layout {
  * Meldet ein Werkzeugfenster an und liefert seinen Inhaltsbereich. Muss vor initDock() aufgerufen werden.
  * onShow läuft, sobald das Fenster sichtbar wird (z. B. um verschobenes Neuzeichnen nachzuholen).
  */
-export function dockWindow(id: string, title: string, opts: { bodyId?: string; onShow?: () => void; float?: { w: number; h: number }; near?: string } = {}): HTMLElement {
+export function dockWindow(id: string, title: string, opts: { bodyId?: string; onShow?: () => void; float?: { w: number; h: number }; near?: string; left?: boolean } = {}): HTMLElement {
   const body = h('div', { class: `panel-body win-body win-${id}`, id: opts.bodyId });
   // Bis initDock() in einem unsichtbaren Halter, damit $('#…') den Inhalt schon findet
   let holder = document.getElementById('dock-holder');
   if (!holder) document.body.append((holder = h('div', { id: 'dock-holder', hidden: true })));
   holder.append(body);
-  wins.set(id, { id, title, body, badge: '', onShow: opts.onShow, float: opts.float, near: opts.near });
+  wins.set(id, { id, title, body, badge: '', onShow: opts.onShow, float: opts.float, near: opts.near, left: opts.left });
   return body;
 }
 
 /** Aufruf, sobald das Fenster sichtbar wird (nicht beim ersten Aufbau) */
+/** Fenster kam mit diesem Start zu einer schon gespeicherten Anordnung dazu (für einen einmaligen Hinweis) */
+export const isNewWindow = (id: string) => addedLater.has(id);
+
 export function onWindowShow(id: string, f: () => void) {
   wins.get(id)!.onShow = f;
 }
@@ -107,7 +113,7 @@ export const windowList = () => [...wins.values()].map((w) => ({ id: w.id, title
 /** Ist das Fenster gerade zu sehen (nicht ausgeblendet, vorderster Reiter, Gruppe nicht eingeklappt)? */
 export const isShown = (id: string) => shownNow().has(id);
 
-export const isHidden = (id: string) => layout.hidden.includes(id);
+export const isHidden = (id: string) => !!layout && layout.hidden.includes(id);
 
 export function toggleWindow(id: string) {
   if (isHidden(id)) showWindow(id);
@@ -183,6 +189,11 @@ function normalize(l: Layout): Layout {
       clampFloat(f);
       out.floats.push(f);
       if (!out.hidden.includes(id)) out.hidden.push(id);
+    } else if (!seen.has(id) && w.left) {
+      // Neu in einer gespeicherten Anordnung: links bereitstellen, aber nicht ungefragt einblenden
+      out.left.push({ tabs: [id], active: id, size: 300 });
+      if (!out.hidden.includes(id)) out.hidden.push(id);
+      if (!started) addedLater.add(id);
     } else if (!seen.has(id)) {
       const near = w.near && [...out.left, ...out.right, ...out.floats].find((g) => g.tabs.includes(w.near!));
       const last = near || out.right[out.right.length - 1];
