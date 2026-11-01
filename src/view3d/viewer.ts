@@ -2,17 +2,23 @@
 // Explosionsansicht und drehende Zahnräder. Wird erst geladen, wenn das Fenster zum ersten Mal aufgeht.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { Pt } from '../model';
 import type { Overlap, Solid } from './solids';
 import type { Engraving } from './engrave';
 import { solidBounds } from './solids';
 import { Pose, rotatePose } from './poses';
+import { DEFAULT_LOOK, LookPreset, lookTexture, resolveLook, shadeHex } from './looks';
 
 export interface ViewSolid extends Solid {
   /** Teile mit gleicher Gruppe (Baugruppe) werden gemeinsam auseinandergezogen */
   group: string;
   /** Gravuren auf der Oberfläche */
   engraving?: Engraving;
+  /** Layer der Kontur (bestimmt das Material) */
+  layer?: number;
+  /** Aussehen des Materials */
+  look?: LookPreset;
 }
 
 export interface Scene3D {
@@ -21,6 +27,9 @@ export interface Scene3D {
 }
 
 export type ViewPreset = 'iso' | 'top' | 'front';
+
+/** Hintergrund im Mockup-Modus: wie die Oberfläche, Weiß, Hellgrau, Dunkel oder Studio-Verlauf */
+export type MockupBg = 'theme' | 'white' | 'grey' | 'dark' | 'studio';
 
 interface Part {
   s: ViewSolid;
@@ -73,8 +82,68 @@ function slabGeometry(s: Solid) {
   return new THREE.ExtrudeGeometry(shapesOf(s.polys), { depth: s.th, bevelEnabled: false, curveSegments: 1 });
 }
 
+/** Texturen je Aussehen (Farbe und Höhenkarte), werden für alle Teile geteilt */
+const texCache = new Map<string, { map: THREE.DataTexture; bump: THREE.DataTexture | null }>();
+const TEX_PX = 512;
+
+function lookTextures(p: LookPreset) {
+  const key = `${p.id}|${p.color}`;
+  let c = texCache.get(key);
+  if (c) return c;
+  const { rgba, height } = lookTexture(p, TEX_PX);
+  const mk = (data: Uint8ClampedArray, format: THREE.PixelFormat, srgb: boolean) => {
+    const tx = new THREE.DataTexture(data, TEX_PX, TEX_PX, format);
+    tx.wrapS = tx.wrapT = THREE.RepeatWrapping;
+    tx.magFilter = THREE.LinearFilter;
+    tx.minFilter = THREE.LinearMipmapLinearFilter;
+    tx.generateMipmaps = true;
+    tx.anisotropy = 4;
+    if (srgb) tx.colorSpace = THREE.SRGBColorSpace;
+    tx.needsUpdate = true;
+    return tx;
+  };
+  c = { map: mk(rgba, THREE.RGBAFormat, true), bump: p.tex === 'plain' ? null : mk(height, THREE.RedFormat, false) };
+  texCache.set(key, c);
+  return c;
+}
+
+/** Zufallszahl 0..1 je Teil, damit die Maserung nicht auf allen Teilen gleich liegt */
+const partRand = (i: number, k: number) => {
+  const x = Math.sin(i * 127.1 + k * 311.7) * 43758.5453;
+  return x - Math.floor(x);
+};
+
+/** Materialien für Fläche und Schnittkante einer Platte */
+function slabMaterials(p: LookPreset, th: number, i: number): [THREE.Material, THREE.Material] {
+  const tex = p.tex === 'plain' ? null : lookTextures(p);
+  const ofs = (t: THREE.Texture) => {
+    const c = t.clone();
+    c.repeat.set(1 / p.tile, 1 / p.tile);
+    c.offset.set(partRand(i, 1), partRand(i, 2));
+    return c;
+  };
+  const common = {
+    color: tex ? 0xffffff : new THREE.Color(p.color),
+    map: tex ? ofs(tex.map) : null,
+    bumpMap: tex?.bump ? ofs(tex.bump) : null,
+    bumpScale: 0.6,
+    roughness: p.rough,
+    metalness: p.metal,
+  };
+  const face: THREE.Material =
+    p.clear > 0
+      ? new THREE.MeshPhysicalMaterial({ ...common, color: new THREE.Color(p.color), transmission: p.clear, ior: p.ior, thickness: th, clearcoat: 0.6, clearcoatRoughness: 0.05, specularIntensity: 1 })
+      : new THREE.MeshStandardMaterial(common);
+  // Gelaserte Kante: bei Holz verkohlt, bei Acryl blank poliert, sonst wie die Fläche etwas dunkler
+  const side: THREE.Material =
+    p.clear > 0
+      ? new THREE.MeshPhysicalMaterial({ color: new THREE.Color(p.edge ?? p.color), transmission: p.clear * 0.8, ior: p.ior, thickness: th * 4, roughness: 0.02 })
+      : new THREE.MeshStandardMaterial({ color: new THREE.Color(p.edge ?? shadeHex(p.color, 0.85)), roughness: Math.min(1, p.rough + 0.1), metalness: p.metal });
+  return [face, side];
+}
+
 /** Gravuren als Bild auf der Plattenfläche, knapp darüber, damit es nicht mit der Fläche flimmert */
-function engravingMesh(s: Solid, e: Engraving): THREE.Mesh {
+function engravingMesh(s: Solid, e: Engraving, p: LookPreset): THREE.Mesh {
   const geo = new THREE.ShapeGeometry(shapesOf(s.polys), 1);
   const pos = geo.getAttribute('position');
   const uv = new Float32Array(pos.count * 2);
@@ -87,8 +156,13 @@ function engravingMesh(s: Solid, e: Engraving): THREE.Mesh {
   tex.flipY = false;
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
-  const mat = new THREE.MeshLambertMaterial({
+  const mat = new THREE.MeshStandardMaterial({
     map: tex,
+    // Gravierte Stellen sind matt; auf Metall bleibt die Markierung leicht metallisch
+    roughness: p.engrave.style === 'frost' ? 0.9 : 0.85,
+    metalness: p.engrave.style === 'light' ? p.metal * 0.5 : 0,
+    bumpMap: engravingBump(e.canvas),
+    bumpScale: 1.5,
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
@@ -102,6 +176,38 @@ function engravingMesh(s: Solid, e: Engraving): THREE.Mesh {
   return m;
 }
 
+/** Studio-Hintergrund: weicher Verlauf von hell oben zu etwas dunkler unten */
+function studioBackground(): THREE.Texture {
+  const c = document.createElement('canvas');
+  c.width = 4;
+  c.height = 256;
+  const g = c.getContext('2d')!;
+  const gr = g.createLinearGradient(0, 0, 0, 256);
+  gr.addColorStop(0, '#f4f5f6');
+  gr.addColorStop(0.55, '#e3e5e8');
+  gr.addColorStop(1, '#b9bdc3');
+  g.fillStyle = gr;
+  g.fillRect(0, 0, 4, 256);
+  const tx = new THREE.CanvasTexture(c);
+  tx.colorSpace = THREE.SRGBColorSpace;
+  return tx;
+}
+
+/** Höhenbild einer Gravur: graviert = tiefer, damit die Ränder Licht und Schatten bekommen */
+function engravingBump(cv: HTMLCanvasElement): THREE.CanvasTexture {
+  const out = document.createElement('canvas');
+  out.width = cv.width;
+  out.height = cv.height;
+  const src = cv.getContext('2d')!.getImageData(0, 0, cv.width, cv.height);
+  const d = src.data;
+  for (let i = 0; i < d.length; i += 4) d[i] = d[i + 1] = d[i + 2] = 255 - d[i + 3];
+  for (let i = 3; i < d.length; i += 4) d[i] = 255;
+  out.getContext('2d')!.putImageData(src, 0, 0);
+  const tx = new THREE.CanvasTexture(out);
+  tx.flipY = false;
+  return tx;
+}
+
 const cssVar = (name: string, fallback: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 
 export class Viewer3D {
@@ -112,6 +218,11 @@ export class Viewer3D {
   private root = new THREE.Group();
   private overlapGroup = new THREE.Group();
   private grid: THREE.GridHelper | null = null;
+  /** Mockup: Boden, der nur Schatten zeigt, und Sonne mit Schatten */
+  private ground: THREE.Mesh | null = null;
+  private sun: THREE.DirectionalLight;
+  private mockup = false;
+  private mockupBg: MockupBg = 'studio';
   private parts: Part[] = [];
   private explode = 0;
   private spin = false;
@@ -129,18 +240,31 @@ export class Viewer3D {
   isVisible: () => boolean = () => true;
 
   constructor(private host: HTMLElement) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.toneMapping = THREE.NeutralToneMapping;
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    // Weiche Spiegelungen aus einem Raum, damit Acryl, Glas, Metall und Lack echt wirken
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environmentIntensity = 0.55;
+    pmrem.dispose();
     host.append(this.renderer.domElement);
     this.camera.up.set(0, 0, 1);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.addEventListener('change', () => (this.needsRender = true));
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8070, 1.6));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8070, 0.9));
+    const sun = (this.sun = new THREE.DirectionalLight(0xffffff, 1.8));
     sun.position.set(0.8, -1.2, 2);
-    this.scene.add(sun);
-    const fill = new THREE.DirectionalLight(0xffffff, 0.5);
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.radius = 6;
+    sun.shadow.blurSamples = 16;
+    sun.shadow.bias = -0.0005;
+    sun.shadow.normalBias = 0.02;
+    this.scene.add(sun, sun.target);
+    const fill = new THREE.DirectionalLight(0xffffff, 0.4);
     fill.position.set(-1, 1.5, 0.5);
     this.scene.add(fill);
     this.scene.add(this.root, this.overlapGroup);
@@ -156,7 +280,10 @@ export class Viewer3D {
   }
 
   private applyTheme() {
-    this.scene.background = new THREE.Color(cssVar('--surface', '#ffffff'));
+    if (this.scene.background instanceof THREE.Texture) this.scene.background.dispose();
+    const bg = this.mockup ? this.mockupBg : 'theme';
+    this.scene.background =
+      bg === 'studio' ? studioBackground() : new THREE.Color(bg === 'white' ? '#ffffff' : bg === 'grey' ? '#c9ccd0' : bg === 'dark' ? '#202226' : cssVar('--surface', '#ffffff'));
     if (this.grid) (this.grid.material as THREE.LineBasicMaterial).color = new THREE.Color(cssVar('--line', '#c3c7ce'));
     this.needsRender = true;
   }
@@ -175,9 +302,13 @@ export class Viewer3D {
       g.traverse((o) => {
         if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments) {
           o.geometry.dispose();
-          const mat = o.material as THREE.Material & { map?: THREE.Texture | null };
-          mat.map?.dispose();
-          mat.dispose();
+          // Texturen der Materialien sind geteilt (Cache), nur die Gravurbilder gehören dem Teil
+          for (const mat of (Array.isArray(o.material) ? o.material : [o.material]) as (THREE.Material & { map?: THREE.Texture | null })[]) {
+            if (mat.map instanceof THREE.CanvasTexture) mat.map.dispose();
+            const bump = (mat as THREE.MeshStandardMaterial).bumpMap;
+            if (bump instanceof THREE.CanvasTexture) bump.dispose();
+            mat.dispose();
+          }
         }
       });
     this.root.clear();
@@ -188,12 +319,17 @@ export class Viewer3D {
       this.grid.geometry.dispose();
       this.grid = null;
     }
+    if (this.ground) {
+      this.scene.remove(this.ground);
+      this.ground.geometry.dispose();
+      (this.ground.material as THREE.Material).dispose();
+      this.ground = null;
+    }
   }
 
   /** Neue Teile zeigen; refit: Kamera auf die Teile ausrichten (z. B. wenn eine andere Baugruppe gewählt wurde) */
   setScene(sc: Scene3D, refit: boolean) {
     this.clear();
-    const edgeColor = new THREE.Color('#5c4630');
     // Mitte jeder Baugruppe für die Explosionsansicht
     const centers = new Map<string, THREE.Box3>();
     const boxOf = (s: Solid) => {
@@ -203,13 +339,16 @@ export class Viewer3D {
     for (const s of sc.solids) centers.set(s.group, (centers.get(s.group) ?? new THREE.Box3()).union(boxOf(s)));
     sc.solids.forEach((s, i) => {
       const geo = slabGeometry(s);
-      // Holztöne, benachbarte Teile leicht unterschiedlich
-      const color = new THREE.Color().setHSL(0.085, 0.5, 0.74 + ((i * 3) % 5) * 0.025 - 0.05);
-      const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color }));
+      const look = s.look ?? resolveLook(DEFAULT_LOOK);
+      // Fläche (Gruppe 0) und Schnittkante (Gruppe 1) der hochgezogenen Kontur
+      const mesh = new THREE.Mesh(geo, slabMaterials(look, s.th, i));
       mesh.matrixAutoUpdate = false;
       mesh.matrix.copy(poseMatrix(s.pose));
-      mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 25), new THREE.LineBasicMaterial({ color: edgeColor })));
-      if (s.engraving) mesh.add(engravingMesh(s, s.engraving));
+      mesh.castShadow = mesh.receiveShadow = true;
+      // Feine Umrisslinie, damit Teile gleicher Farbe unterscheidbar bleiben
+      const line = new THREE.Color(look.edge ?? shadeHex(look.color, 0.6)).multiplyScalar(look.clear > 0 ? 0.85 : 0.7);
+      mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 25), new THREE.LineBasicMaterial({ color: line, transparent: true, opacity: look.clear > 0 ? 0.8 : 0.55 })));
+      if (s.engraving) mesh.add(engravingMesh(s, s.engraving, look));
       mesh.userData.label = s.label;
       const holder = new THREE.Group();
       holder.add(mesh);
@@ -240,10 +379,64 @@ export class Viewer3D {
       (this.grid.material as THREE.Material).transparent = true;
       (this.grid.material as THREE.Material).opacity = 0.6;
       this.scene.add(this.grid);
+      // Boden für die Schatten im Mockup-Modus
+      this.ground = new THREE.Mesh(new THREE.PlaneGeometry(span * 4, span * 4), new THREE.ShadowMaterial({ opacity: 0.28 }));
+      this.ground.position.set(c.x, c.y, all.min.z - 0.02);
+      this.ground.receiveShadow = true;
+      this.scene.add(this.ground);
     }
+    this.applyMockup();
     this.applyTheme();
     this.layout();
     if (refit) this.view('iso');
+  }
+
+  /** Mockup-Modus: ohne Raster, mit Schatten und eigenem Hintergrund (für Bilder für Kunden) */
+  setMockup(on: boolean, bg: MockupBg) {
+    this.mockup = on;
+    this.mockupBg = bg;
+    this.applyMockup();
+    this.applyTheme();
+    this.layout();
+  }
+
+  private applyMockup() {
+    if (this.grid) this.grid.visible = !this.mockup;
+    if (this.ground) this.ground.visible = this.mockup;
+    this.sun.castShadow = this.mockup;
+    if (this.ground) (this.ground.material as THREE.ShadowMaterial).opacity = this.mockupBg === 'dark' ? 0.5 : 0.28;
+    // Sonne und Schattenbereich passend zu den Teilen (auch auseinandergezogen)
+    const b = this.bounds();
+    if (!b.isEmpty()) {
+      const c = b.getCenter(new THREE.Vector3());
+      const r = Math.max(b.getBoundingSphere(new THREE.Sphere()).radius * (1 + this.explode), 10);
+      this.sun.target.position.copy(c);
+      // Im Mockup kommt das Licht von vorne links, damit die Schatten sichtbar nach hinten rechts fallen
+      const dir = this.mockup ? new THREE.Vector3(-1.1, -0.5, 1.5) : new THREE.Vector3(0.8, -1.2, 2);
+      this.sun.position.copy(c).add(dir.normalize().multiplyScalar(r * 3));
+      const cam = this.sun.shadow.camera;
+      cam.left = cam.bottom = -r * 1.3;
+      cam.right = cam.top = r * 1.3;
+      cam.near = r * 0.5;
+      cam.far = r * 6;
+      cam.updateProjectionMatrix();
+    }
+    this.needsRender = true;
+  }
+
+  /** Aktuelle Ansicht als PNG (data:-URL) in scale-facher Auflösung */
+  snapshot(scale = 2): string {
+    const w = Math.max(1, this.host.clientWidth),
+      h = Math.max(1, this.host.clientHeight);
+    const pr = this.renderer.getPixelRatio();
+    this.renderer.setPixelRatio(scale);
+    this.renderer.setSize(w, h, false);
+    this.renderer.render(this.scene, this.camera);
+    const url = this.renderer.domElement.toDataURL('image/png');
+    this.renderer.setPixelRatio(pr);
+    this.renderer.setSize(w, h, false);
+    this.needsRender = true;
+    return url;
   }
 
   private bounds() {
@@ -274,8 +467,9 @@ export class Viewer3D {
       p.holder.position.copy(p.away).multiplyScalar(this.explode);
       if (p.s.spin) p.mesh.matrix.copy(poseMatrix(this.angle ? rotatePose(p.s.pose, this.angle * p.s.spin) : p.s.pose));
     }
+    if (this.mockup && !this.spin) this.applyMockup();
     // Die roten Bereiche gehören zur zusammengesteckten, ruhenden Lage
-    this.overlapGroup.visible = this.showOverlaps && this.explode === 0 && this.angle === 0;
+    this.overlapGroup.visible = this.showOverlaps && !this.mockup && this.explode === 0 && this.angle === 0;
     this.needsRender = true;
   }
 

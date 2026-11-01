@@ -1,6 +1,6 @@
 // Gravuren für die 3D-Ansicht: Füllungen, gravierte Linien, Texte und Bilder, die auf einer Platte liegen, werden
-// in ein Bild der Plattenoberfläche gezeichnet. Der Viewer legt es als dunkle Brandspur auf die Seite der Platte,
-// die beim Lasern oben lag.
+// in ein Bild der Plattenoberfläche gezeichnet. Der Viewer legt es auf die Seite der Platte, die beim Lasern oben
+// lag. Die Farbe hängt vom Material ab: dunkle Brandspur auf Holz, hell auf Schiefer, milchig auf Acryl.
 import type { Editor } from '../editor';
 import type { ImageShape, Mat, Obj, TextShape } from '../model';
 import { apply, inv, leaves, mul, visibleLeaves } from '../model';
@@ -25,8 +25,8 @@ export interface Engraving {
   top: boolean;
 }
 
-/** Farbe der Brandspur */
-const BURN = 'rgba(58, 34, 16, 0.88)';
+/** Farbe der Gravur, wenn das Material keine eigene hat: Brandspur auf Holz */
+export const BURN = { color: '#3a2210', alpha: 0.88 };
 /** Breite gravierter Linien in mm */
 const LINE_MM = 0.25;
 /** Größte Kantenlänge des Bildes in Pixeln und höchste Auflösung */
@@ -63,11 +63,26 @@ function pageMarks(ed: Editor, page: number): Mark[] {
   return out;
 }
 
-/** Alpha aus der Helligkeit: Schwarz (Laser an) wird Brandspur, Weiß durchsichtig */
-const burnCache = new WeakMap<HTMLCanvasElement, HTMLCanvasElement>();
-function burnImage(cv: HTMLCanvasElement): HTMLCanvasElement {
-  const c = burnCache.get(cv);
+/** Farbe einer Gravur (#rrggbb und Deckkraft 0..1) */
+export interface MarkColor {
+  color: string;
+  alpha: number;
+}
+const rgbOf = (hex: string) => {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+};
+const css = (c: MarkColor) => `rgba(${rgbOf(c.color).join(', ')}, ${c.alpha})`;
+
+/** Alpha aus der Helligkeit: Schwarz (Laser an) wird Gravur in der Farbe des Materials, Weiß durchsichtig */
+const burnCache = new WeakMap<HTMLCanvasElement, Map<string, HTMLCanvasElement>>();
+function burnImage(cv: HTMLCanvasElement, mc: MarkColor): HTMLCanvasElement {
+  const key = `${mc.color}|${mc.alpha}`;
+  const byColor = burnCache.get(cv) ?? new Map<string, HTMLCanvasElement>();
+  burnCache.set(cv, byColor);
+  const c = byColor.get(key);
   if (c) return c;
+  const [r, g, b] = rgbOf(mc.color);
   const out = document.createElement('canvas');
   out.width = cv.width;
   out.height = cv.height;
@@ -75,21 +90,21 @@ function burnImage(cv: HTMLCanvasElement): HTMLCanvasElement {
   const d = src.data;
   for (let i = 0; i < d.length; i += 4) {
     const a = 255 - (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
-    d[i] = 58;
-    d[i + 1] = 34;
-    d[i + 2] = 16;
-    d[i + 3] = a * 0.92 * (d[i + 3] / 255);
+    d[i] = r;
+    d[i + 1] = g;
+    d[i + 2] = b;
+    d[i + 3] = a * Math.min(1, mc.alpha * 1.05) * (d[i + 3] / 255);
   }
   out.getContext('2d')!.putImageData(src, 0, 0);
-  burnCache.set(cv, out);
+  byColor.set(key, out);
   return out;
 }
 
 /**
  * Gravuren je Platte. places: Lage auf der Arbeitsfläche je Schlüssel der Platte (ohne Eintrag keine Gravur).
- * Liefert nur Einträge für Platten, auf denen wirklich etwas graviert wird.
+ * Liefert nur Einträge für Platten, auf denen wirklich etwas graviert wird. colorOf: Farbe der Gravur je Platte.
  */
-export function engravings(ed: Editor, solids: Solid[], places: Map<string, CanvasPlace>): Map<string, Engraving> {
+export function engravings(ed: Editor, solids: Solid[], places: Map<string, CanvasPlace>, colorOf: (s: Solid) => MarkColor = () => BURN): Map<string, Engraving> {
   const out = new Map<string, Engraving>();
   if (typeof document === 'undefined') return out;
   const marksOf = new Map<number, Mark[]>();
@@ -128,7 +143,8 @@ export function engravings(ed: Editor, solids: Solid[], places: Map<string, Canv
     ctx.transform(t[0], t[1], t[2], t[3], t[4], t[5]);
     const scaleT = Math.sqrt(Math.abs(t[0] * t[3] - t[1] * t[2])) || 1;
     const lineW = Math.max(LINE_MM, 1 / k) / scaleT;
-    ctx.fillStyle = ctx.strokeStyle = BURN;
+    const mc = colorOf(s);
+    ctx.fillStyle = ctx.strokeStyle = css(mc);
     ctx.lineCap = ctx.lineJoin = 'round';
     // Bilder zuerst, Vektoren darüber (wie auf der Arbeitsfläche)
     for (const mk of hits) {
@@ -139,7 +155,7 @@ export function engravings(ed: Editor, solids: Solid[], places: Map<string, Canv
       ctx.save();
       ctx.transform(mk.m[0], mk.m[1], mk.m[2], mk.m[3], mk.m[4], mk.m[5]);
       ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(burnImage(cv), 0, 0, sh.w, sh.h);
+      ctx.drawImage(burnImage(cv, mc), 0, 0, sh.w, sh.h);
       ctx.restore();
     }
     for (const mk of hits) {

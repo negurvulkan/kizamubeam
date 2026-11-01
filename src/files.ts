@@ -376,7 +376,7 @@ export function installDropAndPaste(ed: Editor, stage: HTMLElement) {
 
 // ---------- Bearbeitetes Bild speichern ----------
 
-async function saveDataUrl(name: string, filterName: string, ext: string, dataUrl: string) {
+export async function saveDataUrl(name: string, filterName: string, ext: string, dataUrl: string) {
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core');
     await invoke('save_binary_file', { defaultName: name, filterName, extensions: [ext], base64: dataUrl.slice(dataUrl.indexOf(',') + 1) });

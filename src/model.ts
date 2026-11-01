@@ -2,6 +2,7 @@ import { t } from './i18n';
 import type { ProjectParam } from './params';
 import type { SeriesTable, TemplateInfo } from './templates';
 import { conditionHolds } from './params';
+import type { MaterialLook } from './view3d/looks';
 // Datenmodell: Dokument, Objekte, Layer, Matrizen.
 // Interne Koordinaten sind Millimeter mit y nach unten (wie SVG), Ursprung oben links am Bett.
 // Angezeigt wird in Maschinenkoordinaten (Ursprung unten links, y nach oben).
@@ -379,12 +380,14 @@ export interface CutSettings {
   bidirectional: boolean;
   /** Füllen: Überfahrweg in % der Geschwindigkeit */
   overscan: number;
+  /** Aussehen des Materials in der 3D-Ansicht (Farbe, Textur, Gravurdarstellung); fehlt = automatisch */
+  look?: MaterialLook;
 }
 
 export type FillStyle = 'scan' | 'offset';
 
 export const CUT_KEYS: (keyof CutSettings)[] = [
-  'mode', 'speed', 'power', 'minPower', 'passes', 'air', 'kerf', 'tabs', 'fillStyle', 'interval', 'angle', 'crossHatch', 'bidirectional', 'overscan',
+  'mode', 'speed', 'power', 'minPower', 'passes', 'air', 'kerf', 'tabs', 'fillStyle', 'interval', 'angle', 'crossHatch', 'bidirectional', 'overscan', 'look',
 ];
 
 export function defaultTabs(): TabSettings {

@@ -4,6 +4,7 @@
 // Bibliotheken (.clb) lassen sich einlesen, soweit ihre Felder hier eine Entsprechung haben.
 import { CutSettings, cutSettings, defaultCutSettings, defaultImageLayer, defaultTabs, DitherMode, ImageLayer, Layer, LayerMode } from './model';
 import { dec, t } from './i18n';
+import { cleanLook } from './view3d/looks';
 
 export interface MaterialEntry {
   id: string;
@@ -60,6 +61,8 @@ function sanitize(e: Partial<MaterialEntry>): MaterialEntry | null {
   const mode: LayerMode = e.settings.mode === 'fill' ? 'fill' : 'line';
   const settings = { ...defaultCutSettings(mode), ...e.settings, mode };
   settings.tabs = { ...defaultTabs(), ...e.settings.tabs };
+  settings.look = cleanLook(e.settings.look);
+  if (!settings.look) delete settings.look;
   const th = Number(e.thickness);
   return {
     id: typeof e.id === 'string' && e.id ? e.id : newEntryId(),
@@ -189,7 +192,8 @@ export function entryFromLayer(L: Layer, withImg: boolean): Pick<MaterialEntry, 
 
 /** Änderung für einen Layer, der einen Eintrag übernimmt */
 export function layerPatch(e: MaterialEntry): Partial<Layer> {
-  const p: Partial<Layer> = { ...structuredClone(e.settings), material: e.id, name: entryLabel(e) };
+  // Ohne eigenes Aussehen im Eintrag gilt wieder das automatische (aus dem Materialnamen)
+  const p: Partial<Layer> = { look: undefined, ...structuredClone(e.settings), material: e.id, name: entryLabel(e) };
   if (e.img) p.img = structuredClone(e.img);
   return p;
 }
