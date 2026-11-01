@@ -3,8 +3,9 @@
 // Undo-Schritt (siehe Editor.batch in agent.ts). Koordinaten: Maschine, Ursprung unten links, y nach oben, mm.
 import type { Editor } from './editor';
 import { boundsOf, Box, segments, shapeSubs, textLayout } from './geom';
-import { about, apply, BarcodeShape, IDENT, NOTE_KEYS, ObjBindKey, leaves, Mat, mul, newId, Obj, QrLevel, rotate, scale, Shape, SubPath, TextShape, translate } from './model';
-import { qrMatrix } from './barcode';
+import { about, apply, BarcodeShape, LinearType, IDENT, NOTE_KEYS, ObjBindKey, leaves, Mat, mul, newId, Obj, QrLevel, rotate, scale, Shape, SubPath, TextShape, translate } from './model';
+import { barcodeData, qrMatrix } from './barcode';
+import { encodeLinear, LINEAR_TYPES } from './barcode1d';
 import { advanceVarText } from './vartext';
 import { BoolOp, OffsetOptions } from './ops';
 import { WARP_KINDS } from './warp';
@@ -315,6 +316,37 @@ export const EDIT_TOOLS: ToolDef[] = [
       if (!shape.vt && !qrMatrix(shape.data, shape.ec)) throw new ToolError('Der Inhalt ist zu lang für einen QR-Code');
       const p = W(ed, num(a, 'x'), num(a, 'y'));
       const o = addObj(ed, shape, translate(p.x - size / 2, p.y - size / 2), layerOf(ed, a), num(a, 'rotation', { def: 0 }));
+      return { id: o.id, object: describe(ed, o, IDENT, false) };
+    },
+  },
+  {
+    name: 'create_barcode',
+    title: 'Strichcode anlegen',
+    description:
+      'Legt einen Strichcode (1D-Barcode) an: Striche als geschlossene Rechtecke, Klartext darunter als Schriftumrisse (auf einem Füll-Layer graviert). type: code128 (ASCII, Standard), ean13 (12 Ziffern, Prüfziffer wird angehängt; 13 werden geprüft), ean8 (7 Ziffern), upca (11 Ziffern), code39 (A–Z 0–9 - . $ / + % Leerzeichen), itf (Ziffern, Interleaved 2 of 5). x/y = Mitte der Striche, width = Breite der Striche ohne Ruhezone in mm, height = Strichhöhe in mm. showText: Klartext unter den Strichen (Standard ja). checkDigit: Prüfziffer anhängen (nur code39/itf). barWidthReduction: gelaserte Elemente um so viele mm schmaler machen (Strahlbreite, z. B. 0.08). invert: Lücken, Ruhezone und Hintergrund lasern (für dunkle Materialien). variable: Platzhalter wie im variablen Text (%# Seriennummer, %0 CSV-Spalte …), variableOffset wird zur aktuellen Nummer addiert. Module unter 0,2 mm lassen sich gelasert schwer lesen.',
+    tier: Tier.Edit,
+    inputSchema: obj({
+      type: { type: 'string', enum: [...LINEAR_TYPES] }, data: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' },
+      width: { type: 'number', description: 'Breite der Striche in mm (Standard 40)' }, height: { type: 'number', description: 'Strichhöhe in mm (Standard 15)' },
+      showText: { type: 'boolean' }, checkDigit: { type: 'boolean' }, barWidthReduction: { type: 'number' }, invert: { type: 'boolean' },
+      quietZone: { type: 'integer', minimum: 0, maximum: 30, description: 'Ruhezone in Modulen (nur bei invert gelasert, Standard 10)' },
+      variable: { type: 'boolean' }, variableOffset: { type: 'integer' }, layer: LAYER, rotation: ROT,
+    }, ['data', 'x', 'y']),
+    run: (ed, a) => {
+      if (typeof a.data !== 'string' || !a.data) throw new ToolError('„data“ ist leer');
+      const shape: BarcodeShape = {
+        kind: 'barcode', type: oneOf(a, 'type', LINEAR_TYPES, 'code128'), data: a.data, ec: 'M',
+        size: num(a, 'width', { def: 40, min: 1, max: 2000 }), height: num(a, 'height', { def: 15, min: 1, max: 2000 }),
+        text: bool(a, 'showText', true), check: bool(a, 'checkDigit', false), bwr: num(a, 'barWidthReduction', { def: 0, min: 0, max: 5 }),
+        invert: bool(a, 'invert', false), quiet: num(a, 'quietZone', { def: 10, min: 0, max: 30, int: true }),
+      };
+      if (bool(a, 'variable', false)) shape.vt = { offset: num(a, 'variableOffset', { def: 0, int: true }) };
+      else {
+        const r = encodeLinear(shape.type as LinearType, barcodeData(shape), shape.check);
+        if (!r.ok) throw new ToolError(r.error);
+      }
+      const p = W(ed, num(a, 'x'), num(a, 'y'));
+      const o = addObj(ed, shape, translate(p.x - shape.size / 2, p.y - (shape.height ?? 15) / 2), layerOf(ed, a), num(a, 'rotation', { def: 0 }));
       return { id: o.id, object: describe(ed, o, IDENT, false) };
     },
   },
@@ -749,7 +781,7 @@ export const EDIT_TOOLS: ToolDef[] = [
     name: 'edit_object',
     title: 'Objekt ändern',
     description:
-      'Ändert Eigenschaften eines Objekts (auch in Gruppen). Alle Typen: name (leer = Standardname), hidden (ausgeblendet: nicht gezeichnet und nicht gelasert), locked (auf der Arbeitsfläche nicht auswählbar; nur oberste Ebene). Text: text, font, size (mm auf dem Bett), bold, italic, upper, align, letterSpacing, lineSpacing, weld (Buchstaben schweißen); bei Text auf Pfad (apply_path_to_text) pathOffset (Verschiebung entlang der Kurve, mm), pathDistance (Abstand der Grundlinie, mm, positiv nach oben), pathFlip (andere Seite), removePath (wieder gerade), variable (variabler Text mit Platzhaltern, siehe variable_text), variableOffset, maxWidth (mm, breitere Zeilen werden gestaucht, 0 = aus), maxHeight (mm, ein höherer Block wird verkleinert, 0 = aus), fitShrink (zu breiten Text verkleinern statt stauchen), wrap (Textrahmen: Zeilen an maxWidth an Wortgrenzen umbrechen, Höhe wächst mit; ohne maxWidth gilt die jetzige Breite). QR-Code: data, errorCorrection, qrSize (Kantenlänge mm), invert, quietZone, variable, variableOffset. Rechteck: cornerRadius. Vieleck: sides, star, innerRatio. Lage und Größe ändert transform.',
+      'Ändert Eigenschaften eines Objekts (auch in Gruppen). Alle Typen: name (leer = Standardname), hidden (ausgeblendet: nicht gezeichnet und nicht gelasert), locked (auf der Arbeitsfläche nicht auswählbar; nur oberste Ebene). Text: text, font, size (mm auf dem Bett), bold, italic, upper, align, letterSpacing, lineSpacing, weld (Buchstaben schweißen); bei Text auf Pfad (apply_path_to_text) pathOffset (Verschiebung entlang der Kurve, mm), pathDistance (Abstand der Grundlinie, mm, positiv nach oben), pathFlip (andere Seite), removePath (wieder gerade), variable (variabler Text mit Platzhaltern, siehe variable_text), variableOffset, maxWidth (mm, breitere Zeilen werden gestaucht, 0 = aus), maxHeight (mm, ein höherer Block wird verkleinert, 0 = aus), fitShrink (zu breiten Text verkleinern statt stauchen), wrap (Textrahmen: Zeilen an maxWidth an Wortgrenzen umbrechen, Höhe wächst mit; ohne maxWidth gilt die jetzige Breite). QR-Code: data, errorCorrection, qrSize (Kantenlänge mm), invert, quietZone, variable, variableOffset. Strichcode: data, barcodeType, barcodeWidth (Breite der Striche mm), barcodeHeight (mm), showText, checkDigit, barWidthReduction (mm), invert, quietZone, variable, variableOffset. Rechteck: cornerRadius. Vieleck: sides, star, innerRatio. Lage und Größe ändert transform.',
     tier: Tier.Edit,
     inputSchema: obj({
       id: { type: 'integer' }, name: { type: 'string' }, hidden: { type: 'boolean' }, locked: { type: 'boolean' }, text: { type: 'string' }, font: { type: 'string' }, size: { type: 'number' }, bold: { type: 'boolean' },
@@ -759,6 +791,7 @@ export const EDIT_TOOLS: ToolDef[] = [
       sides: { type: 'integer', minimum: 3, maximum: 200 }, star: { type: 'boolean' }, innerRatio: { type: 'number' },
       variable: { type: 'boolean' }, variableOffset: { type: 'integer' }, maxWidth: { type: 'number' }, maxHeight: { type: 'number' }, fitShrink: { type: 'boolean' }, wrap: { type: 'boolean' }, data: { type: 'string' },
       errorCorrection: { type: 'string', enum: ['L', 'M', 'Q', 'H'] }, qrSize: { type: 'number' }, invert: { type: 'boolean' }, quietZone: { type: 'integer' },
+      barcodeType: { type: 'string', enum: [...LINEAR_TYPES] }, barcodeWidth: { type: 'number' }, barcodeHeight: { type: 'number' }, showText: { type: 'boolean' }, checkDigit: { type: 'boolean' }, barWidthReduction: { type: 'number' },
     }, ['id']),
     run: (ed, a) => {
       const hit = findObj(ed.doc.objs, num(a, 'id', { int: true }));
@@ -776,6 +809,7 @@ export const EDIT_TOOLS: ToolDef[] = [
       const SHAPE_KEYS = [
         'text', 'font', 'size', 'bold', 'italic', 'upper', 'align', 'letterSpacing', 'lineSpacing', 'weld', 'pathOffset', 'pathDistance', 'pathFlip', 'removePath',
         'cornerRadius', 'sides', 'star', 'innerRatio', 'variable', 'variableOffset', 'maxWidth', 'maxHeight', 'fitShrink', 'wrap', 'data', 'errorCorrection', 'qrSize', 'invert', 'quietZone',
+        'barcodeType', 'barcodeWidth', 'barcodeHeight', 'showText', 'checkDigit', 'barWidthReduction',
       ];
       const shapeChange = SHAPE_KEYS.some((k) => a[k] !== undefined);
       if (Object.keys(props).length) ed.setObjProps([o], props);
@@ -827,11 +861,22 @@ export const EDIT_TOOLS: ToolDef[] = [
           s.data = a.data;
           delete s.form;
         }
-        if (a.errorCorrection !== undefined) s.ec = oneOf(a, 'errorCorrection', ['L', 'M', 'Q', 'H'] as const) as QrLevel;
-        const qs = optNum(a, 'qrSize', { min: 1, max: 2000 });
-        if (qs !== undefined) s.size = qs / (Math.hypot(m[0], m[1]) || 1);
+        if (s.type === 'qr') {
+          if (a.errorCorrection !== undefined) s.ec = oneOf(a, 'errorCorrection', ['L', 'M', 'Q', 'H'] as const) as QrLevel;
+          const qs = optNum(a, 'qrSize', { min: 1, max: 2000 });
+          if (qs !== undefined) s.size = qs / (Math.hypot(m[0], m[1]) || 1);
+        } else {
+          if (a.barcodeType !== undefined) s.type = oneOf(a, 'barcodeType', LINEAR_TYPES);
+          const bw = optNum(a, 'barcodeWidth', { min: 1, max: 2000 });
+          if (bw !== undefined) s.size = bw / (Math.hypot(m[0], m[1]) || 1);
+          const bh = optNum(a, 'barcodeHeight', { min: 1, max: 2000 });
+          if (bh !== undefined) s.height = bh / (Math.hypot(m[2], m[3]) || 1);
+          if (a.showText !== undefined) s.text = a.showText === true;
+          if (a.checkDigit !== undefined) s.check = a.checkDigit === true;
+          s.bwr = optNum(a, 'barWidthReduction', { min: 0, max: 5 }) ?? s.bwr;
+        }
         if (a.invert !== undefined) s.invert = a.invert === true;
-        s.quiet = optNum(a, 'quietZone', { min: 0, max: 10, int: true }) ?? s.quiet;
+        s.quiet = optNum(a, 'quietZone', { min: 0, max: s.type === 'qr' ? 10 : 30, int: true }) ?? s.quiet;
         setVar(s, a);
       } else if (s.kind === 'rect') {
         const r = optNum(a, 'cornerRadius', { min: 0 });

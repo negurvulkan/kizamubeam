@@ -114,7 +114,12 @@ export function describe(ed: Editor, o: Obj, parent: Mat, detail: boolean): Reco
       if (s.fit === 'wrap') out.wrap = true;
       break;
     case 'barcode':
-      Object.assign(out, { type: s.type, data: s.data, errorCorrection: s.ec, size: r3(s.size * sx), invert: s.invert, quietZone: s.quiet });
+      if (s.type === 'qr') Object.assign(out, { type: s.type, data: s.data, errorCorrection: s.ec, size: r3(s.size * sx), invert: s.invert, quietZone: s.quiet });
+      else
+        Object.assign(out, {
+          type: s.type, data: s.data, barcodeWidth: r3(s.size * sx), barcodeHeight: r3((s.height ?? 15) * sy), showText: !!s.text,
+          checkDigit: !!s.check, barWidthReduction: s.bwr ?? 0, invert: s.invert, quietZone: s.quiet,
+        });
       if (s.vt) out.variable = { offset: s.vt.offset, shown: barcodeData(s) };
       else if (hasPlaceholders(s.data)) out.shown = barcodeData(s);
       break;

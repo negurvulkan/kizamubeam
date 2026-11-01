@@ -230,20 +230,34 @@ export interface VarText {
 
 export type QrLevel = 'L' | 'M' | 'Q' | 'H';
 
-/** QR-Code. Lokale Fläche 0..size × 0..size in mm (nur die Module; die Ruhezone liegt außen herum). */
+/** Strichcode-Arten (1D) */
+export type LinearType = 'code128' | 'ean13' | 'ean8' | 'upca' | 'code39' | 'itf';
+
+/**
+ * QR-Code oder Strichcode (1D). QR: lokale Fläche 0..size × 0..size in mm (nur die Module; die Ruhezone liegt außen herum).
+ * Strichcode: Striche in 0..size × 0..height, der Klartext darunter.
+ */
 export interface BarcodeShape {
   kind: 'barcode';
-  type: 'qr';
+  type: 'qr' | LinearType;
   /** Inhalt (bei variablem Text mit Platzhaltern) */
   data: string;
   /** Fehlerkorrektur */
   ec: QrLevel;
-  /** Kantenlänge in mm */
+  /** QR: Kantenlänge in mm. Strichcode: Breite der Striche (ohne Ruhezone) in mm */
   size: number;
   /** Negativ: Hintergrund samt Ruhezone wird gelasert, die Module bleiben stehen (z. B. für dunkle Materialien) */
   invert: boolean;
   /** Breite der Ruhezone in Modulen (nur bei Negativ gelasert) */
   quiet: number;
+  /** Strichcode: Höhe der Striche in mm */
+  height?: number;
+  /** Strichcode: Klartext unter den Strichen */
+  text?: boolean;
+  /** Strichcode: Prüfziffer anhängen (Code 39, ITF; EAN/UPC immer) */
+  check?: boolean;
+  /** Strichcode: Strichbreitenkorrektur in mm; gelaserte Elemente werden um diesen Betrag schmaler (Strahlbreite) */
+  bwr?: number;
   vt?: VarTextRef;
   /** Eingabefelder des Dialogs (Art des Inhalts, WLAN-Daten …), damit Bearbeiten sie wieder zeigt */
   form?: Record<string, string>;

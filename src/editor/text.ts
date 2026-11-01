@@ -1,7 +1,7 @@
 // Editor: QR-Codes, variabler Text, Text und Text auf Pfad.
 import { allObjs, clone, inv, leaves, Mat, mul, newId, Obj, Pt, Shape, SubPath, TextPath, TextShape, translate, BarcodeShape, VarText } from '../model';
 import { advanceVarText, expand, parseCsv, shownText } from '../vartext';
-import { barcodeData } from '../barcode';
+import { barcodeData, barcodeExtent, isLinear } from '../barcode';
 import { ArcLength } from '../textpath';
 import { transformSubs } from '../importers';
 import { shapeSubs, textLayout } from '../geom';
@@ -20,26 +20,27 @@ export class EditorText {
   selBarcodes(this: Editor): Obj[] {
     return this.sel.filter((o) => o.shape.kind === 'barcode');
   }
-  /** Neuen QR-Code mittig in der sichtbaren Fläche auf dem aktuellen Layer einfügen */
+  /** Neuen QR- oder Strichcode mittig in der sichtbaren Fläche auf dem aktuellen Layer einfügen */
   addBarcode(this: Editor, shape: BarcodeShape) {
     let c = this.toWorld(RULER + (this.w - RULER) / 2, RULER + (this.h - RULER) / 2);
     const bed = this.doc.bed;
     if (c.x < 0 || c.y < 0 || c.x > bed.w || c.y > bed.h) c = { x: bed.w / 2, y: bed.h / 2 };
-    const o: Obj = { id: newId(), m: translate(c.x - shape.size / 2, c.y - shape.size / 2), layer: this.currentLayer, shape };
-    this.placeNew([o], t('QR-Code eingefügt. Doppelklick öffnet ihn zum Bearbeiten.'));
+    const e = barcodeExtent(shape);
+    const o: Obj = { id: newId(), m: translate(c.x - (e.x0 + e.x1) / 2, c.y - (e.y0 + e.y1) / 2), layer: this.currentLayer, shape };
+    this.placeNew([o], isLinear(shape) ? t('Strichcode eingefügt. Doppelklick öffnet ihn zum Bearbeiten.') : t('QR-Code eingefügt. Doppelklick öffnet ihn zum Bearbeiten.'));
   }
-  /** Inhalt oder Einstellungen eines QR-Codes ändern; die Größe bleibt um die Mitte erhalten */
+  /** Inhalt oder Einstellungen eines QR- oder Strichcodes ändern; die Mitte bleibt, wo sie war */
   updateBarcode(this: Editor, o: Obj, patch: Partial<BarcodeShape>) {
     if (o.shape.kind !== 'barcode') return;
-    this.snapshot(t('QR-Code ändern'));
-    const old = o.shape.size;
+    this.snapshot(isLinear(o.shape) ? t('Strichcode ändern') : t('QR-Code ändern'));
+    const before = barcodeExtent(o.shape);
     Object.assign(o.shape, patch);
     if (patch.vt === undefined && 'vt' in patch) delete o.shape.vt;
-    if (o.shape.size !== old) {
-      const d = (old - o.shape.size) / 2;
-      o.m = mul(o.m, translate(d, d));
-    }
     this.touch(o.shape);
+    const after = barcodeExtent(o.shape);
+    const dx = (before.x0 + before.x1 - after.x0 - after.x1) / 2,
+      dy = (before.y0 + before.y1 - after.y0 - after.y1) / 2;
+    if (Math.abs(dx) > 1e-9 || Math.abs(dy) > 1e-9) o.m = mul(o.m, translate(dx, dy));
     this.emit('doc');
     this.emit('sel');
   }

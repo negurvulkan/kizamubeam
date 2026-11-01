@@ -353,10 +353,8 @@ export function hitLeaf(o: Obj, m: Mat, p: Pt, tol: number, inside: boolean): bo
     // Bilder und QR-Codes: die ganze Fläche trifft (einzelne Module wären zu kleine Ziele)
     const q = apply(inv(m), p.x, p.y);
     const t = tol / Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]) || 1);
-    const e = s.kind === 'image' ? { lo: 0, hi: 0 } : barcodeExtent(s);
-    const x1 = s.kind === 'image' ? s.w : e.hi,
-      y1 = s.kind === 'image' ? s.h : e.hi;
-    return q.x >= e.lo - t && q.x <= x1 + t && q.y >= e.lo - t && q.y <= y1 + t;
+    const e = s.kind === 'image' ? { x0: 0, y0: 0, x1: s.w, y1: s.h } : barcodeExtent(s);
+    return q.x >= e.x0 - t && q.x <= e.x1 + t && q.y >= e.y0 - t && q.y <= e.y1 + t;
   }
   const ctx = hitCtx();
   const wp = worldPath(s, m);

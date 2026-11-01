@@ -19,6 +19,8 @@ import { openHingeDialog } from './hingeDialog';
 import { openSlotDialog } from './slotDialog';
 import { openWarpDialog } from './warpDialog';
 import { openQrDialog, openVarTextDialog } from './qrDialog';
+import { openBarcodeDialog } from './barcodeDialog';
+import { LINEAR_NAMES } from './barcode1d';
 import { askGenConvert, openGenDialog } from './generators/dialog';
 import { genLabel, getGenerator } from './generators';
 import { maybeOfferSetup, openSetupWizard } from './setupWizard';
@@ -84,6 +86,12 @@ let themeMode: ThemeMode = 'system';
 const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
 const themeListeners = new Set<() => void>();
 
+/** QR-Code oder Strichcode im passenden Dialog bearbeiten */
+function editBarcode(ed: Editor, o: Obj) {
+  if (o.shape.kind === 'barcode' && o.shape.type !== 'qr') openBarcodeDialog(ed, o);
+  else openQrDialog(ed, o);
+}
+
 export function isDark() {
   return themeMode === 'dark' || (themeMode === 'system' && darkQuery.matches);
 }
@@ -140,7 +148,7 @@ export function buildUI(ed: Editor) {
   buildTextEditor(ed);
   ed.onImport = () => importFile(ed);
   ed.onGridArray = () => openGridArrayDialog(ed);
-  ed.onBarcodeEdit = (o) => openQrDialog(ed, o);
+  ed.onBarcodeEdit = (o) => editBarcode(ed, o);
   ed.onGenEdit = (o) => openGenDialog(ed, '', o);
   ed.onGenGuard = askGenConvert;
   ed.onJointDialog = () => openJointDialog(ed);
@@ -226,6 +234,7 @@ function buildMenu(ed: Editor) {
       [t('Polygon'), '', () => ed.setTool('polygon')],
       [t('Text'), 'Ctrl+T', () => ed.setTool('text')],
       [t('QR-Code …'), '', () => openQrDialog(ed)],
+      [t('Strichcode …'), '', () => openBarcodeDialog(ed)],
       { sub: t('Generatoren'), items: [
         [t('Zahnrad …'), '', () => openGenDialog(ed, 'gear')],
         [t('Zahnstange …'), '', () => openGenDialog(ed, 'rack')],
@@ -726,7 +735,7 @@ function buildNumbar(ed: Editor) {
   const qrInfo = h('span', { class: 'muted' });
   const qrProps = h('div', { class: 'field' },
     h('span', { html: ICONS.qr, class: 'muted icon-inline' }), qrInfo,
-    h('button', { class: 'toggle', title: t('Inhalt, Größe und Fehlerkorrektur ändern (Doppelklick)'), onclick: () => ed.selBarcodes()[0] && openQrDialog(ed, ed.selBarcodes()[0]) }, t('Bearbeiten …')),
+    h('button', { class: 'toggle', title: t('Inhalt, Größe und Einstellungen ändern (Doppelklick)'), onclick: () => ed.selBarcodes()[0] && editBarcode(ed, ed.selBarcodes()[0]) }, t('Bearbeiten …')),
   );
   const sepQr = sep();
 
@@ -772,7 +781,7 @@ function buildNumbar(ed: Editor) {
     qrProps.hidden = sepQr.hidden = !qrs.length;
     if (qrs.length) {
       const q = qrs[0].shape as BarcodeShape;
-      qrInfo.textContent = qrs.length > 1 ? t('{n} QR-Codes', { n: qrs.length }) : `${t('QR-Code')}${q.vt ? ` (${t('variabel')})` : ''}`;
+      qrInfo.textContent = qrs.length > 1 ? t('{n} Codes', { n: qrs.length }) : `${q.type === 'qr' ? t('QR-Code') : LINEAR_NAMES[q.type]}${q.vt ? ` (${t('variabel')})` : ''}`;
     }
     const gens = ed.selGens();
     genProps.hidden = sepGen.hidden = !gens.length;
@@ -906,6 +915,7 @@ function buildBars(ed: Editor) {
       run: () => ed.startHingeTool(), on: () => ed.tool === 'joint' && ed.jointHingeMode,
     },
     { id: 'qr', cat: W, icon: 'qr', label: t('QR-Code erstellen'), run: () => openQrDialog(ed) },
+    { id: 'barcode', cat: W, icon: 'barcode', label: t('Strichcode erstellen (Code 128, EAN, UPC, Code 39, ITF)'), run: () => openBarcodeDialog(ed) },
     { id: 'gear', cat: W, icon: 'gear', label: t('Zahnrad erstellen (Evolventenverzahnung, Parameter bleiben erhalten)'), run: () => openGenDialog(ed, 'gear') },
     { id: 'rack', cat: W, icon: 'rack', label: t('Zahnstange erstellen (passend zum Zahnrad, Parameter bleiben erhalten)'), run: () => openGenDialog(ed, 'rack') },
     { id: 'pulley', cat: W, icon: 'pulley', label: t('Riemenscheibe erstellen (GT2, HTD; Parameter bleiben erhalten)'), run: () => openGenDialog(ed, 'pulley') },
