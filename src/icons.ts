@@ -99,6 +99,7 @@ export const ICONS: Record<string, string> = {
   // Werkzeugkasten
   apps: svg('<rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><circle cx="17" cy="7.2" r="3.2"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/>'),
   slots: svg('<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M8 4v7h3V4M14 20v-7h3v7"/>'),
+  focus: svg('<path d="M7 3l5 9 5-9"/><circle cx="12" cy="12.5" r="1.3" fill="currentColor"/><path d="M3 20l18-5"/>'),
   mattest: svg('<rect x="3.5" y="3.5" width="4.5" height="4.5" fill="currentColor" fill-opacity=".15"/><rect x="9.75" y="3.5" width="4.5" height="4.5" fill="currentColor" fill-opacity=".4"/><rect x="16" y="3.5" width="4.5" height="4.5" fill="currentColor" fill-opacity=".7"/><rect x="3.5" y="9.75" width="4.5" height="4.5" fill="currentColor" fill-opacity=".3"/><rect x="9.75" y="9.75" width="4.5" height="4.5" fill="currentColor" fill-opacity=".55"/><rect x="16" y="9.75" width="4.5" height="4.5" fill="currentColor" fill-opacity=".85"/><rect x="3.5" y="16" width="4.5" height="4.5" fill="currentColor" fill-opacity=".45"/><rect x="9.75" y="16" width="4.5" height="4.5" fill="currentColor" fill-opacity=".7"/><rect x="16" y="16" width="4.5" height="4.5" fill="currentColor"/>'),
   testphoto: svg('<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M8 6l1.5-2.5h5L16 6"/><circle cx="12" cy="12.5" r="3.5"/>'),
   calibrate: svg('<path d="M3 14h5v-4h3v4h2v-4h3v4h5"/><path d="M8 18h3M13 18h3M8 7h3M9.5 5.5v3"/>'),

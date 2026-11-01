@@ -1,7 +1,7 @@
 {
   "lang": "de",
   "locale": "de_DE",
-  "version": "1.11.1-beta",
+  "version": "1.12.0-beta",
   "meta": {
     "title": "KizamuBeam – freie Lasersoftware zum Gravieren und Schneiden",
     "description": "Kostenlose Open-Source-Lasersoftware für macOS, Windows und Linux. Entwerfen, Bilder gravieren, Boxen und Zahnräder erzeugen und direkt an FluidNC-, GRBL-, grblHAL-, Marlin- und Smoothieware-Laser senden.",
@@ -29,7 +29,7 @@
     "lang_short": "EN"
   },
   "hero": {
-    "badge": "Neu: Version 1.11.1-beta",
+    "badge": "Neu: Version 1.12.0-beta",
     "title": "Dein Laser. Deine Software. Frei.",
     "subtitle": "KizamuBeam ist Open-Source-Lasersoftware zum Entwerfen, Gravieren und Schneiden – für Diodenlaser mit FluidNC, GRBL & Co. Kostenlos für macOS, Windows und Linux.",
     "cta_primary": "Kostenlos herunterladen",
@@ -83,7 +83,7 @@
         "Per USB, Telnet oder WebSocket – mit Live-Position und Alarmen in Klartext",
         "Vorschau mit Zeitschätzung und Zeitregler; „Hier starten“ setzt einen abgebrochenen Job fort",
         "Arbeitsbereichs-Check vor jedem Job und Rahmen, inklusive gemeldetem Werkstück-Offset",
-        "Materialtest-Raster mit Auswertung per Foto, Rotationsachse (Rolle oder Futter), eigene G-Code-Skripte pro Gerät",
+        "Materialtest-Raster mit Auswertung per Foto, Fokustest (Rampe oder Z-Reihe), Rotationsachse (Rolle oder Futter), eigene G-Code-Skripte pro Gerät",
         "G-Code speichern oder direkt streamen – das Streaming läuft im Rust-Kern",
         "Leistung und Geschwindigkeit während des Jobs nachsteuern; FluidNC: Job auf SD-Karte oder Flash laden und dort starten, config.yaml mit Sicherung bearbeiten, Steuerung im WLAN finden"
       ]
