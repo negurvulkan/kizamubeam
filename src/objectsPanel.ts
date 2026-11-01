@@ -4,6 +4,7 @@
 //
 // Aufbau: Ganz oben stehen die Seiten des Projekts. Unter der aktuellen Seite liefert sections() je Layer einen
 // Abschnitt mit dessen Objekten; die anderen Seiten zeigen nur ihre Objektzahl (Klick wechselt dorthin).
+import { LINEAR_NAMES } from './barcode1d';
 import type { Editor } from './editor';
 import { genLabel, getGenerator } from './generators';
 import { ICONS } from './icons';
@@ -37,7 +38,8 @@ export function objLabel(o: Obj): string {
       return s.name || t('Bild');
     case 'barcode': {
       const line = s.data.split('\n')[0].trim();
-      return line ? `QR „${line.length > 24 ? line.slice(0, 23) + '…' : line}“` : t('QR-Code');
+      const name = s.type === 'qr' ? 'QR' : LINEAR_NAMES[s.type];
+      return line ? `${name} „${line.length > 24 ? line.slice(0, 23) + '…' : line}“` : s.type === 'qr' ? t('QR-Code') : name;
     }
     case 'gen':
       return genLabel(s);
@@ -154,7 +156,7 @@ export function buildObjectsPanel(ed: Editor) {
         title: t('Klick: auswählen (Shift/Ctrl: hinzufügen) · Doppelklick auf den Namen: umbenennen · Ziehen: Reihenfolge oder Layer ändern'),
       },
       chevron,
-      h('span', { class: 'ot-icon', html: ICONS[o.shape.kind === 'gen' ? (getGenerator(o.shape.gen)?.icon ?? 'gear') : KIND_ICON[o.shape.kind]] ?? ICONS.gear }),
+      h('span', { class: 'ot-icon', html: ICONS[o.shape.kind === 'gen' ? (getGenerator(o.shape.gen)?.icon ?? 'gear') : o.shape.kind === 'barcode' && o.shape.type !== 'qr' ? 'barcode' : KIND_ICON[o.shape.kind]] ?? ICONS.gear }),
       swatch,
       label,
       o.showIf

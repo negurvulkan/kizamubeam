@@ -2,6 +2,8 @@
 // Objekten wie in einer Projektdatei, den Bilddaten dazu, Name, Art, Stichwörtern und einer kleinen Vorschau.
 // Einträge kommen aus dem Bibliotheks-Ordner (assetLibrary.ts) oder aus Erweiterungen (packs.ts); beide werden
 // hier geprüft und auf erlaubte Felder beschränkt. Getestet mit `npm run test:library`.
+import { LINEAR_TYPES } from './barcode1d';
+import type { LinearType } from './model';
 import { DEFAULT_ADJUST, Obj, SubPath } from './model';
 import { localText, t } from './i18n';
 
@@ -126,10 +128,16 @@ export function sanitizeObjs(raw: unknown, images: Record<string, string>, where
         s.adjust = { ...DEFAULT_ADJUST, ...(s.adjust && typeof s.adjust === 'object' ? s.adjust : {}) };
         break;
       case 'barcode':
-        if (s.type !== 'qr' || typeof s.data !== 'string' || !num(s.size)) throw bad();
+        if ((s.type !== 'qr' && !LINEAR_TYPES.includes(s.type as LinearType)) || typeof s.data !== 'string' || !num(s.size)) throw bad();
         if (!['L', 'M', 'Q', 'H'].includes(String(s.ec))) s.ec = 'M';
         s.invert = !!s.invert;
-        if (!num(s.quiet)) s.quiet = 4;
+        if (!num(s.quiet)) s.quiet = s.type === 'qr' ? 4 : 10;
+        if (s.type !== 'qr') {
+          if (!num(s.height) || (s.height as number) <= 0) s.height = 15;
+          s.text = !!s.text;
+          s.check = !!s.check;
+          if (!num(s.bwr) || (s.bwr as number) < 0) s.bwr = 0;
+        }
         break;
       case 'group': {
         const ch = s.children;
