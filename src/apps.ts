@@ -6,7 +6,7 @@
 import en from './locales/en.json';
 import { t } from './i18n';
 
-export type AppGroup = 'mech' | 'box' | 'join' | 'arrange' | 'text' | 'image' | 'laser';
+export type AppGroup = 'mech' | 'box' | 'model3d' | 'join' | 'arrange' | 'text' | 'image' | 'laser';
 
 export interface AppGroupInfo {
   id: AppGroup;
@@ -36,6 +36,7 @@ export interface AppInfo {
 export const appGroups = (): AppGroupInfo[] => [
   { id: 'mech', label: t('Mechanik'), chip: t('Mechanik'), icon: 'gear' },
   { id: 'box', label: t('Boxen und Möbel'), chip: t('Boxen'), icon: 'box' },
+  { id: 'model3d', label: t('3D-Steckmodelle'), chip: t('3D'), icon: 'discsphere' },
   { id: 'join', label: t('Verbindungen und Biegen'), chip: t('Verbindungen'), icon: 'joint' },
   { id: 'arrange', label: t('Vervielfältigen und Anordnen'), chip: t('Anordnen'), icon: 'gridArray' },
   { id: 'text', label: t('Text und Daten'), chip: t('Text'), icon: 'qr' },
@@ -58,6 +59,7 @@ const rows = (t: (s: string) => string): AppInfo[] => [
   { id: 'drawer', group: 'box', name: t('Schublade'), desc: t('Korpus, Schubkasten und Blende mit Griff als Baugruppe.'), keys: t('Schublade Schubfach Kommode Korpus|Suchwörter') },
   { id: 'insert', group: 'box', name: t('Einsatz mit Fächern'), desc: t('Gesteckte Trennstege, die eine Box oder Schublade in Fächer teilen.'), keys: t('Einsatz Fächer Trennwand Sortierkasten Box|Suchwörter') },
   { id: 'shelf', group: 'box', name: t('Steckregal'), desc: t('Regal aus Seiten und Böden, die ineinander gesteckt werden.'), keys: t('Regal Böden Stecksystem Möbel|Suchwörter') },
+  { id: 'discsphere', group: 'model3d', name: t('Scheibenkugel'), desc: t('Kugel oder Lampe aus Kreisscheiben, die sich über schräge Schlitze gegenseitig halten.'), keys: t('Lampe Kugel Scheiben Steckmodell Lampenschirm Polyeder Papier Karton|Suchwörter'), since: '1.10.0' },
   { id: 'lidhinge', group: 'box', name: t('Deckelscharnier'), desc: t('Scharnier zwischen Rückwand und Deckel einer Box: Knöchel, Schlitze und Stiftlöcher.'), keys: t('Scharnier Deckel Klappe Box Gelenk|Suchwörter') },
   { id: 'tool:joint', group: 'join', name: t('Verbindungen'), desc: t('Fingerzinken, Zapfen, Überblattung, Schnapp-, Haken-, Keil- oder T-Slot-Verbindung auf gerade Kanten.'), keys: t('Zinken Zapfen Schlitz Überblattung T-Slot Keil Holzverbindung|Suchwörter') },
   { id: 'hinge', group: 'join', name: t('Biegeschnitte'), desc: t('Schnittmuster, mit dem sich eine Platte biegen lässt (Living Hinge).'), keys: t('Living Hinge Biegen flexibel Muster Gelenk|Suchwörter') },

@@ -19,6 +19,7 @@ export const ICONS: Record<string, string> = {
   gearpair: svg('<circle cx="8" cy="12" r="5.2"/><circle cx="8" cy="12" r="1.4"/><circle cx="17.5" cy="12" r="3.6"/><circle cx="17.5" cy="12" r="1"/><path d="M8 5.2V3.6M8 18.8v1.6M1.6 12h1.2M12.6 8.2l.9-.9M3.4 16.6l-.9.9M3.4 7.4l-.9-.9M17.5 7.2V6M17.5 16.8V18M21.9 12h.8"/>'),
   drawer: svg('<rect x="3.5" y="4" width="17" height="16" rx="1"/><path d="M3.5 12h17"/><path d="M9.5 8h5M9.5 16h5"/>'),
   insert: svg('<rect x="3.5" y="5" width="17" height="14" rx="1"/><path d="M9.2 5v14M14.8 5v14M3.5 12h17"/>'),
+  discsphere: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5c-4 2.5-4 14.5 0 17M12 3.5c4 2.5 4 14.5 0 17M3.5 12c2.5-3 14.5-3 17 0"/>'),
   shelf: svg('<path d="M6 3v18M18 3v18M3.5 7h17M3.5 13h17M3.5 19h17"/>'),
   box: svg('<path d="M12 3 20 7.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/><path d="M6.7 10.5v1.6M9.3 12v1.6M14.7 13.6V12M17.3 12.1v-1.6"/>'),
   new: svg('<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>'),

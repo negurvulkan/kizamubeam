@@ -122,7 +122,7 @@ function perpendicular(A: Solid, B: Solid): Overlap | null {
   const t0 = Math.max(ta0, tb0),
     t1 = Math.min(ta1, tb1);
   if (t1 - t0 <= 1e-9) return null;
-  const n = Math.min(40000, Math.max(1, Math.ceil((t1 - t0) / 0.02)));
+  const n = Math.min(4000, Math.max(1, Math.ceil((t1 - t0) / 0.02)));
   const step = (t1 - t0) / n;
   let volume = 0;
   const pieces: Solid[] = [];
@@ -183,6 +183,107 @@ function parallel(A: Solid, B: Solid): Overlap | null {
   };
 }
 
+type P2 = [number, number];
+
+/** Konvexes Vieleck an einer Halbebene k·(x, y) ≤ c abschneiden (Sutherland–Hodgman) */
+function clipHalf(poly: P2[], kx: number, ky: number, c: number): P2[] {
+  const out: P2[] = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i],
+      b = poly[(i + 1) % poly.length];
+    const fa = kx * a[0] + ky * a[1] - c,
+      fb = kx * b[0] + ky * b[1] - c;
+    if (fa <= 0) out.push(a);
+    if (fa < 0 !== fb < 0 && fa !== fb) {
+      const u = fa / (fa - fb);
+      out.push([a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u]);
+    }
+  }
+  return out;
+}
+
+const polyArea = (p: P2[]) => Math.abs(p.reduce((s, a, i) => { const b = p[(i + 1) % p.length]; return s + a[0] * b[1] - b[0] * a[1]; }, 0)) / 2;
+
+/**
+ * Schräg zueinander stehende Platten (Scheibenkugel). Wie bei senkrechten Platten wird entlang der Schnittgeraden
+ * (Richtung d) abgetastet; im Querschnitt senkrecht zu d ist jede Platte eine Menge von Vierecken: A Rechtecke in
+ * (wA, nA), B Parallelogramme (Kontur entlang wB × eigene Dicke entlang nB), die mit A geschnitten werden.
+ */
+function oblique(A: Solid, B: Solid): Overlap | null {
+  const nA = A.pose.n,
+    nB = B.pose.n;
+  const c = cross(nA, nB);
+  const len = Math.hypot(c[0], c[1], c[2]);
+  const d: V3 = [c[0] / len, c[1] / len, c[2] / len];
+  const wA = cross(nA, d),
+    wB = cross(nB, d);
+  const [sa0, sa1] = slab(A, nA),
+    [sb0, sb1] = slab(B, nB);
+  const toTW = (s: Solid, w: V3) => s.polys.map((poly) => poly.map((q): [number, number] => { const P = world(s, q.x, q.y); return [dot(P, d), dot(P, w)]; }));
+  const pa = toTW(A, wA),
+    pb = toTW(B, wB);
+  const [ta0, ta1] = extent(A, d),
+    [tb0, tb1] = extent(B, d);
+  const t0 = Math.max(ta0, tb0),
+    t1 = Math.min(ta1, tb1);
+  if (t1 - t0 <= 1e-9) return null;
+  // Querschnitt-Koordinaten (x, y) = (P·wA, P·nA); P·nB und P·wB sind darin lineare Funktionen (Drehung)
+  const a = dot(wA, nB),
+    b = dot(nA, nB),
+    cc = dot(wA, wB),
+    e = dot(nA, wB);
+  const det = a * e - b * cc;
+  const solve = (s: number, u: number): P2 => [(s * e - b * u) / det, (a * u - cc * s) / det];
+  // Bereich in x, in dem die Dicke von B den Streifen der Dicke von A überhaupt trifft (P·nB = a·x + b·y)
+  let xlo = -Infinity,
+    xhi = Infinity;
+  if (Math.abs(a) > 1e-9) {
+    const xs = [sb0, sb1].flatMap((s) => [sa0, sa1].map((y) => (s - b * y) / a));
+    xlo = Math.min(...xs);
+    xhi = Math.max(...xs);
+  }
+  const n = Math.min(2000, Math.max(1, Math.ceil((t1 - t0) / 0.02)));
+  const step = (t1 - t0) / n;
+  let volume = 0;
+  const pieces: Solid[] = [];
+  let run: { t: number; key: string; polys: P2[][] } | null = null;
+  const flush = (tEnd: number) => {
+    if (!run) return;
+    for (const poly of run.polys) pieces.push({ key: '', label: '', pose: { o: [d[0] * run.t, d[1] * run.t, d[2] * run.t], u: wA, v: nA, n: d }, th: tEnd - run.t, polys: [poly.map(([x, y]) => ({ x, y }))] });
+    run = null;
+  };
+  for (let k = 0; k < n; k++) {
+    const t = t0 + (k + 0.5) * step;
+    const ia = clipTo(scan(pa, t), xlo, xhi);
+    const ib = ia.length ? scan(pb, t) : [];
+    const polys: P2[][] = [];
+    let area = 0;
+    for (const [x0, x1] of ia)
+      for (const [u0, u1] of ib) {
+        let q: P2[] = [solve(sb0, u0), solve(sb1, u0), solve(sb1, u1), solve(sb0, u1)];
+        q = clipHalf(q, -1, 0, -x0);
+        q = clipHalf(q, 1, 0, x1);
+        q = clipHalf(q, 0, -1, -sa0);
+        q = clipHalf(q, 0, 1, sa1);
+        if (q.length < 3) continue;
+        const ar = polyArea(q);
+        if (ar <= 1e-9) continue;
+        area += ar;
+        polys.push(q);
+      }
+    if (area <= 1e-9) {
+      flush(t0 + k * step);
+      continue;
+    }
+    volume += area * step;
+    const key = polys.map((p) => p.map(([x, y]) => `${x.toFixed(5)},${y.toFixed(5)}`).join(';')).join('|');
+    if (run && run.key !== key) flush(t0 + k * step);
+    if (!run) run = { t: t0 + k * step, key, polys };
+  }
+  flush(t1);
+  return volume > EPS_VOL ? { a: A.key, b: B.key, volume, pieces } : null;
+}
+
 /** Bounding Box im Raum */
 export function solidBounds(s: Solid): { min: V3; max: V3 } {
   const ax = [extent(s, [1, 0, 0]), extent(s, [0, 1, 0]), extent(s, [0, 0, 1])];
@@ -190,8 +291,7 @@ export function solidBounds(s: Solid): { min: V3; max: V3 } {
 }
 
 /**
- * Paarweise Durchdringungen. Geprüft werden parallele und senkrechte Platten (alle Aufbauten der Generatoren);
- * schräg zueinander stehende Platten werden übersprungen.
+ * Paarweise Durchdringungen. Parallele, senkrechte und schräg zueinander stehende Platten.
  */
 export function findOverlaps(solids: Solid[]): Overlap[] {
   const boxes = solids.map(solidBounds);
@@ -202,7 +302,7 @@ export function findOverlaps(solids: Solid[]): Overlap[] {
         q = boxes[j];
       if ([0, 1, 2].some((k) => Math.min(p.max[k], q.max[k]) - Math.max(p.min[k], q.min[k]) <= 1e-9)) continue;
       const c = Math.abs(dot(solids[i].pose.n, solids[j].pose.n));
-      const r = c > 1 - 1e-9 ? parallel(solids[i], solids[j]) : c < 1e-9 ? perpendicular(solids[i], solids[j]) : null;
+      const r = c > 1 - 1e-9 ? parallel(solids[i], solids[j]) : c < 1e-9 ? perpendicular(solids[i], solids[j]) : oblique(solids[i], solids[j]);
       if (r) out.push(r);
     }
   return out;

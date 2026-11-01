@@ -11,6 +11,7 @@ import { dividerCenters, InsertParams } from '../generators/insert';
 import { ShelfParams, shelfHeights, sideCenters } from '../generators/shelf';
 import { centerDistance, GearPairParams, pairGear } from '../generators/gearpair';
 import { gearGeometry, GearParams } from '../generators/gear';
+import { sphereLayout } from '../generators/discsphere';
 
 export type V3 = [number, number, number];
 
@@ -130,6 +131,15 @@ function gearPairPoses(raw: Params, th: number): AsmPoses {
   return { poses: out, spin: { gear1: 1, gear2: -p.teeth1 / p.teeth2 } };
 }
 
+/** Scheibenkugel: Mittelebene jeder Scheibe im Abstand d vom Mittelpunkt (Z = 0), Dicke zu beiden Seiten */
+function discSpherePoses(params: Params, th: number): AsmPoses | null {
+  const L = sphereLayout({ ...params, thickness: th });
+  if (!L) return null;
+  const out: Record<string, Pose> = {};
+  for (const d of L.discs) out[d.key] = pose([d.c[0] - (d.n[0] * th) / 2, d.c[1] - (d.n[1] * th) / 2, d.c[2] - (d.n[2] * th) / 2], d.U, d.V, d.n);
+  return { poses: out };
+}
+
 /** Lagen aller Teile einer Baugruppe (ohne Schnittfuge); null für Generatoren ohne räumlichen Aufbau */
 export function assemblyPoses(gen: string, params: Params, th: number): AsmPoses | null {
   switch (gen) {
@@ -143,6 +153,8 @@ export function assemblyPoses(gen: string, params: Params, th: number): AsmPoses
       return shelfPoses(params as unknown as ShelfParams);
     case 'gearpair':
       return gearPairPoses(params, th);
+    case 'discsphere':
+      return discSpherePoses(params, th);
     default:
       return null;
   }
