@@ -42,7 +42,7 @@ export const makeTab = (doc: Doc, name: string | null = null, changed = false): 
 });
 
 /** Dateiname ohne Ordner und Endung */
-export const tabNameFromPath = (path: string) => (path.split(/[\\/]/).pop() ?? path).replace(/\.(kzb|kzt|lwk|json)$/i, '');
+export const tabNameFromPath = (path: string) => (path.split(/[\\/]/).pop() ?? path).replace(/\.(kzb|kzt|lwk|json|lbrn2?)$/i, '');
 
 export class EditorTabs {
   /** Angezeigter Name eines Tabs */

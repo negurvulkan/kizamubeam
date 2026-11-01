@@ -1,8 +1,10 @@
 // Dateien öffnen/speichern: in Tauri über native Dialoge, im Browser per Download/Dateiauswahl.
 import type { Editor } from './editor';
-import { IDENT, Obj, visibleLeaves, PALETTE } from './model';
+import { IDENT, Obj, pageName, TextShape, visibleLeaves, PALETTE } from './model';
 import { boundsOf, subsToD, shapeSubs, textLayout, textOutline } from './geom';
-import { assetUrl, processedPng, readDpi } from './images';
+import { assetUrl, flipImageV, hashId, processedPng, readDpi, registerAsset } from './images';
+import { convertLbrn, finishLbrnTexts, isLbrn, LbrnResult, TextMeasure } from './lbrn';
+import { loadFont, textToSubs } from './fonts';
 import { importDxf, importSvg, ImportResult } from './importers';
 import { t } from './i18n';
 import { tabNameFromPath } from './editor/tabs';
@@ -64,10 +66,43 @@ export async function saveProject(ed: Editor) {
   ed.scheduleSave();
 }
 
-/** Projektdatei in einem neuen Tab öffnen (oder im aktiven, wenn er leer ist) */
+/** Text mit der echten Schrift messen (für bearbeitbaren Text aus LightBurn-Projekten) */
+async function measureText(t: TextShape): Promise<TextMeasure> {
+  const lf = await loadFont(t.font, t.bold, t.italic);
+  const f = lf.font;
+  const hhea = (f.tables as { hhea?: { ascender: number; descender: number; lineGap: number } }).hhea;
+  const units = hhea ? hhea.ascender - hhea.descender + hhea.lineGap : f.ascender - f.descender;
+  return { subs: textToSubs(t, f), lineHeight: (units / f.unitsPerEm) * t.size, fallback: lf.fallback };
+}
+
+/** Aus LightBurn-Projekt (.lbrn2) ein KizamuBeam-Projekt (JSON) machen; Hinweise für die Statusleiste */
+async function lbrnProjectJson(ed: Editor, text: string): Promise<{ json: string; notes: string[] }> {
+  const bed = { ...ed.doc.bed };
+  const r = await convertLbrn(text, { bedH: bed.h, assetId: hashId, flipImage: flipImageV });
+  await finishLbrnTexts(r, measureText);
+  if (r.notes.length) for (const o of r.objs) o.importNote = r.notes.join(' ');
+  const doc: Record<string, unknown> = { version: 2, bed, pages: [{ name: pageName(0), objs: r.objs }], page: 0, layers: r.layers, assets: r.assets };
+  if (r.projectNotes) doc.notes = { process: r.projectNotes };
+  if (r.vt) doc.vt = r.vt;
+  return { json: JSON.stringify(doc), notes: r.notes };
+}
+
+const isLbrnName = (name: string) => /\.lbrn2?$/i.test(name);
+
+/** Projektdatei in einem neuen Tab öffnen (oder im aktiven, wenn er leer ist); LightBurn-Projekte werden übersetzt */
 export async function openProject(ed: Editor) {
-  const apply = (text: string, name: string) => {
+  const apply = async (text: string, name: string) => {
     try {
+      if (isLbrnName(name) || isLbrn(text)) {
+        const { json, notes } = await lbrnProjectJson(ed, text);
+        ed.openInTab(json, tabNameFromPath(name));
+        // Erst als KizamuBeam-Projekt gespeichert gilt die Datei als gesichert
+        ed.tab.saved = '';
+        ed.updateChanged();
+        ed.hint = [t('LightBurn-Projekt geöffnet.'), ...notes].join(' ');
+        ed.emit('tool');
+        return;
+      }
       ed.openInTab(text, tabNameFromPath(name));
     } catch (e) {
       alert(t('Datei konnte nicht geöffnet werden: {message}', { message: (e as Error).message }));
@@ -75,15 +110,15 @@ export async function openProject(ed: Editor) {
   };
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core');
-    const res = await invoke<[string, string] | null>('open_text_file', { filterName: t('KizamuBeam-Projekt'), extensions: ['kzb', 'kzt', 'lwk', 'json'] });
-    if (res) apply(res[1], res[0]);
+    const res = await invoke<[string, string] | null>('open_text_file', { filterName: t('KizamuBeam- und LightBurn-Projekte'), extensions: ['kzb', 'kzt', 'lwk', 'json', 'lbrn2', 'lbrn'] });
+    if (res) await apply(res[1], res[0]);
     return;
   }
   const input = document.getElementById('fileinput') as HTMLInputElement;
   input.onchange = async () => {
     const f = input.files?.[0];
     input.value = '';
-    if (f) apply(await f.text(), f.name);
+    if (f) await apply(await f.text(), f.name);
   };
   input.click();
 }
@@ -182,7 +217,7 @@ export async function exportSvg(ed: Editor) {
 
 const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp', 'tif', 'tiff'];
 /** Was Importieren annimmt; .kza = Eintrag der Bibliothek */
-export const IMPORT_EXT = ['svg', 'dxf', ...IMAGE_EXT, 'kza'];
+export const IMPORT_EXT = ['svg', 'dxf', 'lbrn2', 'lbrn', ...IMAGE_EXT, 'kza'];
 const MIME: Record<string, string> = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', bmp: 'image/bmp', gif: 'image/gif', webp: 'image/webp',
 };
@@ -196,12 +231,17 @@ function bytesToDataUrl(bytes: Uint8Array, mime: string): Promise<string> {
   });
 }
 
-type ParsedFile = { kind: 'vectors'; res: ImportResult } | { kind: 'image'; dataUrl: string; dpi: number | null };
+type ParsedFile = { kind: 'vectors'; res: ImportResult } | { kind: 'image'; dataUrl: string; dpi: number | null } | { kind: 'lbrn'; res: LbrnResult };
 
 /** Dateiinhalt anhand von Endung bzw. Dateikopf lesen; Fehler werden geworfen */
-async function parseFile(name: string, bytes: Uint8Array): Promise<ParsedFile> {
+async function parseFile(name: string, bytes: Uint8Array, bedH: () => number): Promise<ParsedFile> {
   const ext = (/\.([a-z0-9]+)$/i.exec(name)?.[1] ?? '').toLowerCase();
   const head = new TextDecoder().decode(bytes.slice(0, 512)).trimStart();
+  if (ext === 'lbrn2' || ext === 'lbrn' || isLbrn(head)) {
+    const res = await convertLbrn(new TextDecoder().decode(bytes), { bedH: bedH(), assetId: hashId, flipImage: flipImageV });
+    await finishLbrnTexts(res, measureText);
+    return { kind: 'lbrn', res };
+  }
   if (ext === 'svg' || head.startsWith('<svg') || (head.startsWith('<?xml') && head.includes('<svg')))
     return { kind: 'vectors', res: importSvg(new TextDecoder().decode(bytes)) };
   if (ext === 'dxf' || /^\s*0\s*\r?\n\s*SECTION/.test(head)) return { kind: 'vectors', res: importDxf(new TextDecoder().decode(bytes)) };
@@ -218,15 +258,20 @@ export async function importBytesOrThrow(ed: Editor, name: string, bytes: Uint8A
     await insertAssetFile(ed, new TextDecoder().decode(bytes));
     return;
   }
-  const f = await parseFile(name, bytes);
+  const f = await parseFile(name, bytes, () => ed.doc.bed.h);
   if (f.kind === 'vectors') await ed.importVectors(f.res, name);
+  else if (f.kind === 'lbrn') ed.importLbrn(f.res, name);
   else await ed.importImage(f.dataUrl, f.dpi, name);
 }
 
 /** Datei zu Objekten machen, ohne sie einzufügen (für die Bibliothek); notes: Hinweise des Imports */
 export async function fileObjs(ed: Editor, name: string, bytes: Uint8Array): Promise<{ objs: Obj[]; notes: string[] }> {
-  const f = await parseFile(name, bytes);
+  const f = await parseFile(name, bytes, () => ed.doc.bed.h);
   if (f.kind === 'image') return { objs: [await ed.imageObj(f.dataUrl, f.dpi, name)], notes: [] };
+  if (f.kind === 'lbrn') {
+    for (const [id, url] of Object.entries(f.res.assets)) registerAsset(id, url);
+    return { objs: f.res.objs, notes: f.res.notes };
+  }
   return { objs: await ed.vectorObjs(f.res, name), notes: f.res.notes };
 }
 
@@ -319,6 +364,7 @@ export async function importFile(ed: Editor) {
         [t('Alle unterstützten Dateien'), IMPORT_EXT],
         [t('Bilder'), IMAGE_EXT],
         [t('Vektoren (SVG, DXF)'), ['svg', 'dxf']],
+        [t('LightBurn-Projekte'), ['lbrn2', 'lbrn']],
         [t('Bibliotheks-Einträge'), ['kza']],
       ],
     });

@@ -37,7 +37,8 @@
     "test:bgremove": "node scripts/run-ts.mjs scripts/bgremove-test.ts",
     "test:centerline": "node scripts/run-ts.mjs scripts/centerline-test.ts",
     "test:textwrap": "node scripts/run-ts.mjs scripts/textwrap-test.ts",
-    "test:apps": "node scripts/run-ts.mjs scripts/apps-test.ts"
+    "test:apps": "node scripts/run-ts.mjs scripts/apps-test.ts",
+    "test:lbrn": "node scripts/run-ts.mjs scripts/lbrn-test.ts"
   },
   "license": "GPL-3.0-or-later",
   "devDependencies": {

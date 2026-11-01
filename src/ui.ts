@@ -851,7 +851,7 @@ function buildBars(ed: Editor) {
     { id: 'new', cat: F, icon: 'new', label: t('Neues Projekt in neuem Tab (Ctrl+N)'), run: () => ed.newTab() },
     { id: 'open', cat: F, icon: 'open', label: t('Öffnen'), run: () => openProject(ed) },
     { id: 'save', cat: F, icon: 'save', label: t('Speichern'), run: () => saveProject(ed) },
-    { id: 'import', cat: F, icon: 'import', label: t('Importieren: Bilder, SVG, DXF (Ctrl+I)'), run: () => importFile(ed) },
+    { id: 'import', cat: F, icon: 'import', label: t('Importieren: Bilder, SVG, DXF, LightBurn (Ctrl+I)'), run: () => importFile(ed) },
     { id: 'export', cat: F, icon: 'export', label: t('Als SVG exportieren'), run: () => exportSvg(ed) },
     { id: 'undo', cat: B, icon: 'undo', label: t('Rückgängig (Ctrl+Z)'), run: () => ed.doUndo() },
     { id: 'redo', cat: B, icon: 'redo', label: t('Wiederholen (Ctrl+Y)'), run: () => ed.doRedo() },
