@@ -23,7 +23,14 @@ import { cleanLook, DEFAULT_LOOK, layerLook, LookPreset, MaterialLook, resolveLo
 import { lookEditor } from './lookui';
 import { library } from '../materials';
 import { onImageReady } from '../images';
-import type { Scene3D, Viewer3D, ViewPreset, ViewSolid } from './viewer';
+import type { MockupBg, Scene3D, Viewer3D, ViewPreset, ViewSolid } from './viewer';
+import { saveDataUrl } from '../files';
+
+/** Hintergründe des Mockups (Liste hier, damit three.js erst mit dem Fenster geladen wird) */
+const MOCKUP_BGS: MockupBg[] = ['studio', 'white', 'grey', 'dark', 'theme'];
+// i18n-keys-start (Namen der Hintergründe, übersetzt per t(BG_NAMES[…]))
+const BG_NAMES: Record<MockupBg, string> = { studio: 'Studio', white: 'Weiß', grey: 'Grau', dark: 'Dunkel', theme: 'Wie die Oberfläche' };
+// i18n-keys-end
 
 const KEY = 'kizamubeam.view3d';
 const fmt = (v: number, d = 1) => (Math.round(v * 10 ** d) / 10 ** d).toLocaleString(undefined, { maximumFractionDigits: d });
@@ -35,16 +42,21 @@ interface Settings {
   marks: boolean;
   /** Aussehen für Layer ohne eigenes Material */
   look: MaterialLook;
+  /** Mockup-Modus: Schatten statt Raster, eigener Hintergrund */
+  mockup: boolean;
+  bg: MockupBg;
 }
 
 function loadSettings(): Settings {
-  const d: Settings = { th: 3, overlaps: true, marks: true, look: DEFAULT_LOOK };
+  const d: Settings = { th: 3, overlaps: true, marks: true, look: DEFAULT_LOOK, mockup: false, bg: 'studio' };
   try {
     const s = JSON.parse(localStorage.getItem(KEY) || '{}');
     if (s.th > 0 && s.th <= 50) d.th = Number(s.th);
     if (typeof s.overlaps === 'boolean') d.overlaps = s.overlaps;
     if (typeof s.marks === 'boolean') d.marks = s.marks;
     d.look = cleanLook(s.look) ?? d.look;
+    if (typeof s.mockup === 'boolean') d.mockup = s.mockup;
+    if (MOCKUP_BGS.includes(s.bg)) d.bg = s.bg;
   } catch {
     /* Speicher nicht verfügbar */
   }
@@ -309,6 +321,20 @@ export function buildView3dPanel(ed: Editor) {
   const spinLbl = h('label', { class: 'v3d-check', title: t('Zahnräder drehen') }, spinBox, t('Drehen'));
   const ovBox = h('input', { type: 'checkbox', checked: set.overlaps }) as HTMLInputElement;
   const markBox = h('input', { type: 'checkbox', checked: set.marks }) as HTMLInputElement;
+  const mockBox = h('input', { type: 'checkbox', checked: set.mockup }) as HTMLInputElement;
+  const bgSel = h(
+    'select',
+    { title: t('Hintergrund des Mockups'), hidden: !set.mockup },
+    ...MOCKUP_BGS.map((b) => h('option', { value: b, selected: b === set.bg }, t(BG_NAMES[b]))),
+  ) as HTMLSelectElement;
+  const shotBtn = h('button', {
+    class: 'small',
+    title: t('Die aktuelle Ansicht in doppelter Auflösung als PNG speichern, z. B. als Mockup für Kunden'),
+    onclick: async () => {
+      if (!viewer) return;
+      await saveDataUrl(t('mockup.png'), 'PNG', 'png', viewer.snapshot(2));
+    },
+  }, t('Bild speichern …'));
   const thIn = h('input', { type: 'number', min: '0.3', max: '50', step: '0.1', value: String(set.th), class: 'v3d-th' }) as HTMLInputElement;
   const view = (p: ViewPreset) => viewer?.view(p);
   const bar = h(
@@ -330,6 +356,9 @@ export function buildView3dPanel(ed: Editor) {
         update();
       }),
     ),
+    h('label', { class: 'v3d-check', title: t('Ohne Raster, mit weichen Schatten und eigenem Hintergrund, z. B. für Bilder für Kunden') }, mockBox, t('Mockup')),
+    bgSel,
+    shotBtn,
   );
   body.append(bar, h('div', { class: 'v3d-stage' }, host, hint), status);
 
@@ -377,6 +406,7 @@ export function buildView3dPanel(ed: Editor) {
           viewer.isVisible = () => isShown('view3d');
           viewer.setExplode(Number(explode.value));
           viewer.setShowOverlaps(set.overlaps);
+          viewer.setMockup(set.mockup, set.bg);
           lastKey = '';
           update();
           viewer.setActive(isShown('view3d'));
@@ -404,6 +434,15 @@ export function buildView3dPanel(ed: Editor) {
     save();
     update();
   });
+  const mockChanged = () => {
+    set.mockup = mockBox.checked;
+    set.bg = bgSel.value as MockupBg;
+    bgSel.hidden = !set.mockup;
+    save();
+    viewer?.setMockup(set.mockup, set.bg);
+  };
+  mockBox.addEventListener('change', mockChanged);
+  bgSel.addEventListener('change', mockChanged);
   thIn.addEventListener('change', () => {
     const v = Number(thIn.value.replace(',', '.'));
     if (v >= 0.3 && v <= 50) set.th = v;

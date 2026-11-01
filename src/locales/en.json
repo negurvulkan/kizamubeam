@@ -2928,5 +2928,16 @@
   "Sonstiges": "Other",
   "Eigene Farbe des Materials": "Custom material color",
   "Farbe der Vorlage verwenden": "Use the preset color",
-  "Aussehen für Layer ohne eigenes Material. Eigenes Aussehen je Schnitt-Layer im Layer-Dialog (Doppelklick auf den Layer).": "Appearance for layers without their own material. Set an appearance per cut layer in the layer dialog (double-click the layer)."
+  "Aussehen für Layer ohne eigenes Material. Eigenes Aussehen je Schnitt-Layer im Layer-Dialog (Doppelklick auf den Layer).": "Appearance for layers without their own material. Set an appearance per cut layer in the layer dialog (double-click the layer).",
+  "Hintergrund des Mockups": "Mockup background",
+  "Die aktuelle Ansicht in doppelter Auflösung als PNG speichern, z. B. als Mockup für Kunden": "Save the current view at double resolution as PNG, e.g. as a mockup for customers",
+  "mockup.png": "mockup.png",
+  "Bild speichern …": "Save image …",
+  "Ohne Raster, mit weichen Schatten und eigenem Hintergrund, z. B. für Bilder für Kunden": "No grid, with soft shadows and a background of its own, e.g. for pictures for customers",
+  "Mockup": "Mockup",
+  "Studio": "Studio",
+  "Weiß": "White",
+  "Grau": "Grey",
+  "Dunkel": "Dark",
+  "Wie die Oberfläche": "Like the interface"
 }

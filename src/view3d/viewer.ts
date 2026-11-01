@@ -28,6 +28,9 @@ export interface Scene3D {
 
 export type ViewPreset = 'iso' | 'top' | 'front';
 
+/** Hintergrund im Mockup-Modus: wie die Oberfläche, Weiß, Hellgrau, Dunkel oder Studio-Verlauf */
+export type MockupBg = 'theme' | 'white' | 'grey' | 'dark' | 'studio';
+
 interface Part {
   s: ViewSolid;
   holder: THREE.Group;
@@ -158,6 +161,8 @@ function engravingMesh(s: Solid, e: Engraving, p: LookPreset): THREE.Mesh {
     // Gravierte Stellen sind matt; auf Metall bleibt die Markierung leicht metallisch
     roughness: p.engrave.style === 'frost' ? 0.9 : 0.85,
     metalness: p.engrave.style === 'light' ? p.metal * 0.5 : 0,
+    bumpMap: engravingBump(e.canvas),
+    bumpScale: 1.5,
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
@@ -171,6 +176,38 @@ function engravingMesh(s: Solid, e: Engraving, p: LookPreset): THREE.Mesh {
   return m;
 }
 
+/** Studio-Hintergrund: weicher Verlauf von hell oben zu etwas dunkler unten */
+function studioBackground(): THREE.Texture {
+  const c = document.createElement('canvas');
+  c.width = 4;
+  c.height = 256;
+  const g = c.getContext('2d')!;
+  const gr = g.createLinearGradient(0, 0, 0, 256);
+  gr.addColorStop(0, '#f4f5f6');
+  gr.addColorStop(0.55, '#e3e5e8');
+  gr.addColorStop(1, '#b9bdc3');
+  g.fillStyle = gr;
+  g.fillRect(0, 0, 4, 256);
+  const tx = new THREE.CanvasTexture(c);
+  tx.colorSpace = THREE.SRGBColorSpace;
+  return tx;
+}
+
+/** Höhenbild einer Gravur: graviert = tiefer, damit die Ränder Licht und Schatten bekommen */
+function engravingBump(cv: HTMLCanvasElement): THREE.CanvasTexture {
+  const out = document.createElement('canvas');
+  out.width = cv.width;
+  out.height = cv.height;
+  const src = cv.getContext('2d')!.getImageData(0, 0, cv.width, cv.height);
+  const d = src.data;
+  for (let i = 0; i < d.length; i += 4) d[i] = d[i + 1] = d[i + 2] = 255 - d[i + 3];
+  for (let i = 3; i < d.length; i += 4) d[i] = 255;
+  out.getContext('2d')!.putImageData(src, 0, 0);
+  const tx = new THREE.CanvasTexture(out);
+  tx.flipY = false;
+  return tx;
+}
+
 const cssVar = (name: string, fallback: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 
 export class Viewer3D {
@@ -181,6 +218,11 @@ export class Viewer3D {
   private root = new THREE.Group();
   private overlapGroup = new THREE.Group();
   private grid: THREE.GridHelper | null = null;
+  /** Mockup: Boden, der nur Schatten zeigt, und Sonne mit Schatten */
+  private ground: THREE.Mesh | null = null;
+  private sun: THREE.DirectionalLight;
+  private mockup = false;
+  private mockupBg: MockupBg = 'studio';
   private parts: Part[] = [];
   private explode = 0;
   private spin = false;
@@ -201,6 +243,8 @@ export class Viewer3D {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.toneMapping = THREE.NeutralToneMapping;
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     // Weiche Spiegelungen aus einem Raum, damit Acryl, Glas, Metall und Lack echt wirken
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -212,9 +256,14 @@ export class Viewer3D {
     this.controls.enableDamping = true;
     this.controls.addEventListener('change', () => (this.needsRender = true));
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8070, 0.9));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.8);
+    const sun = (this.sun = new THREE.DirectionalLight(0xffffff, 1.8));
     sun.position.set(0.8, -1.2, 2);
-    this.scene.add(sun);
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.radius = 6;
+    sun.shadow.blurSamples = 16;
+    sun.shadow.bias = -0.0005;
+    sun.shadow.normalBias = 0.02;
+    this.scene.add(sun, sun.target);
     const fill = new THREE.DirectionalLight(0xffffff, 0.4);
     fill.position.set(-1, 1.5, 0.5);
     this.scene.add(fill);
@@ -231,7 +280,10 @@ export class Viewer3D {
   }
 
   private applyTheme() {
-    this.scene.background = new THREE.Color(cssVar('--surface', '#ffffff'));
+    if (this.scene.background instanceof THREE.Texture) this.scene.background.dispose();
+    const bg = this.mockup ? this.mockupBg : 'theme';
+    this.scene.background =
+      bg === 'studio' ? studioBackground() : new THREE.Color(bg === 'white' ? '#ffffff' : bg === 'grey' ? '#c9ccd0' : bg === 'dark' ? '#202226' : cssVar('--surface', '#ffffff'));
     if (this.grid) (this.grid.material as THREE.LineBasicMaterial).color = new THREE.Color(cssVar('--line', '#c3c7ce'));
     this.needsRender = true;
   }
@@ -253,6 +305,8 @@ export class Viewer3D {
           // Texturen der Materialien sind geteilt (Cache), nur die Gravurbilder gehören dem Teil
           for (const mat of (Array.isArray(o.material) ? o.material : [o.material]) as (THREE.Material & { map?: THREE.Texture | null })[]) {
             if (mat.map instanceof THREE.CanvasTexture) mat.map.dispose();
+            const bump = (mat as THREE.MeshStandardMaterial).bumpMap;
+            if (bump instanceof THREE.CanvasTexture) bump.dispose();
             mat.dispose();
           }
         }
@@ -264,6 +318,12 @@ export class Viewer3D {
       this.scene.remove(this.grid);
       this.grid.geometry.dispose();
       this.grid = null;
+    }
+    if (this.ground) {
+      this.scene.remove(this.ground);
+      this.ground.geometry.dispose();
+      (this.ground.material as THREE.Material).dispose();
+      this.ground = null;
     }
   }
 
@@ -284,6 +344,7 @@ export class Viewer3D {
       const mesh = new THREE.Mesh(geo, slabMaterials(look, s.th, i));
       mesh.matrixAutoUpdate = false;
       mesh.matrix.copy(poseMatrix(s.pose));
+      mesh.castShadow = mesh.receiveShadow = true;
       // Feine Umrisslinie, damit Teile gleicher Farbe unterscheidbar bleiben
       const line = new THREE.Color(look.edge ?? shadeHex(look.color, 0.6)).multiplyScalar(look.clear > 0 ? 0.85 : 0.7);
       mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 25), new THREE.LineBasicMaterial({ color: line, transparent: true, opacity: look.clear > 0 ? 0.8 : 0.55 })));
@@ -318,10 +379,64 @@ export class Viewer3D {
       (this.grid.material as THREE.Material).transparent = true;
       (this.grid.material as THREE.Material).opacity = 0.6;
       this.scene.add(this.grid);
+      // Boden für die Schatten im Mockup-Modus
+      this.ground = new THREE.Mesh(new THREE.PlaneGeometry(span * 4, span * 4), new THREE.ShadowMaterial({ opacity: 0.28 }));
+      this.ground.position.set(c.x, c.y, all.min.z - 0.02);
+      this.ground.receiveShadow = true;
+      this.scene.add(this.ground);
     }
+    this.applyMockup();
     this.applyTheme();
     this.layout();
     if (refit) this.view('iso');
+  }
+
+  /** Mockup-Modus: ohne Raster, mit Schatten und eigenem Hintergrund (für Bilder für Kunden) */
+  setMockup(on: boolean, bg: MockupBg) {
+    this.mockup = on;
+    this.mockupBg = bg;
+    this.applyMockup();
+    this.applyTheme();
+    this.layout();
+  }
+
+  private applyMockup() {
+    if (this.grid) this.grid.visible = !this.mockup;
+    if (this.ground) this.ground.visible = this.mockup;
+    this.sun.castShadow = this.mockup;
+    if (this.ground) (this.ground.material as THREE.ShadowMaterial).opacity = this.mockupBg === 'dark' ? 0.5 : 0.28;
+    // Sonne und Schattenbereich passend zu den Teilen (auch auseinandergezogen)
+    const b = this.bounds();
+    if (!b.isEmpty()) {
+      const c = b.getCenter(new THREE.Vector3());
+      const r = Math.max(b.getBoundingSphere(new THREE.Sphere()).radius * (1 + this.explode), 10);
+      this.sun.target.position.copy(c);
+      // Im Mockup kommt das Licht von vorne links, damit die Schatten sichtbar nach hinten rechts fallen
+      const dir = this.mockup ? new THREE.Vector3(-1.1, -0.5, 1.5) : new THREE.Vector3(0.8, -1.2, 2);
+      this.sun.position.copy(c).add(dir.normalize().multiplyScalar(r * 3));
+      const cam = this.sun.shadow.camera;
+      cam.left = cam.bottom = -r * 1.3;
+      cam.right = cam.top = r * 1.3;
+      cam.near = r * 0.5;
+      cam.far = r * 6;
+      cam.updateProjectionMatrix();
+    }
+    this.needsRender = true;
+  }
+
+  /** Aktuelle Ansicht als PNG (data:-URL) in scale-facher Auflösung */
+  snapshot(scale = 2): string {
+    const w = Math.max(1, this.host.clientWidth),
+      h = Math.max(1, this.host.clientHeight);
+    const pr = this.renderer.getPixelRatio();
+    this.renderer.setPixelRatio(scale);
+    this.renderer.setSize(w, h, false);
+    this.renderer.render(this.scene, this.camera);
+    const url = this.renderer.domElement.toDataURL('image/png');
+    this.renderer.setPixelRatio(pr);
+    this.renderer.setSize(w, h, false);
+    this.needsRender = true;
+    return url;
   }
 
   private bounds() {
@@ -352,8 +467,9 @@ export class Viewer3D {
       p.holder.position.copy(p.away).multiplyScalar(this.explode);
       if (p.s.spin) p.mesh.matrix.copy(poseMatrix(this.angle ? rotatePose(p.s.pose, this.angle * p.s.spin) : p.s.pose));
     }
+    if (this.mockup && !this.spin) this.applyMockup();
     // Die roten Bereiche gehören zur zusammengesteckten, ruhenden Lage
-    this.overlapGroup.visible = this.showOverlaps && this.explode === 0 && this.angle === 0;
+    this.overlapGroup.visible = this.showOverlaps && !this.mockup && this.explode === 0 && this.angle === 0;
     this.needsRender = true;
   }
 
