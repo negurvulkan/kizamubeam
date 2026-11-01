@@ -4,12 +4,15 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { Pt } from '../model';
 import type { Overlap, Solid } from './solids';
+import type { Engraving } from './engrave';
 import { solidBounds } from './solids';
 import { Pose, rotatePose } from './poses';
 
 export interface ViewSolid extends Solid {
   /** Teile mit gleicher Gruppe (Baugruppe) werden gemeinsam auseinandergezogen */
   group: string;
+  /** Gravuren auf der Oberfläche */
+  engraving?: Engraving;
 }
 
 export interface Scene3D {
@@ -68,6 +71,35 @@ const poseMatrix = (p: Pose) =>
 
 function slabGeometry(s: Solid) {
   return new THREE.ExtrudeGeometry(shapesOf(s.polys), { depth: s.th, bevelEnabled: false, curveSegments: 1 });
+}
+
+/** Gravuren als Bild auf der Plattenfläche, knapp darüber, damit es nicht mit der Fläche flimmert */
+function engravingMesh(s: Solid, e: Engraving): THREE.Mesh {
+  const geo = new THREE.ShapeGeometry(shapesOf(s.polys), 1);
+  const pos = geo.getAttribute('position');
+  const uv = new Float32Array(pos.count * 2);
+  for (let i = 0; i < pos.count; i++) {
+    uv[i * 2] = ((pos.getX(i) - e.x0) * e.k) / e.canvas.width;
+    uv[i * 2 + 1] = ((pos.getY(i) - e.y0) * e.k) / e.canvas.height;
+  }
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  const tex = new THREE.CanvasTexture(e.canvas);
+  tex.flipY = false;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  const mat = new THREE.MeshLambertMaterial({
+    map: tex,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  });
+  const m = new THREE.Mesh(geo, mat);
+  m.position.z = e.top ? s.th + 0.01 : -0.01;
+  m.renderOrder = 1;
+  return m;
 }
 
 const cssVar = (name: string, fallback: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
@@ -143,7 +175,9 @@ export class Viewer3D {
       g.traverse((o) => {
         if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments) {
           o.geometry.dispose();
-          (o.material as THREE.Material).dispose();
+          const mat = o.material as THREE.Material & { map?: THREE.Texture | null };
+          mat.map?.dispose();
+          mat.dispose();
         }
       });
     this.root.clear();
@@ -175,6 +209,7 @@ export class Viewer3D {
       mesh.matrixAutoUpdate = false;
       mesh.matrix.copy(poseMatrix(s.pose));
       mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 25), new THREE.LineBasicMaterial({ color: edgeColor })));
+      if (s.engraving) mesh.add(engravingMesh(s, s.engraving));
       mesh.userData.label = s.label;
       const holder = new THREE.Group();
       holder.add(mesh);

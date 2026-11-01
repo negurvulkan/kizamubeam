@@ -5,7 +5,7 @@
 // Gezeigt wird die Auswahl (eine gewählte Baugruppe immer ganz), ohne Auswahl alles auf der Seite.
 import type { Editor } from '../editor';
 import type { GenShape, Mat, Obj } from '../model';
-import { leaves, visibleLeaves } from '../model';
+import { IDENT, leaves, visibleLeaves } from '../model';
 import { boundsOf } from '../geom';
 import { region } from '../ops';
 import ClipperLib from 'clipper-lib';
@@ -18,6 +18,8 @@ import { genLabel } from '../generators';
 import { asmSolids, findOverlaps, Overlap, Solid, solidBounds } from './solids';
 import { flatPose, genThickness } from './poses';
 import { assembleMates, MatePart } from './mates';
+import { CanvasPlace, engravings, memberPlace } from './engrave';
+import { onImageReady } from '../images';
 import type { Scene3D, Viewer3D, ViewPreset, ViewSolid } from './viewer';
 
 const KEY = 'kizamubeam.view3d';
@@ -26,14 +28,17 @@ const fmt = (v: number, d = 1) => (Math.round(v * 10 ** d) / 10 ** d).toLocaleSt
 interface Settings {
   th: number;
   overlaps: boolean;
+  /** Gravuren (Füllungen, Linien, Bilder) auf den Platten zeigen */
+  marks: boolean;
 }
 
 function loadSettings(): Settings {
-  const d: Settings = { th: 3, overlaps: true };
+  const d: Settings = { th: 3, overlaps: true, marks: true };
   try {
     const s = JSON.parse(localStorage.getItem(KEY) || '{}');
     if (s.th > 0 && s.th <= 50) d.th = Number(s.th);
     if (typeof s.overlaps === 'boolean') d.overlaps = s.overlaps;
+    if (typeof s.marks === 'boolean') d.marks = s.marks;
   } catch {
     /* Speicher nicht verfügbar */
   }
@@ -41,11 +46,13 @@ function loadSettings(): Settings {
 }
 
 /** Teile für die Ansicht sammeln; liefert auch einen Schlüssel, der sich nur ändert, wenn andere Objekte gezeigt werden */
-export function collectScene(ed: Editor, th: number): { scene: Scene3D; key: string; asms: number } {
+export function collectScene(ed: Editor, th: number, marks = true): { scene: Scene3D; key: string; asms: number } {
   const roots = ed.sel.length ? ed.sel : ed.doc.objs.filter((o) => !o.hidden);
   const solids: ViewSolid[] = [];
   const ids: (number | string)[] = [];
   const asmDone = new Set<string>();
+  /** Lage jeder Platte auf der Arbeitsfläche (für die Gravuren) */
+  const places = new Map<string, CanvasPlace>();
   let asms = 0;
   // Flache Konturen je Dicke sammeln: Ineinanderliegende Konturen sind wie beim Lasern Löcher
   const flats = new Map<number, { paths: Paths; names: { label: string; box: number[] }[] }>();
@@ -62,7 +69,7 @@ export function collectScene(ed: Editor, th: number): { scene: Scene3D; key: str
   };
   // Eine Auswahl zeigt auch ausgeblendete Objekte, die ganze Seite nur sichtbare
   const all = [...(ed.sel.length ? leaves(roots) : visibleLeaves(roots))];
-  const mated = collectMates(ed, all, th);
+  const mated = collectMates(ed, all, th, places);
   for (const g of mated.groups) {
     solids.push(...g);
     ids.push(...g.map((x) => x.key));
@@ -84,7 +91,13 @@ export function collectScene(ed: Editor, th: number): { scene: Scene3D; key: str
       asmDone.add(s.asm);
       asms++;
       placeAssembly(parts, members.map((x) => x.o).filter((x) => onPage(ed, x)));
-      for (const p of parts) solids.push({ ...p, key: `${s.asm}:${p.key}`, group: s.asm });
+      for (const p of parts) {
+        const key = `${s.asm}:${p.key}`;
+        solids.push({ ...p, key, group: s.asm });
+        const mem = members.find((x) => ((x.o.shape as GenShape).part ?? 'main') === p.key);
+        const pl = mem && memberPlace(ed, mem.o);
+        if (pl) places.set(key, pl);
+      }
       ids.push(s.asm);
     } else if (s.kind === 'gen') flat(o, m, genThickness(s.params, th));
     else flat(o, m, th);
@@ -98,7 +111,12 @@ export function collectScene(ed: Editor, th: number): { scene: Scene3D; key: str
       const polys = [outer, ...holes].map((p) => p.map((q) => ({ x: q.X / SCALE, y: q.Y / SCALE })));
       n++;
       solids.push({ key: `f${n}`, label: named?.label ?? t('Teil {n}', { n }), polys, pose: flatPose(), th: thick, group: `f${n}` });
+      places.set(`f${n}`, { page: ed.doc.page, toLocal: IDENT });
     }
+  if (marks) {
+    const eng = engravings(ed, solids, places);
+    for (const s of solids) s.engraving = eng.get(s.key);
+  }
   const overlaps = findOverlaps(solids);
   return { scene: { solids, overlaps }, key: `${th}|${ids.join(',')}`, asms };
 }
@@ -113,7 +131,7 @@ const inRegion = (paths: Paths, pt: { X: number; Y: number }) => paths.filter((p
  * Über Verbindungen zusammenhängende Teile: Wird eines gezeigt, kommt die ganze Gruppe dazu. Formen, die ganz in
  * einer solchen Platte liegen (Löcher, Schlitze auf einer Hilfslinie), werden zu Löchern der Platte.
  */
-function collectMates(ed: Editor, shown: [Obj, Mat][], th: number): { groups: ViewSolid[][]; used: Set<number> } {
+function collectMates(ed: Editor, shown: [Obj, Mat][], th: number, places: Map<string, CanvasPlace>): { groups: ViewSolid[][]; used: Set<number> } {
   // Verbundene Teile auf allen Seiten (z. B. nach dem Verschachteln auf mehrere Platten verteilt)
   const page = new Map<number, [Obj, Mat]>();
   const pageNo = new Map<number, number>();
@@ -180,6 +198,8 @@ function collectMates(ed: Editor, shown: [Obj, Mat][], th: number): { groups: Vi
     const g = r.groups.get(s.key)!;
     if (!byGroup.has(g)) byGroup.set(g, []);
     byGroup.get(g)!.push({ ...s, key: 'm' + s.key, group: g });
+    // Konturen liegen in Koordinaten der Arbeitsfläche ihrer Seite
+    places.set('m' + s.key, { page: pageNo.get(Number(s.key)) ?? ed.doc.page, toLocal: IDENT });
   }
   // Jede Gruppe unter die Mitte ihrer Teile auf der Arbeitsfläche
   for (const g of byGroup.values()) {
@@ -273,6 +293,7 @@ export function buildView3dPanel(ed: Editor) {
   const spinBox = h('input', { type: 'checkbox' }) as HTMLInputElement;
   const spinLbl = h('label', { class: 'v3d-check', title: t('Zahnräder drehen') }, spinBox, t('Drehen'));
   const ovBox = h('input', { type: 'checkbox', checked: set.overlaps }) as HTMLInputElement;
+  const markBox = h('input', { type: 'checkbox', checked: set.marks }) as HTMLInputElement;
   const thIn = h('input', { type: 'number', min: '0.3', max: '50', step: '0.1', value: String(set.th), class: 'v3d-th' }) as HTMLInputElement;
   const view = (p: ViewPreset) => viewer?.view(p);
   const bar = h(
@@ -284,6 +305,7 @@ export function buildView3dPanel(ed: Editor) {
     h('label', { class: 'v3d-range', title: t('Teile auseinanderziehen') }, t('Explosion'), explode),
     spinLbl,
     h('label', { class: 'v3d-check', title: t('Bereiche, in denen sich Teile durchdringen, rot zeigen') }, ovBox, t('Überschneidungen')),
+    h('label', { class: 'v3d-check', title: t('Füllungen, gravierte Linien und Bilder auf den Teilen zeigen') }, markBox, t('Gravuren')),
     h('label', { class: 'v3d-th-lbl', title: t('Für Teile ohne eigene Materialdicke (z. B. Zahnräder und gezeichnete Formen)') }, t('Dicke'), thIn, 'mm'),
   );
   body.append(bar, h('div', { class: 'v3d-stage' }, host, hint), status);
@@ -297,7 +319,7 @@ export function buildView3dPanel(ed: Editor) {
   const update = () => {
     queued = 0;
     if (!viewer || !isShown('view3d')) return;
-    const { scene, key, asms } = collectScene(ed, set.th);
+    const { scene, key, asms } = collectScene(ed, set.th, set.marks);
     hint.hidden = scene.solids.length > 0;
     viewer.setScene(scene, key !== lastKey);
     lastKey = key;
@@ -354,6 +376,11 @@ export function buildView3dPanel(ed: Editor) {
     viewer?.setShowOverlaps(set.overlaps);
     update();
   });
+  markBox.addEventListener('change', () => {
+    set.marks = markBox.checked;
+    save();
+    update();
+  });
   thIn.addEventListener('change', () => {
     const v = Number(thIn.value.replace(',', '.'));
     if (v >= 0.3 && v <= 50) set.th = v;
@@ -364,5 +391,9 @@ export function buildView3dPanel(ed: Editor) {
   ed.on((what) => {
     if (what !== 'doc' && what !== 'sel') return;
     if (isShown('view3d')) schedule();
+  });
+  // Bilder werden im Hintergrund aufbereitet: danach die Gravuren neu zeichnen
+  onImageReady(() => {
+    if (set.marks && isShown('view3d')) schedule();
   });
 }
