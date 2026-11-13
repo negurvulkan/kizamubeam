@@ -6,7 +6,7 @@ description: Entwürfe mit Parametern anpassbar machen, als Vorlagen speichern, 
 
 # Vorlagen, Bibliothek und Erweiterungen
 
-## Parameter
+## Parameter {#parameters}
 
 **Fenster → Parameter** enthält benannte Werte für das ganze Projekt: Zahlen, Texte und Ja/Nein-Werte. Du kannst sie überall nutzen:
 

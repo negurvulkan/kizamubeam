@@ -42,7 +42,7 @@ Trascina una guida dal righello superiore (orizzontale) o da quello sinistro (ve
 
 Le relazioni si applicano una volta, come un comando; ognuna è un passo di annullamento.
 
-## Schizzi con quote
+## Schizzi con quote {#sketches-with-dimensions}
 
 Per pezzi che devono mantenere misure esatte mentre li modifichi, usa **Casella degli strumenti → Schizzi con relazioni → Nuovo schizzo** (o **Converti in schizzo**). In uno schizzo, linee, rettangoli, cerchi e archi mantengono relazioni e quote in modo permanente, come in un programma CAD.
 

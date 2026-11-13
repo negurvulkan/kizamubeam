@@ -42,7 +42,7 @@ Ziehe eine Hilfslinie aus dem oberen Lineal (waagerecht) oder dem linken Lineal 
 
 Beziehungen werden einmalig angewendet, wie ein Befehl; jede ist ein Rückgängig-Schritt.
 
-## Skizzen mit Bemaßung
+## Skizzen mit Bemaßung {#sketches-with-dimensions}
 
 Für Teile, die beim Ändern ihre genauen Maße behalten sollen, gibt es **Werkzeugkasten → Skizzen mit Beziehungen → Neue Skizze** (oder **In Skizze umwandeln**). In einer Skizze behalten Linien, Rechtecke, Kreise und Bögen ihre Beziehungen und Maße dauerhaft, wie in einem CAD-Programm.
 

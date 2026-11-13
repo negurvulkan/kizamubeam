@@ -22,5 +22,9 @@
   "sidebar.manual.category.Features and tools": {
     "message": "Funzioni e strumenti",
     "description": "The label for category 'Features and tools' in sidebar 'manual'"
+  },
+  "sidebar.manual.category.Generators": {
+    "message": "Generatori",
+    "description": "The label for category 'Generators' in sidebar 'manual'"
   }
 }

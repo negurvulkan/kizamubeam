@@ -6,7 +6,7 @@ description: Rendi i progetti regolabili con i parametri, salvali come modelli, 
 
 # Modelli, libreria ed estensioni
 
-## Parametri
+## Parametri {#parameters}
 
 **Finestra → Parametri** contiene valori con nome per tutto il progetto: numeri, testi e valori sì/no. Puoi usarli ovunque:
 
