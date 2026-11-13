@@ -18,5 +18,9 @@
   "sidebar.manual.category.Reference and support.link.generated-index.description": {
     "message": "Tastenkürzel, Dateiformate, unterstützte Maschinen und Hilfe bei häufigen Problemen.",
     "description": "The generated-index page description for category 'Reference and support' in sidebar 'manual'"
+  },
+  "sidebar.manual.category.Features and tools": {
+    "message": "Funktionen und Werkzeuge",
+    "description": "The label for category 'Features and tools' in sidebar 'manual'"
   }
 }
