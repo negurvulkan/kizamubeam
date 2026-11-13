@@ -26,5 +26,9 @@
   "sidebar.manual.category.Generators": {
     "message": "Generatori",
     "description": "The label for category 'Generators' in sidebar 'manual'"
+  },
+  "sidebar.manual.category.Tutorials": {
+    "message": "Tutorial",
+    "description": "The label for category 'Tutorials' in sidebar 'manual'"
   }
 }
